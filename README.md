@@ -9,6 +9,7 @@ HyperCard's message passing.
 ```sh
 cargo run --release                 # opens the built-in tour stack
 cargo run --release -- my.rcstack   # opens a stack file
+cargo run --release -- "Home"       # imports an original HyperCard stack
 cargo test                          # language, runtime and demo-stack tests
 ```
 
@@ -20,6 +21,29 @@ fields keep separate text on each card unless `sharedText` is set. Background
 buttons work the same way with `sharedHilite`. Stacks save as JSON
 (`.rcstack`). Like HyperCard, changes are saved automatically once a stack has
 a file.
+
+**Importing HyperCard stacks.** File ▸ Import HyperCard Stack… (or
+Open Stack…, or a path on the command line) reads original HyperCard 2.x
+stack files. MacBinary-wrapped files work too. The import brings in:
+
+- cards in stack order, backgrounds, card and background names, marked
+  cards, and the cantDelete, dontSearch and showPict flags;
+- card and background pictures, decoded from HyperCard's WOBA compression;
+- buttons and fields with their styles, flags, families, fonts, sizes and
+  text styles;
+- shared and per-card field text, and per-card hilites of background
+  buttons;
+- every script.
+
+Text is converted from MacRoman. The result opens as an unsaved stack;
+save it to keep it as a `.rcstack`.
+
+What doesn't come across: anything stored in the resource fork (icons,
+sounds, XCMDs/XFCNs, color), and styled runs within field text, which
+import as plain text. HyperCard 1.x stacks must first be converted with
+HyperCard 2.x. Private-access stacks import, since only the stack header is
+encrypted. Scripts that use menus, palettes or other windows parse, but
+those commands do nothing.
 
 **Tools.** Browse, Button, Field, and the paint tools: Select, Pencil, Brush,
 Eraser, Line, Spray, Rect, Round Rect, Bucket and Oval, with a Filled option
@@ -104,6 +128,7 @@ and offer to open the script editor there.
 ```
 src/
   model/       Stack, Background, Card, Part, Picture; JSON save/load; demo stack
+  import/      reader for original HyperCard 2.x stack files, WOBA decoder
   hypertalk/   lexer, parser, syntax tree, values and chunk expressions
   runtime/     shared World state, interpreter, objects and properties,
                commands, functions, dates; end-to-end tests
@@ -113,9 +138,9 @@ src/
 
 ## Not (yet) implemented
 
-Importing original HyperCard stack files, rich text within fields, icons on
-buttons, sound playback (`play` beeps), user levels, printing, `start using`
-(inheriting scripts from other stacks), and multiple open stack windows.
+Rich text within fields, button icons, sound playback (`play` beeps),
+scriptable menus, user levels, printing, `start using` (inheriting scripts
+from other stacks), and multiple open stack windows.
 
 ## References
 
@@ -127,6 +152,19 @@ guides:
   reference for syntax.
 - [ViperCard](https://github.com/moltenform/vipercard), a HyperCard
   reimplementation for the web.
+- [HyperCardPreview](https://github.com/PierreLorenzi/HyperCardPreview),
+  Pierre Lorenzi's HyperCard stack viewer (MIT License). The stack importer
+  follows its file-format layouts and WyldCard's, and `src/import/woba.rs`
+  is a port of its WOBA bitmap decoder.
+
+To test the importer against real stacks, point it at HyperCardPreview's
+sample files:
+
+```sh
+git clone --depth 1 https://github.com/PierreLorenzi/HyperCardPreview
+RANDOMCARD_HC_SAMPLES=HyperCardPreview/HyperCardCommon/HyperCardCommonTests \
+  cargo test -- --include-ignored
+```
 
 Both are cloned into `reference/`, which is git-ignored, if you want to read
 them alongside this code.

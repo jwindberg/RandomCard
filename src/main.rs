@@ -1,6 +1,7 @@
 //! RandomCard: a recreation of Apple's HyperCard, written in Rust.
 
 mod hypertalk;
+mod import;
 mod model;
 mod runtime;
 mod ui;
@@ -9,7 +10,7 @@ use model::Stack;
 
 fn main() -> eframe::Result {
     let stack = match std::env::args().nth(1) {
-        Some(path) => match Stack::load(std::path::Path::new(&path)) {
+        Some(path) => match import::load_any(std::path::Path::new(&path)) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("{e}");

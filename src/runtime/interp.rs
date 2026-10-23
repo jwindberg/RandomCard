@@ -663,6 +663,7 @@ impl Interp {
             }
             Expr::Unary(UnOp::Not, a) => Ok(bool_str(!self.eval_bool(a)?)),
             Expr::Binary(op, a, b) => self.binary(*op, a, b),
+            Expr::Call(name, _) if name == "__menu" => Ok(String::new()),
             Expr::Call(name, args) if name == "__propof" => {
                 let prop = self.eval(&args[0])?;
                 let length = match self.eval(&args[1])?.as_str() {
@@ -671,6 +672,9 @@ impl Interp {
                     "abbrev" => NameLength::Abbrev,
                     _ => NameLength::Default,
                 };
+                if matches!(&args[2], Expr::Call(n, _) if n == "__menu") {
+                    return Ok(String::new());
+                }
                 if matches!(args[2], Expr::Chunk(..)) {
                     // Text styles of chunks: text is unstyled, so report plain.
                     return Ok(match prop.as_str() {
@@ -887,6 +891,10 @@ impl Interp {
     }
 
     pub fn put_into(&mut self, dest: &Expr, prep: Prep, value: &str) -> R<()> {
+        if matches!(dest, Expr::Call(n, _) if n == "__menu") {
+            // Menus aren't scriptable; putting into one does nothing.
+            return Ok(());
+        }
         let (chunks, base) = Self::container_parts(dest);
         if chunks.is_empty() && prep == Prep::Into {
             return self.write_container(base, value.to_string());

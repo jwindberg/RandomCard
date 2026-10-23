@@ -149,7 +149,7 @@ impl App {
         };
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
-                for item in ["New Stack…", "Open Stack…", "Save Stack", "Save a Copy…"] {
+                for item in ["New Stack…", "Open Stack…", "Import HyperCard Stack…", "Save Stack", "Save a Copy…"] {
                     if ui.button(item).clicked() {
                         self.do_menu(item);
                     }
@@ -294,9 +294,16 @@ impl App {
                 UiRequest::OpenStack => {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("RandomCard stack", &[STACK_EXT])
+                        .add_filter("All files", &["*"])
                         .set_title("Open Stack")
                         .pick_file()
                     {
+                        self.open_stack_path(&path);
+                    }
+                }
+                UiRequest::ImportStack => {
+                    // HyperCard stacks usually have no extension, so offer every file.
+                    if let Some(path) = rfd::FileDialog::new().set_title("Import HyperCard Stack").pick_file() {
                         self.open_stack_path(&path);
                     }
                 }
@@ -322,7 +329,15 @@ impl App {
                 }
                 UiRequest::SaveStackAs(name) => {
                     let mut dialog = rfd::FileDialog::new().add_filter("RandomCard stack", &[STACK_EXT]);
-                    let default = name.unwrap_or_else(|| format!("{}.{STACK_EXT}", self.world().stack.name));
+                    let (stack_name, imported_dir) = {
+                        let w = self.world();
+                        let dir = w.stack.imported_from.as_ref().and_then(|p| p.parent().map(|d| d.to_path_buf()));
+                        (w.stack.name.clone(), dir)
+                    };
+                    if let Some(dir) = imported_dir {
+                        dialog = dialog.set_directory(dir);
+                    }
+                    let default = name.unwrap_or_else(|| format!("{stack_name}.{STACK_EXT}"));
                     dialog = dialog.set_file_name(default).set_title("Save Stack As");
                     if let Some(path) = dialog.save_file() {
                         let path = with_ext(path);
@@ -386,7 +401,7 @@ impl App {
     }
 
     fn open_stack_path(&mut self, path: &std::path::Path) {
-        match Stack::load(path) {
+        match crate::import::load_any(path) {
             Ok(stack) => {
                 self.autosave();
                 self.reset_view();

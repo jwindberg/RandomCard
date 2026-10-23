@@ -28,6 +28,16 @@ const ONE_ARG_FUNCS: &[&str] = &[
     "exp1", "exp2", "ln", "ln1", "log2", "abs", "chartonum", "numtochar", "value", "length", "param",
 ];
 
+/// Properties that may be written without `the`, e.g. `visible of field 1`.
+const PROPERTIES: &[&str] = &[
+    "name", "id", "number", "rect", "rectangle", "loc", "location", "left", "top", "right", "bottom", "width",
+    "height", "topleft", "botright", "bottomright", "visible", "style", "textfont", "textsize", "textstyle",
+    "textalign", "textheight", "hilite", "highlight", "hilight", "highlite", "autohilite", "autohighlight",
+    "showname", "enabled", "family", "sharedhilite", "icon", "locktext", "dontwrap", "autotab", "widemargins",
+    "showlines", "sharedtext", "dontsearch", "autoselect", "scroll", "script", "contents", "text", "marked",
+    "showpict", "cantdelete", "cantmodify", "owner", "partnumber", "checkmark", "commandchar", "menumessage",
+];
+
 const TYPE_NAMES: &[&str] =
     &["number", "integer", "point", "rect", "rectangle", "date", "logical", "boolean", "bool", "empty"];
 
@@ -89,6 +99,10 @@ pub fn parse_object(src: &str) -> Option<ObjSpec> {
     let spec = p.object().ok()??;
     p.skip_newlines();
     p.at_eof().then_some(spec)
+}
+
+fn bool_lit(b: bool) -> &'static str {
+    if b { "true" } else { "false" }
 }
 
 fn is_ordinal(w: &str) -> bool {
@@ -197,11 +211,13 @@ fn constant(w: &str) -> Option<&'static str> {
 struct Parser {
     toks: Vec<Token>,
     pos: usize,
+    /// How many multi-line `if` blocks enclose the current position.
+    if_depth: usize,
 }
 
 impl Parser {
     fn new(src: &str) -> PResult<Parser> {
-        Ok(Parser { toks: lex(src)?, pos: 0 })
+        Ok(Parser { toks: lex(src)?, pos: 0, if_depth: 0 })
     }
 
     // ----- token helpers -----
@@ -286,6 +302,7 @@ impl Parser {
             Tok::Number(n) => n.clone(),
             Tok::Str(s) => format!("\"{s}\""),
             Tok::Sym(s) => format!("\"{s}\""),
+            Tok::Other(c) => format!("\"{c}\""),
             Tok::Newline => "end of line".into(),
             Tok::Eof => "end of script".into(),
         }
@@ -357,7 +374,9 @@ impl Parser {
             } else if self.accept("function") {
                 true
             } else {
-                return Err(self.err_here("Expected \"on\" or \"function\""));
+                // HyperCard ignores anything outside handlers, such as banner text.
+                self.rest_of_line();
+                continue;
             };
             let name = self.symbol()?;
             let mut params = Vec::new();
@@ -390,6 +409,11 @@ impl Parser {
             self.skip_newlines();
             if self.at_eof() {
                 return Err(self.err_here(&format!("Expected \"{}\"", terminators.join("\" or \""))));
+            }
+            if self.if_depth == 0 && self.is("end") && self.is_at(1, "if") {
+                // A stray `end if` after a one-line else; HyperCard tolerates it.
+                self.pos += 2;
+                continue;
             }
             if terminators.iter().any(|t| self.is(t)) {
                 return Ok(stmts);
@@ -477,17 +501,20 @@ impl Parser {
         self.skip_newlines();
         self.expect("then")?;
         if self.at_newline() {
-            let then = self.block(&["else", "end"])?;
+            self.if_depth += 1;
+            let then = self.block(&["else", "end"]);
+            self.if_depth -= 1;
+            let then = then?;
             if self.accept("end") {
                 self.expect("if")?;
                 return Ok(StmtKind::If { cond, then, els: None });
             }
-            let els = self.else_part(true)?;
+            let els = self.else_part()?;
             return Ok(StmtKind::If { cond, then, els: Some(els) });
         }
         let then = vec![self.statement()?];
         if self.is("else") {
-            let els = self.else_part(false)?;
+            let els = self.else_part()?;
             return Ok(StmtKind::If { cond, then, els: Some(els) });
         }
         // An `else` may begin the following line.
@@ -497,35 +524,26 @@ impl Parser {
         }
         if n > 0 && self.is_at(n, "else") {
             self.skip_newlines();
-            let els = self.else_part(false)?;
+            let els = self.else_part()?;
             return Ok(StmtKind::If { cond, then, els: Some(els) });
         }
         Ok(StmtKind::If { cond, then, els: None })
     }
 
-    fn else_part(&mut self, block_form: bool) -> PResult<Vec<Stmt>> {
+    fn else_part(&mut self) -> PResult<Vec<Stmt>> {
         self.expect("else")?;
         if self.at_newline() {
-            let els = self.block(&["end"])?;
+            self.if_depth += 1;
+            let els = self.block(&["end"]);
+            self.if_depth -= 1;
+            let els = els?;
             self.expect("end")?;
             self.expect("if")?;
             return Ok(els);
         }
-        let stmt = self.statement()?;
-        // `else <statement>` in a multi-line if may be followed by `end if`.
-        let chained_if = matches!(stmt.kind, StmtKind::If { .. });
-        if block_form && !chained_if {
-            let mut n = 0;
-            while matches!(self.tok_at(n), Tok::Newline) {
-                n += 1;
-            }
-            if self.is_at(n, "end") && self.is_at(n + 1, "if") {
-                self.skip_newlines();
-                self.advance();
-                self.advance();
-            }
-        }
-        Ok(vec![stmt])
+        // A one-line `else` finishes the if, even after a multi-line `then`;
+        // an `end if` that follows belongs to an enclosing if.
+        Ok(vec![self.statement()?])
     }
 
     fn repeat_stmt(&mut self) -> PResult<StmtKind> {
@@ -591,10 +609,16 @@ impl Parser {
         Ok(match name {
             "put" => {
                 let value = self.list_expr()?;
-                match self.prep() {
+                let cmd = match self.prep() {
                     Some(prep) => Cmd::Put { value, prep, dest: Some(self.expr()?) },
                     None => Cmd::Put { value, prep: Prep::Into, dest: None },
+                };
+                // `put items into menu "X" with menuMessages msgs`
+                if self.accept("with") {
+                    self.accept_any(&["menumessages", "menumessage", "menumsgs", "menumsg"]);
+                    self.list_expr()?;
                 }
+                cmd
             }
             "get" => Cmd::Get(self.list_expr()?),
             "set" => {
@@ -1326,6 +1350,15 @@ impl Parser {
             } else {
                 return Err(self.err_here("Expected \"there is a\" or \"there is no\""));
             };
+            if self.accept_any(&["menu", "menuitem"]).is_some() {
+                // Menus aren't scriptable here: no menu or menu item exists.
+                self.term()?;
+                if self.accept("of") {
+                    self.expect("menu")?;
+                    self.term()?;
+                }
+                return Ok(Expr::Lit(bool_lit(!positive).into()));
+            }
             if self.accept("file") {
                 let path = self.term()?;
                 let test = Expr::Call("__fileexists".into(), vec![path]);
@@ -1393,12 +1426,47 @@ impl Parser {
         if let Some(e) = self.chunk_term()? {
             return Ok(e);
         }
+        if self.implicit_the() {
+            return self.the_rest();
+        }
+        if matches!(w, "message" | "msg" | "variable") && self.is_at(1, "watcher") {
+            // Debugger windows aren't supported.
+            self.pos += 2;
+            return Ok(Expr::Call("__menu".into(), vec![]));
+        }
         if let Some(obj) = self.object()? {
             return Ok(Expr::Object(obj));
         }
         if w == "selection" {
             self.advance();
             return Ok(Expr::Selection);
+        }
+        if is_ordinal(w) && matches!(self.word_at(1), Some("menu" | "menuitem")) {
+            // `last menuItem of menu "File"`
+            self.advance();
+            let w = self.word().unwrap_or_default().to_string();
+            self.advance();
+            let mut args = Vec::new();
+            if w == "menuitem" && self.accept("of") {
+                self.expect("menu")?;
+                args.push(self.term()?);
+            }
+            return Ok(Expr::Call("__menu".into(), args));
+        }
+        if w == "window" && self.starts_term_at(1) {
+            // Palettes and other windows aren't supported either.
+            self.advance();
+            return Ok(Expr::Call("__menu".into(), vec![self.term()?]));
+        }
+        if matches!(w, "menu" | "menuitem") && self.starts_term_at(1) {
+            // Menus can't be scripted here; references to them do nothing.
+            self.advance();
+            let mut args = vec![self.term()?];
+            if w == "menuitem" && self.accept("of") {
+                self.expect("menu")?;
+                args.push(self.term()?);
+            }
+            return Ok(Expr::Call("__menu".into(), args));
         }
         if let Some(c) = constant(w) {
             self.advance();
@@ -1410,6 +1478,14 @@ impl Parser {
         let text = self.toks[self.pos.min(self.toks.len() - 1)].text.clone();
         self.advance();
         Ok(Expr::Var(text))
+    }
+
+    /// Whether the current word starts a property or function without `the`.
+    fn implicit_the(&self) -> bool {
+        let n = if self.length_word(0).is_some() && self.word_at(1).is_some() { 1 } else { 0 };
+        let Some(w) = self.word_at(n) else { return false };
+        let known = PROPERTIES.contains(&w) || ONE_ARG_FUNCS.contains(&w);
+        known && (self.is_at(n + 1, "of") || w == "number" && self.is_at(n + 1, "in"))
     }
 
     fn length_word(&self, n: usize) -> Option<NameLength> {
@@ -1434,6 +1510,12 @@ impl Parser {
             return self.word_term(&w);
         }
         self.advance(); // "the"
+        self.the_rest()
+    }
+
+    /// A property or function after `the`; HyperTalk also allows `the` to be
+    /// left out, as in `visible of field 1` or `number of lines in x`.
+    fn the_rest(&mut self) -> PResult<Expr> {
         if self.accept("target") {
             return Ok(Expr::Property {
                 name: "name".into(),
@@ -1709,6 +1791,11 @@ impl Parser {
                 let which = self.which()?;
                 return Ok(Some(self.part_suffix(part_kind(&next), Some(layer), which)?));
             }
+            if layer == Layer::Card && next == "window" {
+                // The card window has the card's size; treat it as the stack.
+                self.pos += 2;
+                return Ok(Some(ObjSpec::Stack(None)));
+            }
             if matches!(next.as_str(), "picture" | "pict" | "window") {
                 return Ok(None);
             }
@@ -1747,9 +1834,13 @@ impl Parser {
         Ok(None)
     }
 
+    /// Skip `of this stack` or `of stack "Name"`; only the open stack can be addressed.
     fn skip_of_this_stack(&mut self) {
         if self.is("of") && self.is_at(1, "this") && self.is_at(2, "stack") {
             self.pos += 3;
+        } else if self.is("of") && self.is_at(1, "stack") && self.starts_term_at(2) {
+            self.pos += 2;
+            let _ = self.term();
         }
     }
 
@@ -1768,9 +1859,12 @@ impl Parser {
     }
 
     fn card_suffix(&mut self, spec: CardSpec) -> PResult<CardSpec> {
+        let bg_at = |n: usize| self.word_at(n).is_some_and(is_bg_word);
+        let qualifier = |n: usize| {
+            self.word_at(n).is_some_and(|w| is_ordinal(w) || matches!(w, "this" | "next" | "prev" | "previous"))
+        };
         if (self.is("of") || self.is("in"))
-            && (self.word_at(1).is_some_and(is_bg_word)
-                || self.is_at(1, "this") && self.word_at(2).is_some_and(is_bg_word))
+            && (bg_at(1) || qualifier(1) && bg_at(2) || self.is_at(1, "the") && qualifier(2) && bg_at(3))
         {
             self.advance();
             if let Some(ObjSpec::Background(bg)) = self.object()? {

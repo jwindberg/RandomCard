@@ -285,6 +285,13 @@ fn draw_button(painter: &Painter, pv: &PartView, rect: Rect, pressed: bool) {
         return;
     }
     if p.show_name && !p.name.is_empty() {
+        if p.icon != 0 {
+            // Icon buttons label the icon from below. Icons come from a stack's
+            // resource fork, which isn't imported, so only the label is drawn.
+            let pos = Pos2::new(rect.center().x, rect.bottom() - 2.0);
+            draw_label(&painter, p, pos, Align2::CENTER_BOTTOM, &p.name, fg);
+            return;
+        }
         let (pos, align) = match p.text_align {
             TextAlign::Left => (Pos2::new(rect.left() + 6.0, rect.center().y), Align2::LEFT_CENTER),
             TextAlign::Right => (Pos2::new(rect.right() - 6.0, rect.center().y), Align2::RIGHT_CENTER),

@@ -170,6 +170,7 @@ pub enum DialogReply {
 #[derive(Clone, Debug)]
 pub enum UiRequest {
     OpenStack,
+    ImportStack,
     NewStack,
     SaveStackAs(Option<String>),
     Quit,
@@ -230,6 +231,8 @@ pub struct World {
 impl World {
     pub fn new(stack: Stack) -> World {
         let card_id = stack.cards[0].id;
+        // An imported HyperCard stack hasn't been saved in RandomCard's format yet.
+        let dirty = stack.imported_from.is_some() && stack.path.is_none();
         World {
             stack,
             card_id,
@@ -244,7 +247,7 @@ impl World {
             mouse: MouseState::default(),
             transition: None,
             transition_seq: 0,
-            dirty: false,
+            dirty,
             picture_rev: 0,
             requests: Vec::new(),
             dialog: None,

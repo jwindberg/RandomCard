@@ -305,6 +305,9 @@ pub struct Stack {
     pub cant_modify: bool,
     #[serde(skip)]
     pub path: Option<PathBuf>,
+    /// The original HyperCard file this stack was imported from, until saved.
+    #[serde(skip)]
+    pub imported_from: Option<PathBuf>,
 }
 
 impl Default for Stack {
@@ -329,6 +332,7 @@ impl Stack {
             cards: vec![card],
             cant_modify: false,
             path: None,
+            imported_from: None,
         }
     }
 

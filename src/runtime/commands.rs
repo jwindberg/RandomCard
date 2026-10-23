@@ -40,8 +40,9 @@ impl Interp {
                 let prop = prop.to_ascii_lowercase();
                 match obj {
                     None => self.set_global_property(&prop, &v),
-                    // Styling chunks of text isn't supported; text is plain.
+                    // Styling chunks of text isn't supported; text is plain. Menus aren't scriptable.
                     Some(Expr::Chunk(..)) => Ok(()),
+                    Some(e) if is_menu(e) => Ok(()),
                     Some(e) => {
                         let o = self.resolve_dynamic(e)?;
                         self.set_property(o, &prop, &v)
@@ -318,6 +319,7 @@ impl Interp {
                 f.dirty = true;
                 Ok(())
             }
+            Cmd::Enable(e) | Cmd::Disable(e) if is_menu(e) => Ok(()),
             Cmd::Enable(e) | Cmd::Disable(e) => {
                 let o = self.resolve_dynamic(e)?;
                 self.set_property(o, "enabled", if matches!(c, Cmd::Enable(_)) { "true" } else { "false" })
@@ -474,6 +476,7 @@ impl Interp {
                 let o = self.resolve_dynamic(e)?;
                 self.set_property(o, "showpict", if show { "true" } else { "false" })?;
             }
+            ShowHide::Object(e) if is_menu(e) => {}
             ShowHide::Object(e) => {
                 let o = self.resolve_dynamic(e)?;
                 if o == ObjRef::MsgBox {
@@ -569,7 +572,7 @@ impl Interp {
     }
 
     fn open_stack_file(&mut self, path: &std::path::Path) -> R<()> {
-        let stack = crate::model::Stack::load(path).or_else(err)?;
+        let stack = crate::import::load_any(path).or_else(err)?;
         let card = self.current_card_ref();
         for m in ["closeCard", "closeBackground", "closeStack"] {
             self.send_system(card, m)?;
@@ -957,6 +960,9 @@ impl Interp {
     // ----- deleting -----
 
     fn delete(&mut self, e: &Expr) -> R<()> {
+        if is_menu(e) {
+            return Ok(());
+        }
         if matches!(e, Expr::Chunk(..)) {
             return self.delete_chunk(e);
         }
@@ -1182,6 +1188,7 @@ impl Interp {
                 Ok(())
             }
             "open stack" | "open" => self.request(UiRequest::OpenStack),
+            "import hypercard stack" | "import stack" => self.request(UiRequest::ImportStack),
             "new stack" => self.request(UiRequest::NewStack),
             "quit hypercard" | "quit randomcard" | "quit" => self.request(UiRequest::Quit),
             "button info" | "field info" => self.request(UiRequest::SelectedPartInfo),
@@ -1266,6 +1273,10 @@ impl Interp {
         w.dirty = false;
         Ok(())
     }
+}
+
+fn is_menu(e: &Expr) -> bool {
+    matches!(e, Expr::Call(n, _) if n == "__menu")
 }
 
 fn char_to_byte(s: &str, chars: usize) -> usize {

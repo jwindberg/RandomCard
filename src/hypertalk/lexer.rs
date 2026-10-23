@@ -9,6 +9,8 @@ pub enum Tok {
     Str(String),
     /// Operators and punctuation.
     Sym(&'static str),
+    /// A character with no meaning in HyperTalk; an error if it appears in a handler.
+    Other(char),
     Newline,
     Eof,
 }
@@ -64,17 +66,21 @@ pub fn lex(src: &str) -> Result<Vec<Token>, String> {
                 i += 1;
             }
             line += 1;
-        } else if c == '"' || c == '“' || c == '”' {
+        } else if c == '"' {
+            // Curly quotes are ordinary characters inside strings, as in HyperCard.
             let start = i + 1;
             i += 1;
-            while i < chars.len() && !matches!(chars[i], '"' | '“' | '”' | '\n' | '\r') {
+            while i < chars.len() && !matches!(chars[i], '"' | '\n' | '\r') {
                 i += 1;
             }
-            if i >= chars.len() || chars[i] == '\n' || chars[i] == '\r' {
-                return Err(format!("line {line}: missing closing quote"));
-            }
+            let terminated = i < chars.len() && chars[i] == '"';
             toks.push(Token { tok: Tok::Str(chars[start..i].iter().collect()), line, text: String::new() });
-            i += 1;
+            if terminated {
+                i += 1;
+            } else {
+                // Only an error inside a handler; text outside handlers is ignored.
+                toks.push(Token { tok: Tok::Other('"'), line, text: String::new() });
+            }
         } else if c.is_ascii_digit() || (c == '.' && chars.get(i + 1).is_some_and(|d| d.is_ascii_digit())) {
             let start = i;
             while i < chars.len() && chars[i].is_ascii_digit() {
@@ -118,7 +124,9 @@ pub fn lex(src: &str) -> Result<Vec<Token>, String> {
         } else {
             let rest: String = chars[i..chars.len().min(i + 2)].iter().collect();
             let Some(sym) = SYMBOLS.iter().find(|s| rest.starts_with(**s)) else {
-                return Err(format!("line {line}: unexpected character '{c}'"));
+                toks.push(Token { tok: Tok::Other(c), line, text: String::new() });
+                i += 1;
+                continue;
             };
             toks.push(Token { tok: Tok::Sym(sym), line, text: String::new() });
             i += sym.chars().count();
