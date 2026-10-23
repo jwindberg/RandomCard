@@ -243,6 +243,7 @@ fn read_blocks(data: &[u8]) -> R<Vec<Block<'_>>> {
 }
 
 struct StackInfo {
+    patterns: Option<Vec<[u8; 8]>>,
     width: u32,
     height: u32,
     first_bg: i32,
@@ -269,7 +270,13 @@ fn read_stack_block(data: &[u8]) -> R<StackInfo> {
     let mut size = Reader::at(data, 0x1a8);
     let (height, width) = (size.i16()?, size.i16()?);
     let script = if data.len() > 0x5f0 { Reader::at(data, 0x5f0).cstring() } else { String::new() };
+    // The stack's 40 paint patterns, 8 bytes each.
+    let patterns = data.get(0x2b0..0x2b0 + 320).and_then(|bytes| {
+        let pats: Vec<[u8; 8]> = bytes.as_chunks::<8>().0.to_vec();
+        pats.iter().any(|p| *p != [0; 8]).then_some(pats)
+    });
     Ok(StackInfo {
+        patterns,
         width: if width <= 0 { DEFAULT_WIDTH } else { width as u32 },
         height: if height <= 0 { DEFAULT_HEIGHT } else { height as u32 },
         first_bg,
@@ -520,6 +527,9 @@ fn convert(blocks: &[Block], name: &str) -> R<Stack> {
     stack.height = info.height;
     stack.script = info.script;
     stack.cant_modify = info.cant_modify;
+    if let Some(p) = info.patterns {
+        stack.patterns = p;
+    }
     stack.backgrounds.clear();
     stack.cards.clear();
     let mut max_id = 0;
@@ -759,6 +769,9 @@ mod tests {
         assert!(!open("TestPrivateAccess").cards.is_empty());
         let home = open("Home");
         assert!(home.backgrounds.iter().any(|b| !b.picture.is_blank()));
+        // Stacks carry their own 40 paint patterns.
+        assert_eq!(home.patterns.len(), 40);
+        assert_ne!(home.patterns, crate::paint::DEFAULT_PATTERNS.to_vec());
         // Home.rsrc beside Home.stack holds nine of the icons its buttons use;
         // the rest are HyperCard's built-in icons, from HyperCard's own fork.
         for id in [3000, 3001, 6134, 7024, 11316, 12659, 28226, 28867, 30504] {

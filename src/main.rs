@@ -3,6 +3,7 @@
 mod hypertalk;
 mod import;
 mod model;
+mod paint;
 mod runtime;
 mod sound;
 mod ui;

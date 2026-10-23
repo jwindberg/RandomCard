@@ -1,6 +1,6 @@
 //! The RandomCard window: menus, tool palette, the card, and the message box.
 
-mod paint;
+mod painting;
 mod render;
 mod windows;
 
@@ -12,7 +12,7 @@ use eframe::egui::{
     TextureHandle, Vec2,
 };
 
-use crate::model::{Id, Layer, Part, PartKind, PartStyle, Picture, Pixel, Rect as CardRect, Stack};
+use crate::model::{Id, Layer, Part, PartKind, PartStyle, Picture, Rect as CardRect, Stack};
 use crate::runtime::world::{Event, KeyAction, ObjRef, Tool, UiRequest, World, lock};
 use crate::runtime::{self, Runtime};
 use render::{Scene, Textures};
@@ -56,17 +56,7 @@ struct PartDrag {
     rect: CardRect,
 }
 
-struct PaintStroke {
-    start: (i32, i32),
-    last: (i32, i32),
-    color: Pixel,
-}
-
-enum Marquee {
-    Selecting { start: (i32, i32), end: (i32, i32) },
-    Selected { rect: (i32, i32, i32, i32) },
-    Moving { rect: (i32, i32, i32, i32), pixels: Picture, press: (i32, i32), offset: (i32, i32), tex: TextureHandle },
-}
+use painting::{Marquee, PaintStroke, TextEntry};
 
 pub struct App {
     rt: Runtime,
@@ -89,8 +79,16 @@ pub struct App {
     selected: Option<ObjRef>,
     part_drag: Option<PartDrag>,
     stroke: Option<PaintStroke>,
-    undo: Option<(Layer, Id, Picture)>,
+    /// Paint undo and redo: pictures as they were, newest last.
+    undo: Vec<(Layer, Id, Picture)>,
+    redo: Vec<(Layer, Id, Picture)>,
     marquee: Option<Marquee>,
+    /// Polygon tool: the corners placed so far.
+    polygon: Option<Vec<(i32, i32)>>,
+    /// Text tool: text being typed, not yet painted.
+    text_entry: Option<TextEntry>,
+    /// Swatch textures for the stack's patterns.
+    pattern_textures: Option<(Vec<[u8; 8]>, Vec<TextureHandle>)>,
     infos: Vec<InfoWindow>,
     editors: Vec<ScriptEditor>,
     error: Option<ErrorAlert>,
@@ -128,8 +126,12 @@ impl App {
             selected: None,
             part_drag: None,
             stroke: None,
-            undo: None,
+            undo: Vec::new(),
+            redo: Vec::new(),
             marquee: None,
+            polygon: None,
+            text_entry: None,
+            pattern_textures: None,
             infos: Vec::new(),
             editors: Vec::new(),
             error: None,
@@ -175,8 +177,11 @@ impl App {
                 }
             });
             ui.menu_button("Edit", |ui| {
-                if ui.button("Undo Paint").clicked() {
+                if ui.add_enabled(!self.undo.is_empty(), egui::Button::new("Undo Paint")).clicked() {
                     self.undo_paint();
+                }
+                if ui.add_enabled(!self.redo.is_empty(), egui::Button::new("Redo Paint")).clicked() {
+                    self.redo_paint();
                 }
                 ui.separator();
                 for item in ["New Card", "Delete Card", "Cut Card", "Copy Card", "Paste Card"] {
@@ -217,6 +222,17 @@ impl App {
                     self.world().fill_shapes = f;
                 }
             });
+            ui.menu_button("Paint", |ui| {
+                if ui.button("Select All").clicked() {
+                    self.do_menu("Select All");
+                }
+                ui.separator();
+                for op in crate::paint::PaintOp::ALL {
+                    if ui.button(op.name()).clicked() {
+                        self.do_menu(op.name());
+                    }
+                }
+            });
             ui.menu_button("Objects", |ui| {
                 for item in ["Button Info…", "Field Info…", "Card Info…", "Bkgnd Info…", "Stack Info…"] {
                     if ui.button(item).clicked() {
@@ -245,55 +261,11 @@ impl App {
         });
     }
 
-    fn palette(&mut self, ui: &mut egui::Ui) {
-        let (tool, filled, line_size, edit_bg) = {
-            let w = self.world();
-            (w.tool, w.fill_shapes, w.line_size, w.edit_bg)
-        };
-        ui.add_space(4.0);
-        ui.label(RichText::new("Tools").strong());
-        let labels = [
-            (Tool::Browse, "☝ Browse"),
-            (Tool::Button, "▭ Button"),
-            (Tool::Field, "▤ Field"),
-            (Tool::Select, "⬚ Select"),
-            (Tool::Pencil, "✏ Pencil"),
-            (Tool::Brush, "● Brush"),
-            (Tool::Eraser, "⌫ Eraser"),
-            (Tool::Line, "╱ Line"),
-            (Tool::Spray, "∴ Spray"),
-            (Tool::Rect, "□ Rect"),
-            (Tool::RoundRect, "▢ Round"),
-            (Tool::Bucket, "◧ Bucket"),
-            (Tool::Oval, "○ Oval"),
-        ];
-        for (t, label) in labels {
-            if ui.add_sized([96.0, 20.0], egui::Button::selectable(tool == t, label)).clicked() {
-                self.choose_tool(t);
-            }
-        }
-        ui.separator();
-        let mut f = filled;
-        if ui.checkbox(&mut f, "Filled").changed() {
-            self.world().fill_shapes = f;
-        }
-        let mut ls = line_size;
-        ui.horizontal(|ui| {
-            ui.label("Line");
-            if ui.add(egui::DragValue::new(&mut ls).range(1..=8)).changed() {
-                self.world().line_size = ls;
-            }
-        });
-        ui.separator();
-        let mut bg = edit_bg;
-        if ui.checkbox(&mut bg, "Background").changed() {
-            self.do_menu("Background");
-        }
-    }
-
     fn choose_tool(&mut self, t: Tool) {
         self.end_editing();
         self.commit_marquee();
+        self.commit_text();
+        self.polygon = None;
         self.selected = None;
         let mut w = self.world();
         w.tool = t;
@@ -408,6 +380,8 @@ impl App {
                 UiRequest::Undo => self.undo_paint(),
                 UiRequest::SelectPart(o) => self.selected = Some(o),
                 UiRequest::Key(target, action) => self.key_action(ctx, target, action),
+                UiRequest::PaintOp(op) => self.apply_paint_op(op),
+                UiRequest::SelectAll => self.select_all(),
             }
         }
     }
@@ -431,7 +405,10 @@ impl App {
         self.end_editing();
         self.selected = None;
         self.marquee = None;
-        self.undo = None;
+        self.polygon = None;
+        self.text_entry = None;
+        self.undo.clear();
+        self.redo.clear();
         self.infos.clear();
         self.editors.clear();
     }
@@ -513,6 +490,10 @@ impl App {
             let mut w = self.world();
             w.menubar_visible = !w.menubar_visible;
         }
+        let redo = KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
+        if !ctx.egui_wants_keyboard_input() && ctx.input_mut(|i| i.consume_shortcut(&redo)) {
+            self.redo_paint();
+        }
         if !ctx.egui_wants_keyboard_input() && ctx.input_mut(|i| i.consume_shortcut(&cmd(Key::Z))) {
             self.command_key(ctx, "z", KeyAction::Undo);
         }
@@ -524,16 +505,16 @@ impl App {
         if delete {
             if let (Tool::Button | Tool::Field, Some(obj)) = (tool, self.selected) {
                 self.delete_part(obj);
-            } else if let Some(Marquee::Selected { rect }) = &self.marquee {
-                let (l, t, r, b) = *rect;
+            } else if let Some(Marquee::Selected { region }) = self.marquee.take() {
                 self.push_undo();
-                self.with_picture(|p| paint::clear_region(p, l, t, r, b));
-                self.marquee = None;
+                self.with_picture(|p| region.lift(p));
             }
         }
         if ctx.input(|i| i.key_pressed(Key::Escape)) {
+            self.commit_marquee();
             self.marquee = None;
             self.selected = None;
+            self.polygon = None;
         }
         if tool == Tool::Browse {
             for (k, dir) in [(Key::ArrowLeft, "left"), (Key::ArrowRight, "right"), (Key::ArrowUp, "up"), (Key::ArrowDown, "down")] {
@@ -786,184 +767,6 @@ impl App {
     }
 
     // ----- painting -----
-
-    fn with_picture<T>(&self, f: impl FnOnce(&mut Picture) -> T) -> Option<T> {
-        let mut w = self.world();
-        let (card, bg, layer) = (w.card_id, w.bg_id(), w.current_layer());
-        let pic = match layer {
-            Layer::Card => &mut w.stack.card_mut(card)?.picture,
-            Layer::Background => &mut w.stack.background_mut(bg)?.picture,
-        };
-        let r = f(pic);
-        w.picture_rev += 1;
-        w.dirty = true;
-        Some(r)
-    }
-
-    fn push_undo(&mut self) {
-        let w = self.world();
-        let (card, bg, layer) = (w.card_id, w.bg_id(), w.current_layer());
-        let (owner, pic) = match layer {
-            Layer::Card => (card, w.stack.card(card).map(|c| c.picture.clone())),
-            Layer::Background => (bg, w.stack.background(bg).map(|b| b.picture.clone())),
-        };
-        drop(w);
-        if let Some(pic) = pic {
-            self.undo = Some((layer, owner, pic));
-        }
-    }
-
-    fn undo_paint(&mut self) {
-        let Some((layer, owner, pic)) = self.undo.take() else { return };
-        let mut w = lock(&self.rt.world);
-        let slot = match layer {
-            Layer::Card => w.stack.card_mut(owner).map(|c| &mut c.picture),
-            Layer::Background => w.stack.background_mut(owner).map(|b| &mut b.picture),
-        };
-        if let Some(slot) = slot {
-            let current = std::mem::replace(slot, pic);
-            // Undo again to redo.
-            self.undo = Some((layer, owner, current));
-        }
-        w.picture_rev += 1;
-        w.dirty = true;
-    }
-
-    fn paint_input(&mut self, ctx: &egui::Context, resp: &egui::Response, origin: Pos2, tool: Tool) {
-        let Some(pos) = resp.interact_pointer_pos().or(resp.hover_pos()) else { return };
-        let p = ((pos.x - origin.x).floor() as i32, (pos.y - origin.y).floor() as i32);
-        let (filled, size) = {
-            let w = self.world();
-            (w.fill_shapes, w.line_size)
-        };
-        if tool == Tool::Select {
-            self.select_tool(ctx, resp, p);
-            return;
-        }
-        if resp.drag_started_by(PointerButton::Primary) || resp.clicked() && self.stroke.is_none() {
-            self.push_undo();
-            let start = resp.interact_pointer_pos().map(|q| ((q.x - origin.x) as i32, (q.y - origin.y) as i32)).unwrap_or(p);
-            let color = match tool {
-                // The pencil draws white over black, like MacPaint.
-                Tool::Pencil => {
-                    let dark = self.with_picture(|pic| paint::is_dark(pic.get(start.0, start.1))).unwrap_or(false);
-                    if dark { Pixel::White } else { Pixel::Black }
-                }
-                Tool::Eraser => Pixel::Clear,
-                _ => Pixel::Black,
-            };
-            self.stroke = Some(PaintStroke { start, last: start, color });
-            match tool {
-                Tool::Bucket => {
-                    self.with_picture(|pic| {
-                        let fill = if paint::is_dark(pic.get(start.0, start.1)) { Pixel::White } else { Pixel::Black };
-                        paint::fill(pic, start.0, start.1, fill)
-                    });
-                    self.stroke = None;
-                    return;
-                }
-                Tool::Pencil | Tool::Brush | Tool::Eraser | Tool::Spray => self.freehand(tool, start, start, color),
-                _ => {}
-            }
-            if resp.clicked() {
-                self.stroke = None;
-            }
-            return;
-        }
-        let Some(stroke) = &self.stroke else { return };
-        let (start, last, color) = (stroke.start, stroke.last, stroke.color);
-        if resp.dragged() {
-            if matches!(tool, Tool::Pencil | Tool::Brush | Tool::Eraser | Tool::Spray) {
-                self.freehand(tool, last, p, color);
-            }
-            if let Some(s) = &mut self.stroke {
-                s.last = p;
-            }
-        }
-        if resp.drag_stopped() {
-            let end = last;
-            self.with_picture(|pic| match tool {
-                Tool::Line => paint::line(pic, start.0, start.1, end.0, end.1, size, Pixel::Black),
-                Tool::Rect => paint::rect(pic, start.0, start.1, end.0, end.1, size, filled),
-                Tool::RoundRect => paint::round_rect(pic, start.0, start.1, end.0, end.1, size, filled),
-                Tool::Oval => paint::oval(pic, start.0, start.1, end.0, end.1, size, filled),
-                _ => {}
-            });
-            self.stroke = None;
-        }
-    }
-
-    fn freehand(&self, tool: Tool, a: (i32, i32), b: (i32, i32), color: Pixel) {
-        let size = self.world().line_size;
-        self.with_picture(|pic| match tool {
-            Tool::Pencil => paint::line(pic, a.0, a.1, b.0, b.1, 1, color),
-            Tool::Brush => paint::line_with(a.0, a.1, b.0, b.1, |x, y| paint::disc(pic, x, y, 3 + size * 2, color)),
-            Tool::Eraser => paint::line(pic, a.0, a.1, b.0, b.1, 16, Pixel::Clear),
-            Tool::Spray => paint::spray(pic, b.0, b.1),
-            _ => {}
-        });
-    }
-
-    fn select_tool(&mut self, ctx: &egui::Context, resp: &egui::Response, p: (i32, i32)) {
-        if resp.drag_started_by(PointerButton::Primary) {
-            let inside = match &self.marquee {
-                Some(Marquee::Selected { rect: (l, t, r, b) }) => p.0 >= *l && p.0 < *r && p.1 >= *t && p.1 < *b,
-                _ => false,
-            };
-            if inside {
-                let Some(Marquee::Selected { rect }) = self.marquee.take() else { return };
-                let (l, t, r, b) = rect;
-                self.push_undo();
-                let pixels = self
-                    .with_picture(|pic| {
-                        let region = paint::copy_region(pic, l, t, r, b);
-                        paint::clear_region(pic, l, t, r, b);
-                        region
-                    })
-                    .unwrap_or_default();
-                let tex = ctx.load_texture("floating", render::picture_image(&pixels), egui::TextureOptions::NEAREST);
-                self.marquee = Some(Marquee::Moving { rect, pixels, press: p, offset: (0, 0), tex });
-            } else {
-                self.commit_marquee();
-                self.marquee = Some(Marquee::Selecting { start: p, end: p });
-            }
-            return;
-        }
-        if resp.dragged() {
-            match &mut self.marquee {
-                Some(Marquee::Selecting { end, .. }) => *end = p,
-                Some(Marquee::Moving { press, offset, .. }) => *offset = (p.0 - press.0, p.1 - press.1),
-                _ => {}
-            }
-        }
-        if resp.drag_stopped() {
-            match self.marquee.take() {
-                Some(Marquee::Selecting { start, end }) => {
-                    let rect = (start.0.min(end.0), start.1.min(end.1), start.0.max(end.0), start.1.max(end.1));
-                    if rect.2 - rect.0 > 1 && rect.3 - rect.1 > 1 {
-                        self.marquee = Some(Marquee::Selected { rect });
-                    }
-                }
-                Some(Marquee::Moving { rect, pixels, offset, .. }) => {
-                    let (l, t, r, b) = rect;
-                    let (dx, dy) = offset;
-                    self.with_picture(|pic| paint::paste(pic, &pixels, l + dx, t + dy));
-                    self.marquee = Some(Marquee::Selected { rect: (l + dx, t + dy, r + dx, b + dy) });
-                }
-                other => self.marquee = other,
-            }
-        }
-        if resp.clicked() {
-            self.marquee = None;
-        }
-    }
-
-    /// Drop a floating selection back onto the picture.
-    fn commit_marquee(&mut self) {
-        if let Some(Marquee::Moving { rect, pixels, offset, .. }) = self.marquee.take() {
-            self.with_picture(|pic| paint::paste(pic, &pixels, rect.0 + offset.0, rect.1 + offset.1));
-        }
-    }
 
     // ----- button and field tools -----
 
@@ -1381,7 +1184,10 @@ impl App {
             }
             _ => {
                 self.paint_input(&ctx, &resp, origin, tool);
-                self.paint_overlay(&painter, origin, tool);
+                self.paint_overlay(&painter, origin, tool, &ctx);
+                if tool == Tool::Text {
+                    self.text_tool_editor(ui, origin);
+                }
             }
         }
 
@@ -1396,50 +1202,6 @@ impl App {
             ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
         }
         self.last_scene = Some(shown);
-    }
-
-    fn paint_overlay(&self, painter: &egui::Painter, origin: Pos2, tool: Tool) {
-        let at = |x: i32, y: i32| origin + Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
-        let stroke = Stroke::new(1.0, Color32::BLACK);
-        if let Some(s) = &self.stroke {
-            let (a, b) = (at(s.start.0, s.start.1), at(s.last.0, s.last.1));
-            let r = Rect::from_two_pos(a, b);
-            match tool {
-                Tool::Line => {
-                    painter.line_segment([a, b], stroke);
-                }
-                Tool::Rect => {
-                    painter.rect_stroke(r, 0.0, stroke, StrokeKind::Middle);
-                }
-                Tool::RoundRect => {
-                    painter.rect_stroke(r, 10.0, stroke, StrokeKind::Middle);
-                }
-                Tool::Oval => {
-                    painter.add(egui::epaint::EllipseShape {
-                        center: r.center(),
-                        radius: r.size() / 2.0,
-                        fill: Color32::TRANSPARENT,
-                        stroke,
-                        angle: 0.0,
-                    });
-                }
-                _ => {}
-            }
-        }
-        match &self.marquee {
-            Some(Marquee::Selecting { start, end }) => {
-                render::dashed_rect(painter, Rect::from_two_pos(at(start.0, start.1), at(end.0, end.1)), Color32::BLACK);
-            }
-            Some(Marquee::Selected { rect: (l, t, r, b) }) => {
-                render::dashed_rect(painter, Rect::from_two_pos(at(*l, *t), at(*r, *b)), Color32::BLACK);
-            }
-            Some(Marquee::Moving { rect: (l, t, r, b), offset: (dx, dy), tex, .. }) => {
-                let rr = Rect::from_two_pos(at(l + dx, t + dy), at(r + dx, b + dy)).translate(Vec2::splat(-0.5));
-                painter.image(tex.id(), rr, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
-                render::dashed_rect(painter, rr, Color32::BLACK);
-            }
-            None => {}
-        }
     }
 
     fn message_box(&mut self, ui: &mut egui::Ui) {
@@ -1667,7 +1429,7 @@ impl eframe::App for App {
             }
             self.status_bar(ui);
         });
-        egui::Panel::left("palette").resizable(false).exact_size(110.0).show(ui, |ui| self.palette(ui));
+        egui::Panel::left("palette").resizable(false).exact_size(128.0).show(ui, |ui| self.palette(ui));
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(Color32::from_gray(200))).show(ui, |ui| {
             self.canvas(ui);
         });

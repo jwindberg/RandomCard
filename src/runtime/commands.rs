@@ -355,11 +355,44 @@ impl Interp {
             Cmd::ClickAt(e) => {
                 let v = self.eval(e)?;
                 let Some((x, y)) = parse_point(&v) else { return err(format!("Expected a point, not \"{v}\"")) };
+                if self.w().tool.is_paint() {
+                    self.paint_click(x, y);
+                    return Ok(());
+                }
                 self.click_at(x, y)
+            }
+            Cmd::Drag { from, to } => {
+                let (a, b) = (self.eval(from)?, self.eval(to)?);
+                let (Some(a), Some(b)) = (parse_point(&a), parse_point(&b)) else {
+                    return err("Expected points after drag from … to …");
+                };
+                let mut w = self.w();
+                if let Some(tool) = w.tool.drag_tool() {
+                    let settings = w.paint_settings();
+                    if let Some(pic) = w.layer_picture_mut() {
+                        crate::paint::apply_drag(pic, tool, a, b, &settings);
+                    }
+                    w.picture_rev += 1;
+                    w.dirty = true;
+                }
+                Ok(())
             }
             Cmd::Type(e) => {
                 let text = self.eval(e)?;
                 let mut w = self.w();
+                // With the text tool, type paints text where `click at` put the cursor.
+                if w.tool == Tool::Text
+                    && let Some((x, y)) = w.text_point
+                {
+                    let (font, size, style) = (w.paint_font.clone(), w.paint_text_size, w.paint_text_style.clone());
+                    if let Some(pic) = w.layer_picture_mut() {
+                        let next = crate::paint::draw_text(pic, x, y, &text, size, &font, &style);
+                        w.text_point = Some(next);
+                    }
+                    w.picture_rev += 1;
+                    w.dirty = true;
+                    return Ok(());
+                }
                 if let Some((layer, id)) = w.focus {
                     let card = w.card_id;
                     let cur = w.stack.field_text(card, layer, id);
@@ -722,6 +755,28 @@ impl Interp {
             "down" => self.go_history(-1),
             _ => err(format!("Invalid arrow key \"{dir}\"")),
         }
+    }
+
+    /// `click at` with a paint tool paints a single point.
+    fn paint_click(&mut self, x: i32, y: i32) {
+        use crate::paint;
+        let mut w = self.w();
+        let (tool, settings) = (w.tool, w.paint_settings());
+        if tool == Tool::Text {
+            w.text_point = Some((x, y));
+            return;
+        }
+        let Some(pic) = w.layer_picture_mut() else { return };
+        match tool {
+            Tool::Bucket => paint::fill(pic, x, y, settings.ink()),
+            _ => {
+                if let Some(t) = tool.drag_tool() {
+                    paint::apply_drag(pic, t, (x, y), (x, y), &settings);
+                }
+            }
+        }
+        w.picture_rev += 1;
+        w.dirty = true;
     }
 
     fn click_at(&mut self, x: i32, y: i32) -> R<()> {
@@ -1243,6 +1298,10 @@ impl Interp {
                 w.tool = tool;
                 w.focus = None;
                 Ok(())
+            }
+            "select all" => self.request(UiRequest::SelectAll),
+            _ if crate::paint::PaintOp::parse(&key).is_some() => {
+                self.request(UiRequest::PaintOp(crate::paint::PaintOp::parse(&key).unwrap()))
             }
             "clear picture" => {
                 let mut w = self.w();

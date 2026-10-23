@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use crate::model::{Id, Layer, Stack};
+use crate::model::{Id, Layer, Picture, Stack};
 
 pub type Shared = Arc<Mutex<World>>;
 
@@ -28,6 +28,7 @@ pub enum Tool {
     Button,
     Field,
     Select,
+    Lasso,
     Pencil,
     Brush,
     Eraser,
@@ -37,14 +38,20 @@ pub enum Tool {
     RoundRect,
     Bucket,
     Oval,
+    Curve,
+    Text,
+    RegularPolygon,
+    Polygon,
 }
 
 impl Tool {
+    /// In HyperCard's tool palette order.
     pub const ALL: &'static [Tool] = &[
         Tool::Browse,
         Tool::Button,
         Tool::Field,
         Tool::Select,
+        Tool::Lasso,
         Tool::Pencil,
         Tool::Brush,
         Tool::Eraser,
@@ -54,6 +61,10 @@ impl Tool {
         Tool::RoundRect,
         Tool::Bucket,
         Tool::Oval,
+        Tool::Curve,
+        Tool::Text,
+        Tool::RegularPolygon,
+        Tool::Polygon,
     ];
 
     pub fn name(self) -> &'static str {
@@ -62,6 +73,7 @@ impl Tool {
             Tool::Button => "button",
             Tool::Field => "field",
             Tool::Select => "select",
+            Tool::Lasso => "lasso",
             Tool::Pencil => "pencil",
             Tool::Brush => "brush",
             Tool::Eraser => "eraser",
@@ -71,6 +83,10 @@ impl Tool {
             Tool::RoundRect => "round rect",
             Tool::Bucket => "bucket",
             Tool::Oval => "oval",
+            Tool::Curve => "curve",
+            Tool::Text => "text",
+            Tool::RegularPolygon => "regular polygon",
+            Tool::Polygon => "polygon",
         }
     }
 
@@ -81,6 +97,7 @@ impl Tool {
             Tool::Button => 2,
             Tool::Field => 3,
             Tool::Select => 4,
+            Tool::Lasso => 5,
             Tool::Pencil => 6,
             Tool::Brush => 7,
             Tool::Eraser => 8,
@@ -90,7 +107,29 @@ impl Tool {
             Tool::RoundRect => 12,
             Tool::Bucket => 13,
             Tool::Oval => 14,
+            Tool::Curve => 15,
+            Tool::Text => 16,
+            Tool::RegularPolygon => 17,
+            Tool::Polygon => 18,
         }
+    }
+
+    /// The paint tools that work by dragging, for scripts' `drag`.
+    pub fn drag_tool(self) -> Option<crate::paint::DragTool> {
+        use crate::paint::DragTool as D;
+        Some(match self {
+            Tool::Pencil => D::Pencil,
+            Tool::Brush => D::Brush,
+            Tool::Eraser => D::Eraser,
+            Tool::Spray => D::Spray,
+            Tool::Curve => D::Curve,
+            Tool::Line | Tool::Polygon => D::Line,
+            Tool::Rect => D::Rect,
+            Tool::RoundRect => D::RoundRect,
+            Tool::Oval => D::Oval,
+            Tool::RegularPolygon => D::RegularPolygon,
+            _ => return None,
+        })
     }
 
     pub fn is_paint(self) -> bool {
@@ -102,41 +141,27 @@ impl Tool {
         let s = s.trim().to_ascii_lowercase();
         let s = s.strip_suffix(" tool").unwrap_or(&s).trim().to_string();
         if let Ok(n) = s.parse::<u32>() {
-            return Some(match n {
-                1 => Tool::Browse,
-                2 => Tool::Button,
-                3 => Tool::Field,
-                4 | 5 => Tool::Select,
-                6 | 15 => Tool::Pencil,
-                7 => Tool::Brush,
-                8 => Tool::Eraser,
-                9 | 17 | 18 => Tool::Line,
-                10 => Tool::Spray,
-                11 => Tool::Rect,
-                12 => Tool::RoundRect,
-                13 => Tool::Bucket,
-                14 => Tool::Oval,
-                16 => Tool::Browse,
-                _ => return None,
-            });
+            return Tool::ALL.iter().copied().find(|t| t.number() == n);
         }
         Some(match s.as_str() {
             "browse" => Tool::Browse,
             "button" => Tool::Button,
             "field" => Tool::Field,
-            "select" | "lasso" => Tool::Select,
-            "pencil" | "curve" => Tool::Pencil,
+            "select" => Tool::Select,
+            "lasso" => Tool::Lasso,
+            "pencil" => Tool::Pencil,
+            "curve" => Tool::Curve,
             "brush" => Tool::Brush,
             "eraser" => Tool::Eraser,
-            "line" | "poly" | "polygon" | "reg poly" | "regular polygon" | "reg polygon" | "regular poly" => {
-                Tool::Line
-            }
+            "line" => Tool::Line,
+            "poly" | "polygon" => Tool::Polygon,
+            "reg poly" | "regular polygon" | "reg polygon" | "regular poly" => Tool::RegularPolygon,
             "spray" | "spray can" => Tool::Spray,
             "rect" | "rectangle" => Tool::Rect,
             "round rect" | "round rectangle" | "roundrect" => Tool::RoundRect,
             "bucket" => Tool::Bucket,
             "oval" => Tool::Oval,
-            "text" => Tool::Browse,
+            "text" => Tool::Text,
             _ => return None,
         })
     }
@@ -222,6 +247,9 @@ pub enum UiRequest {
     SendFarther,
     Undo,
     SelectPart(ObjRef),
+    /// A Paint menu command, applied to the selection (or the whole picture).
+    PaintOp(crate::paint::PaintOp),
+    SelectAll,
     /// A key's message wasn't handled: do what the key does by default.
     Key(ObjRef, KeyAction),
 }
@@ -269,6 +297,16 @@ pub struct World {
     pub beeps: u32,
     pub fill_shapes: bool,
     pub line_size: u32,
+    /// The current paint pattern, numbered from 1.
+    pub pattern: usize,
+    pub brush: u32,
+    pub poly_sides: u32,
+    /// Font, size and style for painted text.
+    pub paint_font: String,
+    pub paint_text_size: u32,
+    pub paint_text_style: String,
+    /// Where scripts' `type` paints with the text tool (set by `click at`).
+    pub text_point: Option<(i32, i32)>,
 }
 
 impl World {
@@ -300,6 +338,13 @@ impl World {
             beeps: 0,
             fill_shapes: false,
             line_size: 1,
+            pattern: 1,
+            brush: 3,
+            poly_sides: 4,
+            paint_font: "Geneva".into(),
+            paint_text_size: 12,
+            paint_text_style: "plain".into(),
+            text_point: None,
         }
     }
 
@@ -322,5 +367,25 @@ impl World {
 
     pub fn current_layer(&self) -> Layer {
         if self.edit_bg { Layer::Background } else { Layer::Card }
+    }
+
+    /// The picture paint tools draw on: the card's, or the background's
+    /// while editing the background.
+    pub fn layer_picture_mut(&mut self) -> Option<&mut Picture> {
+        let (card, bg) = (self.card_id, self.bg_id());
+        match self.current_layer() {
+            Layer::Card => self.stack.card_mut(card).map(|c| &mut c.picture),
+            Layer::Background => self.stack.background_mut(bg).map(|b| &mut b.picture),
+        }
+    }
+
+    pub fn paint_settings(&self) -> crate::paint::Settings {
+        crate::paint::Settings {
+            line_size: self.line_size,
+            filled: self.fill_shapes,
+            pattern: self.stack.pattern(self.pattern),
+            brush: self.brush,
+            poly_sides: self.poly_sides,
+        }
     }
 }

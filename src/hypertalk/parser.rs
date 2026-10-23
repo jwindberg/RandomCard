@@ -923,6 +923,16 @@ impl Parser {
                 }
                 Cmd::ClickAt(e)
             }
+            "drag" => {
+                self.expect("from")?;
+                let from = self.list_expr()?;
+                self.expect("to")?;
+                let to = self.list_expr()?;
+                if self.accept("with") {
+                    self.list_expr()?;
+                }
+                Cmd::Drag { from, to }
+            }
             "type" => {
                 let e = self.expr()?;
                 if self.accept("with") {

@@ -284,6 +284,8 @@ pub enum Cmd {
     EditScript(Expr),
     Select(Option<Expr>),
     ClickAt(Expr),
+    /// `drag from 10,10 to 100,100`: paints with the current paint tool.
+    Drag { from: Expr, to: Expr },
     Type(Expr),
     Convert { value: Expr, to: String },
     /// `play "harpsichord" tempo 200 "c4 e g"`

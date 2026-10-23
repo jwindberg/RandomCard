@@ -400,6 +400,12 @@ impl Interp {
             "editbkgnd" => bool_str(w.edit_bg),
             "filled" => bool_str(w.fill_shapes),
             "linesize" => w.line_size.to_string(),
+            "pattern" => w.pattern.to_string(),
+            "brush" => w.brush.to_string(),
+            "polysides" => w.poly_sides.to_string(),
+            "textfont" => w.paint_font.clone(),
+            "textsize" => w.paint_text_size.to_string(),
+            "textstyle" => w.paint_text_style.clone(),
             "cursor" => "1".into(),
             "dragspeed" => "0".into(),
             "textarrows" | "blindtyping" | "powerkeys" | "usermodify" => "true".into(),
@@ -427,10 +433,17 @@ impl Interp {
             "editbkgnd" => self.w().edit_bg = to_bool(v)?,
             "filled" => self.w().fill_shapes = to_bool(v)?,
             "linesize" => self.w().line_size = to_int(v)?.clamp(1, 8) as u32,
+            "pattern" => self.w().pattern = to_int(v)?.clamp(1, 40) as usize,
+            "brush" => self.w().brush = to_int(v)?.clamp(1, 32) as u32,
+            "polysides" => self.w().poly_sides = to_int(v)?.clamp(3, 50) as u32,
+            // With no object, the text properties are those of painted text.
+            "textfont" => self.w().paint_font = v.to_string(),
+            "textsize" => self.w().paint_text_size = to_int(v)?.clamp(6, 128) as u32,
+            "textstyle" => self.w().paint_text_style = v.to_string(),
             "userlevel" | "cursor" | "dragspeed" | "textarrows" | "blindtyping" | "powerkeys" | "usermodify"
             | "lockrecent" | "grid" | "centered" | "multiple" | "language" | "messagewatcher"
-            | "variablewatcher" | "brush" | "pattern" | "polysides" | "textfont" | "textsize" | "textstyle"
-            | "textalign" | "textheight" | "scripttextfont" | "scripttextsize" | "debugger" | "scripteditor" => {}
+            | "variablewatcher" | "textalign" | "textheight" | "scripttextfont" | "scripttextsize" | "debugger"
+            | "scripteditor" => {}
             _ => return err(format!("No such property \"{name}\"")),
         }
         Ok(())

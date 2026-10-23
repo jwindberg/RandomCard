@@ -37,7 +37,7 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 | HyperTalk commands and functions | Most; gaps below |
 | System messages | Mouse, navigation, keyboard, `idle`, `doMenu`; all commands interceptable |
 | Browse, Button and Field tools | Working; no part clipboard or undo |
-| Paint tools | 10 of 18 tools, black only |
+| Paint tools | All 18 tools, patterns, Paint menu; no FatBits |
 | Fields | Plain text; no styled runs or text selection queries |
 | Visual effects | Complete |
 | Sound | `play`, notes, `dial`, `beep`; no MACE |
@@ -46,29 +46,20 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 
 ## Painting
 
-**Today:** Select (rectangle), Pencil, Brush, Eraser, Line, Spray, Rect,
-Round Rect, Bucket and Oval, in black, with a line size and a Filled option.
-One level of undo. Code: `src/ui/paint.rs` and the paint handling in
-`src/ui/mod.rs`.
+**Today:** all 18 of HyperCard's paint tools, a 40-pattern palette (imported
+stacks bring their own), 16 brush shapes, the Paint menu operations, painted
+text, multi-level undo and redo, and script-driven painting with `drag`,
+`click at` and `type`. Code: `src/paint/` and `src/ui/painting.rs`.
 
 **Missing:**
-- **Patterns.** HyperCard's 40-pattern palette was central to its look: fills,
-  brush strokes and filled shapes all used the current pattern. Stacks store
-  their patterns in the STAK block (40 × 8 bytes at block offset 0x2C0), so
-  the importer can bring them across; `the pattern` would select one. The raster functions would take
-  an 8×8 pattern instead of a single pixel value.
-- **Tools:** Lasso, Text (painted text), Curve, Regular Polygon and Polygon.
-  Today `choose` maps these names to the nearest existing tool.
-- **Paint menu:** Select All, Fill, Invert, Pickup, Darken, Lighten, Trace
-  Edges, Rotate, Flip Horizontal/Vertical, Opaque, Transparent, Scale, and
-  Revert. Most work on the current selection.
-- **FatBits** (zoomed editing) and the `grid`, `centered` and `multiple`
-  paint options.
-- **Brush shapes** (HyperCard had 32), and `the brush`, `the lineSize`
-  and `the filled` affecting script-driven painting.
-- **Script-driven painting:** `drag from … to …` and `click at` with paint
-  tools, which classic stacks used to draw.
-- **Multi-level undo.**
+- **FatBits** (zoomed pixel editing). Needs the card view to scale.
+- **Pattern editing** (double-clicking a pattern to change it) and
+  `the pattern` affecting lines and borders, which are always black.
+- **Paint menu:** Pickup, Scale, and Revert; `the grid`, `centered` and
+  `multiple` options; Shift-constrained drawing (straight lines, squares,
+  circles).
+- **A font and style menu** for the text tool. Today scripts or the message
+  box set `the textFont`, `textSize` and `textStyle` for painted text.
 
 ## Fields and text
 
@@ -197,9 +188,7 @@ and the resource chain.
 ## Suggested order
 
 1. ~~Keyboard messages and interceptable commands.~~ Done.
-2. **Paint patterns and the remaining paint tools.** The most visible gap
-   for anyone drawing; imported stacks carry their patterns in the STAK
-   block.
+2. ~~Paint patterns and the remaining paint tools.~~ Done, except FatBits.
 3. **Cut, Copy and Paste of parts, and undo for object edits.** Basic
    authoring comfort.
 4. **Selection and click functions.** Common in scripts that react to

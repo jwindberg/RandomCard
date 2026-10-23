@@ -4,9 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+ab_glyph = "0.2.32"
 base64 = "0.23.1"
 chrono = "0.4.45"
 eframe = "0.37.0"
+epaint_default_fonts = "0.37.0"
 rand = "0.10.3"
 rfd = "0.17.2"
 rodio = { version = "0.23.0", default-features = false, features = ["playback"] }

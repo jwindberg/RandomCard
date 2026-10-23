@@ -422,3 +422,28 @@ fn keyboard_messages() {
     assert!(key(&mut i, "commandKeyDown", &["n"], KeyAction::Menu("New Card".into())).is_empty());
     assert_eq!(lock(&i.world).stack.cards.len(), before + 1);
 }
+
+#[test]
+fn script_painting() {
+    use crate::model::Pixel;
+    let mut i = interp_with(stack());
+    let pixel = |i: &Interp, x: i32, y: i32| lock(&i.world).stack.cards[0].picture.get(x, y);
+    // drag with the line tool paints a line.
+    run(&mut i, "choose line tool\ndrag from 10,10 to 50,10");
+    assert_eq!(pixel(&i, 30, 10), Pixel::Black);
+    // Filled rectangles use the current pattern inside.
+    run(&mut i, "choose rectangle tool\nset the filled to true\nset the pattern to 2\ndrag from 100,100 to 140,140");
+    assert_eq!((pixel(&i, 100, 120), pixel(&i, 120, 120)), (Pixel::Black, Pixel::White));
+    // click at with the bucket fills with the pattern (black).
+    run(&mut i, "set the pattern to 1\nchoose bucket tool\nclick at 120,120");
+    assert_eq!(pixel(&i, 120, 120), Pixel::Black);
+    // The text tool: click to place, then type paints text.
+    run(&mut i, "choose text tool\nset the textSize to 24\nclick at 200,200\ntype \"Hi\"");
+    let w = lock(&i.world);
+    let pic = &w.stack.cards[0].picture;
+    let inked = (200..240).flat_map(|x| (200..230).map(move |y| (x, y))).filter(|(x, y)| pic.get(*x, *y) == Pixel::Black).count();
+    assert!(inked > 20, "{inked}");
+    drop(w);
+    assert_eq!(run(&mut i, "put the pattern & \",\" & the textSize & \",\" & the tool"), "1,24,text tool");
+    assert_eq!(run(&mut i, "set the polySides to 6\nset the brush to 9\nput the polySides && the brush"), "6 9");
+}

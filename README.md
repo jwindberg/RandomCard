@@ -61,9 +61,15 @@ HyperCard 2.x. Private-access stacks import, since only the stack header is
 encrypted. Scripts that use menus, palettes or other windows parse, but
 those commands do nothing.
 
-**Tools.** Browse, Button, Field, and the paint tools: Select, Pencil, Brush,
-Eraser, Line, Spray, Rect, Round Rect, Bucket and Oval, with a Filled option
-and line sizes. With the Button or Field tool you can drag to move, drag the
+**Tools.** Browse, Button, Field, and HyperCard's paint tools: Select,
+Lasso, Pencil, Brush, Eraser, Line, Spray, Rect, Round Rect, Bucket, Oval,
+Curve, Text, Regular Polygon and Polygon. Brush, spray, bucket and filled
+shapes paint with the current pattern from a 40-pattern palette (imported
+stacks bring their own patterns). There are 16 brush shapes, line sizes, a
+Filled option, and the number of sides for regular polygons. The Paint menu
+has Select All, Fill, Invert, Darken, Lighten, Trace Edges, Rotate,
+Flip, Opaque and Transparent, applied to the selection or the whole
+picture. Painting has multi-level undo and redo (Ctrl+Z, Ctrl+Shift+Z). With the Button or Field tool you can drag to move, drag the
 corner to resize, double-click for the Info dialog, Ctrl-drag to create, and
 press Delete to remove. Paint tools draw on whichever layer you are editing.
 Edit ▸ Background (Ctrl+B) switches to the background layer.
@@ -96,6 +102,11 @@ stack. Messages travel the HyperCard message path (part → card → background
   width, height, visible, style, hilite, autoHilite, textFont, textSize,
   textStyle, textAlign, lockText, script, contents, marked, showPict,
   itemDelimiter, numberFormat, lockScreen, lockMessages, and more.
+- Painting from scripts: `choose oval tool`, `set the pattern to 3`,
+  `set the filled to true`, `drag from 10,10 to 100,80`, `click at` (a
+  bucket fill, a pencil dot, or placing the text tool), and `type` with the
+  text tool paints text in `the textFont`, `textSize` and `textStyle`.
+  `the brush`, `the lineSize` and `the polySides` work too.
 - Commands: put, get, set, add, subtract, multiply, divide, answer, ask
   (including password and file variants), go (including back and forth),
   find (normal, whole, word, chars and string), sort (lines, items or cards,
@@ -167,6 +178,8 @@ src/
   hypertalk/   lexer, parser, syntax tree, values and chunk expressions
   runtime/     shared World state, interpreter, objects and properties,
                commands, functions, dates; end-to-end tests
+  paint/       raster painting: patterns, brushes, shapes, fills, selections,
+               Paint menu operations, painted text
   sound/       note parsing, rendering, built-in voices and audio output
   ui/          egui app: menus, palette, card rendering, transitions,
                paint tools, info dialogs, script editor

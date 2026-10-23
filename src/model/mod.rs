@@ -350,11 +350,18 @@ pub struct Stack {
     pub icons: BTreeMap<i32, Icon>,
     /// Sounds by resource id; scripts play them by name.
     pub sounds: BTreeMap<i32, Sound>,
+    /// The paint pattern palette: 40 patterns of 8 rows, numbered from 1.
+    #[serde(default = "default_patterns")]
+    pub patterns: Vec<[u8; 8]>,
     #[serde(skip)]
     pub path: Option<PathBuf>,
     /// The original HyperCard file this stack was imported from, until saved.
     #[serde(skip)]
     pub imported_from: Option<PathBuf>,
+}
+
+fn default_patterns() -> Vec<[u8; 8]> {
+    crate::paint::DEFAULT_PATTERNS.to_vec()
 }
 
 impl Default for Stack {
@@ -380,6 +387,7 @@ impl Stack {
             cant_modify: false,
             icons: BTreeMap::new(),
             sounds: BTreeMap::new(),
+            patterns: default_patterns(),
             path: None,
             imported_from: None,
         }
@@ -405,6 +413,11 @@ impl Stack {
             .values()
             .find(|s| s.name.eq_ignore_ascii_case(t))
             .or_else(|| t.parse::<i32>().ok().and_then(|id| self.sounds.get(&id)))
+    }
+
+    /// Pattern `n` (numbered from 1), or black if there's no such pattern.
+    pub fn pattern(&self, n: usize) -> [u8; 8] {
+        self.patterns.get(n.wrapping_sub(1)).copied().unwrap_or([0xff; 8])
     }
 
     pub fn alloc_id(&mut self) -> Id {
