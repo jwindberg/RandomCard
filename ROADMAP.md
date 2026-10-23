@@ -27,6 +27,9 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
   painting behave as in HyperCard. The paint layer stays black and white
   for now (imported pictures and patterns depend on it); colour would be
   an addition, not a change to the model.
+- **A stack runs the way its author set it up.** Using a stack and authoring
+  one are different activities. Opening a stack should behave as it would
+  have in HyperCard, including its user level and protection.
 
 ## Status at a glance
 
@@ -36,13 +39,85 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 | HyperTalk core (handlers, message path, chunks, control flow) | Complete |
 | HyperTalk commands and functions | Most; gaps below |
 | System messages | Mouse, navigation, keyboard, `idle`, `doMenu`; all commands interceptable |
-| Browse, Button and Field tools | Working; no part clipboard or undo |
+| Browse, Button and Field tools | Working, with clipboard and undo |
 | Paint tools | All 18 tools, patterns, Paint menu; no FatBits |
 | Fields | Plain text; no styled runs or text selection queries |
 | Visual effects | Complete |
 | Sound | `play`, notes, `dial`, `beep`; no MACE |
 | HyperCard 2.x import | Structure, pictures, parts, text, scripts, icons, sounds |
+| User levels and stack protection | Missing: always behaves as level 5 |
 | Multiple stacks, menus, printing, externals | Missing |
+
+## Using and authoring stacks
+
+HyperCard separated using a stack from building one, and stacks depended on
+it. An address book let people add, edit and delete addresses without being
+able to move a field, add a button or read a script. RandomCard has no such
+separation yet: it always behaves as at the highest user level, the tool
+palette is always on screen, and protection settings in imported stacks are
+kept but ignored.
+
+**HyperCard's model.** Five user levels, each unlocking more:
+
+| Level | Name | Adds |
+| --- | --- | --- |
+| 1 | Browsing | Clicking buttons and navigating; fields can't be typed in |
+| 2 | Typing | Typing and editing text in fields |
+| 3 | Painting | The paint tools, and the Paint, Options and Patterns menus |
+| 4 | Authoring | The Button and Field tools, the Objects menu and Info dialogs |
+| 5 | Scripting | Opening and editing scripts |
+
+The level was a setting of HyperCard itself (kept in the Home stack), and
+stacks commonly set it on opening, such as `set the userLevel to 2` in
+`openStack`. **Protect Stack** limited the highest level a user could reach
+and could require a password to change that; it also covered
+`cantModify` (no changes saved), `cantDelete`, `cantPeek` (no peeking at
+scripts or button outlines), `cantAbort` (no Command-period) and private
+access (a password to open the stack at all). Stacks could also hide the
+menu bar or replace HyperCard's menus with their own.
+
+**Goals:**
+- **Opening a stack behaves as in HyperCard.** Its `openStack` handler runs
+  and the user level it sets takes effect; its protection limits what the
+  user can raise the level to; `the userLevel` returns the real level.
+  Imported stacks keep their protection (the STAK block holds the level
+  limit, password hash and flags; private-access stacks need the password,
+  and HyperCardPreview's decrypter, MIT licensed, shows how).
+- **The interface follows the level.** At levels 1 and 2 the user sees the
+  card, the Go menu and the stack's own buttons: no tools, no Objects or
+  Paint menus. Each higher level brings back what it unlocks. Which commands
+  each level allows should follow HyperCard's documented behaviour.
+- **HyperCard's menu structure:** File, Edit, Go, Tools and Objects (as the
+  level allows), Font and Style while editing text, and Paint, Options and
+  Patterns while a paint tool is active. Menu item names matter because
+  scripts call them with `doMenu`.
+- **Floating palettes.** The tool and pattern palettes become windows
+  opened from the Tools menu, like HyperCard's tear-off palettes: hidden by
+  default, movable, and available only at levels that allow them. This
+  replaces the always-visible docked panel, which duplicates the Tools menu.
+- **Protect Stack:** a dialog to set the user-level limit, `cantModify`,
+  `cantDelete`, `cantPeek`, `cantAbort` and a password, which is then needed
+  to change protection or exceed the limit. `cantModify` stops changes being
+  saved, `cantPeek` disables peeking at scripts and button outlines, and
+  `cantAbort` disables Ctrl+period. Today Ctrl+Space shows a hidden menu bar
+  again, which should respect protection too.
+- **A way in for authors:** RandomCard's own user level as a preference
+  (HyperCard kept it in the Home stack), and a command to raise it for the
+  current stack, asking for the stack's password if it has one.
+
+**What protection can and can't do.** It keeps a stack's users from
+changing it by accident or casually. It isn't security: a `.rcstack` file
+is JSON that anyone can edit in a text editor, much as HyperCard's
+protection could be worked around. Real secrecy would need the stack file
+to be encrypted (as HyperCard's private access did for its header).
+
+**Decisions still open:**
+- The default user level when RandomCard starts, and for stacks that don't
+  set one: HyperCard took it from Home (authors usually ran at 5, while the
+  free HyperCard Player effectively limited users). Options include
+  defaulting to 5 and letting stacks lower it, or a "use / author" choice.
+- Whether the docked palette stays available as an option.
+- Whether the message box also becomes a floating window.
 
 ## Painting
 
@@ -131,10 +206,7 @@ sample stacks parse.
   shared script libraries.
 - **References to other stacks:** `card 1 of stack "X"` currently ignores
   the stack part, and objects in other stacks can't be counted or read.
-- **User levels** (Browsing, Typing, Painting, Authoring, Scripting) and
-  `the userLevel` actually restricting the UI.
-- **Protect Stack:** passwords, `cantPeek`, `cantAbort`, private access.
-  Imported values are kept but not enforced.
+- **User levels and Protect Stack:** see "Using and authoring stacks".
 - **Card size** changes (`set the rect of card window`), and **Compact Stack**.
 - **Recent cards** view (the Recent dialog) and a **Find dialog**
   (Ctrl+F) in the UI; `find` works from scripts and the message box.
@@ -152,7 +224,8 @@ sample stacks parse.
   HyperCard's text metrics would fix that without changing the look.
 - **Script editor:** find and replace, go to line, and syntax colouring,
   using egui's standard text-editing features.
-- **Font and Style menus**, and a **Home menu**.
+- **Font and Style menus:** part of the menu restructuring in "Using and
+  authoring stacks". A **Home menu** belongs with Home stack support.
 - **Printing** of cards and reports.
 
 ## Importing HyperCard stacks
@@ -191,11 +264,16 @@ and the resource chain.
 1. ~~Keyboard messages and interceptable commands.~~ Done.
 2. ~~Paint patterns and the remaining paint tools.~~ Done, except FatBits.
 3. ~~Cut, Copy and Paste of parts, and undo for object edits.~~ Done.
-4. **Selection and click functions.** Common in scripts that react to
+4. **Using and authoring stacks:** user levels driving the interface,
+   HyperCard's menu structure, floating palettes, and Protect Stack with
+   passwords. Opening a stack should behave as it did in HyperCard. Settle
+   the open decisions in that section first.
+5. **Selection and click functions.** Common in scripts that react to
    clicks in fields.
-5. **Styled text.** Needed for faithful imports and chunk properties.
-6. **Script-modifiable menus.** Many stacks add their own menus.
-7. **Multiple stacks, Home, and `start using`.** Larger architectural
+6. **Styled text.** Needed for faithful imports and chunk properties.
+7. **Script-modifiable menus.** Many stacks add their own menus; builds on
+   the menu restructuring in item 4.
+8. **Multiple stacks, Home, and `start using`.** Larger architectural
    change to `World` and the message path.
-8. **HyperCard 1.x import, MACE, AddColor.**
-9. **Font metrics, user levels, printing, the debugger.**
+9. **HyperCard 1.x import, MACE, AddColor.**
+10. **Font metrics, printing, the debugger.**
