@@ -1,5 +1,6 @@
 //! The RandomCard window: menus, tool palette, the card, and the message box.
 
+mod editing;
 mod painting;
 mod render;
 mod windows;
@@ -12,7 +13,7 @@ use eframe::egui::{
     TextureHandle, Vec2,
 };
 
-use crate::model::{Id, Layer, Part, PartKind, PartStyle, Picture, Rect as CardRect, Stack};
+use crate::model::{Layer, Part, PartKind, PartStyle, Rect as CardRect, Stack};
 use crate::runtime::world::{Event, KeyAction, ObjRef, Tool, UiRequest, World, lock};
 use crate::runtime::{self, Runtime};
 use render::{Scene, Textures};
@@ -56,6 +57,7 @@ struct PartDrag {
     rect: CardRect,
 }
 
+use editing::{Clip, Order};
 use painting::{Marquee, PaintStroke, TextEntry};
 
 pub struct App {
@@ -79,9 +81,7 @@ pub struct App {
     selected: Option<ObjRef>,
     part_drag: Option<PartDrag>,
     stroke: Option<PaintStroke>,
-    /// Paint undo and redo: pictures as they were, newest last.
-    undo: Vec<(Layer, Id, Picture)>,
-    redo: Vec<(Layer, Id, Picture)>,
+    clipboard: Option<Clip>,
     marquee: Option<Marquee>,
     /// Polygon tool: the corners placed so far.
     polygon: Option<Vec<(i32, i32)>>,
@@ -126,8 +126,7 @@ impl App {
             selected: None,
             part_drag: None,
             stroke: None,
-            undo: Vec::new(),
-            redo: Vec::new(),
+            clipboard: None,
             marquee: None,
             polygon: None,
             text_entry: None,
@@ -177,11 +176,32 @@ impl App {
                 }
             });
             ui.menu_button("Edit", |ui| {
-                if ui.add_enabled(!self.undo.is_empty(), egui::Button::new("Undo Paint")).clicked() {
-                    self.undo_paint();
+                let (can_undo, can_redo) = {
+                    let w = self.world();
+                    (!w.undo.is_empty(), !w.redo.is_empty())
+                };
+                if ui.add_enabled(can_undo, egui::Button::new("Undo")).clicked() {
+                    self.undo();
                 }
-                if ui.add_enabled(!self.redo.is_empty(), egui::Button::new("Redo Paint")).clicked() {
-                    self.redo_paint();
+                if ui.add_enabled(can_redo, egui::Button::new("Redo")).clicked() {
+                    self.redo();
+                }
+                ui.separator();
+                // Cut, Copy and Clear name what they act on, as in HyperCard.
+                let target = self.edit_target_name();
+                for verb in ["Cut", "Copy", "Clear"] {
+                    let label = match target {
+                        Some(t) if !(verb == "Clear" && t == "Picture") => format!("{verb} {t}"),
+                        _ => verb.to_string(),
+                    };
+                    if ui.add_enabled(target.is_some(), egui::Button::new(&label)).clicked() {
+                        self.do_menu(&label);
+                    }
+                }
+                let paste = self.paste_name();
+                let label = paste.map(|t| format!("Paste {t}")).unwrap_or_else(|| "Paste".into());
+                if ui.add_enabled(paste.is_some(), egui::Button::new(&label)).clicked() {
+                    self.do_menu(&label);
                 }
                 ui.separator();
                 for item in ["New Card", "Delete Card", "Cut Card", "Copy Card", "Paste Card"] {
@@ -194,7 +214,6 @@ impl App {
                     self.do_menu("Background");
                 }
                 if ui.button("Clear Picture").clicked() {
-                    self.push_undo();
                     self.do_menu("Clear Picture");
                 }
             });
@@ -240,7 +259,7 @@ impl App {
                     }
                 }
                 ui.separator();
-                for item in ["Bring Closer", "Send Farther"] {
+                for item in ["Bring Closer", "Send Farther", "Bring to Front", "Send to Back"] {
                     if ui.button(item).clicked() {
                         self.do_menu(item);
                     }
@@ -359,25 +378,13 @@ impl App {
                 UiRequest::ScriptError { msg, obj, line } => {
                     self.error = Some(ErrorAlert { msg, obj, line });
                 }
-                UiRequest::BringCloser | UiRequest::SendFarther => {
-                    let closer = matches!(r, UiRequest::BringCloser);
-                    if let Some(ObjRef::Part { layer, id, card }) = self.selected {
-                        let mut w = self.world();
-                        let bg = w.bg_id();
-                        let parts = match layer {
-                            Layer::Card => w.stack.card_mut(card).map(|c| &mut c.parts),
-                            Layer::Background => w.stack.background_mut(bg).map(|b| &mut b.parts),
-                        };
-                        if let Some(parts) = parts
-                            && let Some(i) = parts.iter().position(|p| p.id == id)
-                        {
-                            let j = if closer { (i + 1).min(parts.len() - 1) } else { i.saturating_sub(1) };
-                            parts.swap(i, j);
-                            w.dirty = true;
-                        }
-                    }
-                }
-                UiRequest::Undo => self.undo_paint(),
+                UiRequest::BringCloser => self.reorder_selected(Order::Closer),
+                UiRequest::SendFarther => self.reorder_selected(Order::Farther),
+                UiRequest::BringToFront => self.reorder_selected(Order::Front),
+                UiRequest::SendToBack => self.reorder_selected(Order::Back),
+                UiRequest::Edit(op) => self.edit_command(op),
+                UiRequest::Redo => self.redo(),
+                UiRequest::Undo => self.undo(),
                 UiRequest::SelectPart(o) => self.selected = Some(o),
                 UiRequest::Key(target, action) => self.key_action(ctx, target, action),
                 UiRequest::PaintOp(op) => self.apply_paint_op(op),
@@ -407,8 +414,6 @@ impl App {
         self.marquee = None;
         self.polygon = None;
         self.text_entry = None;
-        self.undo.clear();
-        self.redo.clear();
         self.infos.clear();
         self.editors.clear();
     }
@@ -490,12 +495,36 @@ impl App {
             let mut w = self.world();
             w.menubar_visible = !w.menubar_visible;
         }
-        let redo = KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
-        if !ctx.egui_wants_keyboard_input() && ctx.input_mut(|i| i.consume_shortcut(&redo)) {
-            self.redo_paint();
-        }
-        if !ctx.egui_wants_keyboard_input() && ctx.input_mut(|i| i.consume_shortcut(&cmd(Key::Z))) {
-            self.command_key(ctx, "z", KeyAction::Undo);
+        // Undo, redo and the clipboard, when not typing (text fields have their own).
+        if !ctx.egui_wants_keyboard_input() {
+            let redo = KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
+            let edit_keys = [
+                (redo, "Z", KeyAction::Redo),
+                (cmd(Key::Z), "z", KeyAction::Undo),
+                (cmd(Key::X), "x", KeyAction::Menu("Cut".into())),
+                (cmd(Key::C), "c", KeyAction::Menu("Copy".into())),
+                (cmd(Key::V), "v", KeyAction::Menu("Paste".into())),
+            ];
+            for (shortcut, ch, action) in edit_keys {
+                if ctx.input_mut(|i| i.consume_shortcut(&shortcut)) {
+                    self.command_key(ctx, ch, action);
+                }
+            }
+            // The platform layer usually delivers Ctrl+X/C/V as clipboard events.
+            let clipboard_ops: Vec<(&str, &str)> = ctx.input(|i| {
+                i.events
+                    .iter()
+                    .filter_map(|e| match e {
+                        egui::Event::Cut => Some(("x", "Cut")),
+                        egui::Event::Copy => Some(("c", "Copy")),
+                        egui::Event::Paste(_) => Some(("v", "Paste")),
+                        _ => None,
+                    })
+                    .collect()
+            });
+            for (ch, item) in clipboard_ops {
+                self.command_key(ctx, ch, KeyAction::Menu(item.into()));
+            }
         }
         if ctx.egui_wants_keyboard_input() {
             return;
@@ -692,7 +721,8 @@ impl App {
                 }
             }
             KeyAction::Menu(item) => self.do_menu(&item),
-            KeyAction::Undo => self.undo_paint(),
+            KeyAction::Undo => self.undo(),
+            KeyAction::Redo => self.redo(),
             KeyAction::Nothing => {}
         }
     }
@@ -751,6 +781,7 @@ impl App {
     fn delete_part(&mut self, obj: ObjRef) {
         let ObjRef::Part { layer, id, card } = obj else { return };
         let mut w = self.world();
+        w.record_parts(layer);
         let bg = w.bg_id();
         let parts = match layer {
             Layer::Card => w.stack.card_mut(card).map(|c| &mut c.parts),
@@ -790,6 +821,9 @@ impl App {
                     let near_corner = (p.0 - r.right).abs() <= 6 && (p.1 - r.bottom).abs() <= 6;
                     let kind = if near_corner { DragKind::Resize } else { DragKind::Move };
                     if resp.drag_started_by(PointerButton::Primary) {
+                        if let ObjRef::Part { layer, .. } = pv.obj {
+                            self.world().record_parts(layer);
+                        }
                         self.part_drag = Some(PartDrag { obj: pv.obj, kind, start: p, rect: r });
                     }
                 }
@@ -829,8 +863,9 @@ impl App {
 
     fn create_part(&mut self, kind: PartKind, rect: CardRect) -> ObjRef {
         let mut w = self.world();
-        let id = w.stack.alloc_id();
         let layer = w.current_layer();
+        w.record_parts(layer);
+        let id = w.stack.alloc_id();
         let (card, bg) = (w.card_id, w.bg_id());
         let n = w.stack.parts(card, layer).iter().filter(|p| p.kind == kind).count() + 1;
         let part = match kind {

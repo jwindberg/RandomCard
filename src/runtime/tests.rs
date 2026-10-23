@@ -447,3 +447,39 @@ fn script_painting() {
     assert_eq!(run(&mut i, "put the pattern & \",\" & the textSize & \",\" & the tool"), "1,24,text tool");
     assert_eq!(run(&mut i, "set the polySides to 6\nset the brush to 9\nput the polySides && the brush"), "6 9");
 }
+
+#[test]
+fn undo_card_and_part_edits() {
+    use super::world::EditOp;
+    let mut i = interp_with(stack());
+    let undo = |i: &Interp| lock(&i.world).undo();
+    let cards = |i: &Interp| lock(&i.world).stack.cards.len();
+    // New Card, then undo removes it and redo brings it back.
+    run(&mut i, "doMenu \"New Card\"");
+    assert_eq!(cards(&i), 4);
+    assert!(undo(&i));
+    assert_eq!(cards(&i), 3);
+    assert_eq!(run(&mut i, "put the number of this card"), "1");
+    assert!(lock(&i.world).redo());
+    assert_eq!(cards(&i), 4);
+    // Delete Card, then undo restores it with its contents.
+    run(&mut i, "go to card \"Two\"\ndoMenu \"Delete Card\"");
+    assert_eq!(run(&mut i, "put there is a card \"Two\""), "false");
+    assert!(undo(&i));
+    assert_eq!(run(&mut i, "put field \"Name\" of card \"Two\""), "banana");
+    // Deleting a part from a script can be undone too.
+    run(&mut i, "go to card 1\ndelete button \"Go\"");
+    assert_eq!(run(&mut i, "put there is a button \"Go\""), "false");
+    assert!(undo(&i));
+    assert_eq!(run(&mut i, "put there is a button \"Go\""), "true");
+    // Clear Picture is undoable.
+    run(&mut i, "choose line tool\ndrag from 0,0 to 20,0\ndoMenu \"Clear Picture\"");
+    assert!(lock(&i.world).stack.cards[0].picture.is_blank());
+    assert!(undo(&i));
+    assert!(!lock(&i.world).stack.cards[0].picture.is_blank());
+    // Cut/Copy/Paste/Clear go to the UI, which knows the selection.
+    lock(&i.world).requests.clear();
+    i.handle_event(Event::MsgBox("doMenu \"Copy Button\"\ndoMenu \"paste\"".into()));
+    let reqs = std::mem::take(&mut lock(&i.world).requests);
+    assert!(matches!(&reqs[..], [UiRequest::Edit(EditOp::Copy), UiRequest::Edit(EditOp::Paste)]), "{reqs:?}");
+}

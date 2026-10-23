@@ -210,6 +210,14 @@ pub enum DialogReply {
     Text(Option<String>),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EditOp {
+    Cut,
+    Copy,
+    Paste,
+    Clear,
+}
+
 /// What a key does when no script handles its message.
 #[derive(Clone, Debug, PartialEq)]
 pub enum KeyAction {
@@ -226,6 +234,7 @@ pub enum KeyAction {
     /// Do a menu command (for command-key shortcuts).
     Menu(String),
     Undo,
+    Redo,
     Nothing,
 }
 
@@ -245,7 +254,12 @@ pub enum UiRequest {
     ScriptError { msg: String, obj: Option<ObjRef>, line: Option<usize> },
     BringCloser,
     SendFarther,
+    BringToFront,
+    SendToBack,
+    /// Cut, Copy, Paste or Clear of the selected part or picture.
+    Edit(EditOp),
     Undo,
+    Redo,
     SelectPart(ObjRef),
     /// A Paint menu command, applied to the selection (or the whole picture).
     PaintOp(crate::paint::PaintOp),
@@ -307,6 +321,9 @@ pub struct World {
     pub paint_text_style: String,
     /// Where scripts' `type` paints with the text tool (set by `click at`).
     pub text_point: Option<(i32, i32)>,
+    /// Undo and redo history (see `undo.rs`).
+    pub undo: Vec<super::undo::UndoEntry>,
+    pub redo: Vec<super::undo::UndoEntry>,
 }
 
 impl World {
@@ -345,6 +362,8 @@ impl World {
             paint_text_size: 12,
             paint_text_style: "plain".into(),
             text_point: None,
+            undo: Vec::new(),
+            redo: Vec::new(),
         }
     }
 

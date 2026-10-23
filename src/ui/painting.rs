@@ -5,13 +5,11 @@ use eframe::egui::{
     Vec2,
 };
 
-use crate::model::{Layer, Picture, Pixel};
+use crate::model::{Picture, Pixel};
 use crate::paint::{self, Ink, PaintOp, Region};
 use crate::runtime::world::Tool;
 
 use super::{App, render, windows};
-
-const MAX_UNDO: usize = 30;
 
 pub struct PaintStroke {
     start: (i32, i32),
@@ -196,61 +194,9 @@ impl App {
         Some(r)
     }
 
-    fn layer_owner(&self) -> (Layer, crate::model::Id) {
-        let w = self.world();
-        let layer = w.current_layer();
-        (layer, if layer == Layer::Card { w.card_id } else { w.bg_id() })
-    }
-
-    fn picture_of(&self, layer: Layer, owner: crate::model::Id) -> Option<Picture> {
-        let w = self.world();
-        match layer {
-            Layer::Card => w.stack.card(owner).map(|c| c.picture.clone()),
-            Layer::Background => w.stack.background(owner).map(|b| b.picture.clone()),
-        }
-    }
-
-    fn put_picture(&self, layer: Layer, owner: crate::model::Id, pic: Picture) {
-        let mut w = self.world();
-        let slot = match layer {
-            Layer::Card => w.stack.card_mut(owner).map(|c| &mut c.picture),
-            Layer::Background => w.stack.background_mut(owner).map(|b| &mut b.picture),
-        };
-        if let Some(slot) = slot {
-            *slot = pic;
-        }
-        w.picture_rev += 1;
-        w.dirty = true;
-    }
-
     /// Remember the current picture before changing it.
     pub(super) fn push_undo(&mut self) {
-        let (layer, owner) = self.layer_owner();
-        if let Some(pic) = self.picture_of(layer, owner) {
-            self.undo.push((layer, owner, pic));
-            if self.undo.len() > MAX_UNDO {
-                self.undo.remove(0);
-            }
-            self.redo.clear();
-        }
-    }
-
-    pub(super) fn undo_paint(&mut self) {
-        self.commit_marquee();
-        let Some((layer, owner, pic)) = self.undo.pop() else { return };
-        if let Some(current) = self.picture_of(layer, owner) {
-            self.redo.push((layer, owner, current));
-        }
-        self.put_picture(layer, owner, pic);
-        self.marquee = None;
-    }
-
-    pub(super) fn redo_paint(&mut self) {
-        let Some((layer, owner, pic)) = self.redo.pop() else { return };
-        if let Some(current) = self.picture_of(layer, owner) {
-            self.undo.push((layer, owner, current));
-        }
-        self.put_picture(layer, owner, pic);
+        self.world().record_picture();
     }
 
     // ----- tools -----

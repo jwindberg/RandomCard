@@ -142,9 +142,10 @@ sample stacks parse.
 ## Editing and the UI
 
 **Missing:**
-- **Cut, Copy and Paste of buttons and fields** (cards have them).
-- **Undo** for object edits (moving, resizing, deleting parts and cards).
-- **Bring to Front / Send to Back** (only one step closer or farther now).
+- **Undo for Info dialog changes** and for script edits; the undo history
+  covers painting, parts and cards.
+- **The system clipboard:** cut and copied parts and pictures stay inside
+  RandomCard rather than going to the desktop clipboard.
 - **Font metrics:** text uses egui's fonts rather than HyperCard's bitmap
   fonts, which is intended. It runs slightly larger than the originals, so
   some imported fields show less text than they did; matching font sizes to
@@ -189,8 +190,7 @@ and the resource chain.
 
 1. ~~Keyboard messages and interceptable commands.~~ Done.
 2. ~~Paint patterns and the remaining paint tools.~~ Done, except FatBits.
-3. **Cut, Copy and Paste of parts, and undo for object edits.** Basic
-   authoring comfort.
+3. ~~Cut, Copy and Paste of parts, and undo for object edits.~~ Done.
 4. **Selection and click functions.** Common in scripts that react to
    clicks in fields.
 5. **Styled text.** Needed for faithful imports and chunk properties.

@@ -9,7 +9,8 @@ use crate::model::{Background, Card, Id, Layer, Part, PartKind, Picture, Rect};
 
 use super::dates;
 use super::interp::{Ctl, Interp, OpenFile, R, err, to_int, to_number};
-use super::world::{Dialog, DialogReply, Found, ObjRef, Tool, Transition, UiRequest};
+use super::undo::UndoEntry;
+use super::world::{Dialog, DialogReply, EditOp, Found, ObjRef, Tool, Transition, UiRequest};
 
 impl Interp {
     pub fn command(&mut self, c: &Cmd) -> R<()> {
@@ -1068,6 +1069,7 @@ impl Interp {
                 };
                 self.send_system(ObjRef::Part { layer, id, card }, msg)?;
                 let mut w = self.w();
+                w.record_parts(layer);
                 let bg = w.bg_id();
                 let parts = match layer {
                     Layer::Card => w.stack.card_mut(card).map(|c| &mut c.parts),
@@ -1101,6 +1103,7 @@ impl Interp {
             return err("This card can't be deleted (cantDelete is true)");
         }
         self.send_system(ObjRef::Card(id), "deleteCard")?;
+        self.w().record_card_deleted(id);
         let current = self.w().card_id;
         if current == id {
             let idx = self.w().stack.card_index(id).unwrap_or(0);
@@ -1139,6 +1142,7 @@ impl Interp {
                     let picture = Picture::new(width, height);
                     let card = Card { id, background: bg, picture, show_pict: true, ..Card::default() };
                     w.stack.cards.insert(idx + 1, card);
+                    w.record(UndoEntry::CardAdded { id });
                     w.dirty = true;
                     id
                 };
@@ -1175,6 +1179,7 @@ impl Interp {
                     let idx = w.card_index();
                     let id = card.id;
                     w.stack.cards.insert(idx + 1, card);
+                    w.record(UndoEntry::CardAdded { id });
                     w.dirty = true;
                     id
                 };
@@ -1197,6 +1202,7 @@ impl Interp {
                         idx + 1,
                         Card { id, background: bg, picture: Picture::new(width, height), show_pict: true, ..Card::default() },
                     );
+                    w.record(UndoEntry::CardAdded { id });
                     w.dirty = true;
                     (id, bg)
                 };
@@ -1212,6 +1218,7 @@ impl Interp {
                     let id = w.stack.alloc_id();
                     let card = w.card_id;
                     let bg = w.bg_id();
+                    w.record_parts(layer);
                     let part = match kind {
                         PartKind::Button => {
                             Part::new_button(id, "New Button", Rect::new(cw / 2 - 60, ch / 2 - 12, cw / 2 + 60, ch / 2 + 12))
@@ -1290,7 +1297,13 @@ impl Interp {
             "stack script" => self.request(UiRequest::EditScript(ObjRef::Stack)),
             "bring closer" => self.request(UiRequest::BringCloser),
             "send farther" => self.request(UiRequest::SendFarther),
+            "bring to front" => self.request(UiRequest::BringToFront),
+            "send to back" => self.request(UiRequest::SendToBack),
             "undo" => self.request(UiRequest::Undo),
+            "redo" => self.request(UiRequest::Redo),
+            // Cut, Copy, Paste and Clear act on the selected part or picture,
+            // e.g. "Copy Button", "Paste Field", "Clear Picture".
+            _ if edit_op(&key).is_some() => self.request(UiRequest::Edit(edit_op(&key).unwrap())),
             "browse" | "button" | "field" | "select" | "pencil" | "brush" | "eraser" | "line" | "spray"
             | "spray can" | "rectangle" | "round rect" | "bucket" | "oval" => {
                 let tool = Tool::parse(&key).unwrap_or(Tool::Browse);
@@ -1305,19 +1318,9 @@ impl Interp {
             }
             "clear picture" => {
                 let mut w = self.w();
-                let layer = w.current_layer();
-                let (card, bg) = (w.card_id, w.bg_id());
-                match layer {
-                    Layer::Card => {
-                        if let Some(c) = w.stack.card_mut(card) {
-                            c.picture.clear();
-                        }
-                    }
-                    Layer::Background => {
-                        if let Some(b) = w.stack.background_mut(bg) {
-                            b.picture.clear();
-                        }
-                    }
+                w.record_picture();
+                if let Some(pic) = w.layer_picture_mut() {
+                    pic.clear();
                 }
                 w.picture_rev += 1;
                 w.dirty = true;
@@ -1360,6 +1363,23 @@ impl Interp {
         w.stack.path = Some(path);
         w.dirty = false;
         Ok(())
+    }
+}
+
+fn edit_op(item: &str) -> Option<EditOp> {
+    let mut words = item.split_whitespace();
+    let op = match words.next()? {
+        "cut" => EditOp::Cut,
+        "copy" => EditOp::Copy,
+        "paste" => EditOp::Paste,
+        "clear" => EditOp::Clear,
+        _ => return None,
+    };
+    match words.next() {
+        // "Clear Picture" erases the whole picture (see perform_menu).
+        Some("picture") if op == EditOp::Clear => None,
+        None | Some("button" | "field" | "picture") if words.next().is_none() => Some(op),
+        _ => None,
     }
 }
 

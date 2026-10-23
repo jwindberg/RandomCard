@@ -69,7 +69,16 @@ stacks bring their own patterns). There are 16 brush shapes, line sizes, a
 Filled option, and the number of sides for regular polygons. The Paint menu
 has Select All, Fill, Invert, Darken, Lighten, Trace Edges, Rotate,
 Flip, Opaque and Transparent, applied to the selection or the whole
-picture. Painting has multi-level undo and redo (Ctrl+Z, Ctrl+Shift+Z). With the Button or Field tool you can drag to move, drag the
+picture.
+
+**Editing.** The Edit menu's Cut, Copy, Paste and Clear act on the
+selected button or field (with the Button or Field tool) or the paint
+selection, as in HyperCard ("Copy Button", "Paste Picture"), and scripts
+can use them with `doMenu`. Pasted buttons and fields keep their text and
+hilite. Objects ▸ Bring to Front / Send to Back reorder parts. Undo and
+redo (Ctrl+Z, Ctrl+Shift+Z) cover painting, moving, resizing, creating,
+pasting, reordering and deleting parts, and new, deleted, cut and pasted
+cards, in one history of 30 steps. With the Button or Field tool you can drag to move, drag the
 corner to resize, double-click for the Info dialog, Ctrl-drag to create, and
 press Delete to remove. Paint tools draw on whichever layer you are editing.
 Edit ▸ Background (Ctrl+B) switches to the background layer.

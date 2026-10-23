@@ -5,6 +5,7 @@ mod commands;
 pub mod dates;
 pub mod interp;
 mod objects;
+pub mod undo;
 pub mod world;
 
 #[cfg(test)]
