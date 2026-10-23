@@ -616,6 +616,20 @@ impl Interp {
                 if matches!(name, "contents" | "text") {
                     return self.set_object_value(o, v.to_string());
                 }
+                if name == "icon" {
+                    // By id or by name; empty or 0 removes the icon.
+                    let mut w = self.w();
+                    let icon = if v.trim().is_empty() { Some(0) } else { w.stack.find_icon(v) };
+                    let Some(icon) = icon else {
+                        drop(w);
+                        return err(format!("No such icon \"{v}\""));
+                    };
+                    if let Some(p) = w.stack.part_mut(card, layer, id) {
+                        p.icon = icon;
+                    }
+                    w.dirty = true;
+                    return Ok(());
+                }
                 let mut w = self.w();
                 w.dirty = true;
                 let Some(p) = w.stack.part_mut(card, layer, id) else { return err("No such object") };
@@ -643,7 +657,6 @@ impl Interp {
                     "enabled" => p.enabled = to_bool(v)?,
                     "family" => p.family = if v.trim().is_empty() { 0 } else { to_int(v)?.clamp(0, 15) as u32 },
                     "sharedhilite" => p.shared_hilite = to_bool(v)?,
-                    "icon" => p.icon = to_int(v).unwrap_or(0) as i32,
                     "locktext" => p.lock_text = to_bool(v)?,
                     "dontwrap" => p.dont_wrap = to_bool(v)?,
                     "autotab" => p.auto_tab = to_bool(v)?,

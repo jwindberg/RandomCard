@@ -176,6 +176,7 @@ impl App {
                     parts.iter().filter(|p| Some(p.kind) == kind).position(|p| p.id == id).map(|n| n + 1)
                 };
                 let hilite = w.stack.hilite(card, layer, id);
+                let icons: Vec<(i32, String)> = w.stack.icons.iter().map(|(i, icon)| (*i, icon.name.clone())).collect();
                 let text = w.stack.field_text(card, layer, id);
                 let Some(p) = w.stack.part_mut(card, layer, id) else {
                     ui.label("This object no longer exists.");
@@ -260,6 +261,19 @@ impl App {
                         ui.horizontal(|ui| {
                             ui.label("Family:");
                             changed |= ui.add(egui::DragValue::new(&mut p.family).range(0..=15)).changed();
+                        });
+                        ui.end_row();
+                        ui.label("Icon:");
+                        let label = |id: i32| match icons.iter().find(|(i, _)| *i == id) {
+                            _ if id == 0 => "None".to_string(),
+                            Some((_, name)) if !name.is_empty() => format!("{id} {name}"),
+                            _ => id.to_string(),
+                        };
+                        egui::ComboBox::from_id_salt("icon").selected_text(label(p.icon)).show_ui(ui, |ui| {
+                            changed |= ui.selectable_value(&mut p.icon, 0, "None").changed();
+                            for (i, _) in &icons {
+                                changed |= ui.selectable_value(&mut p.icon, *i, label(*i)).changed();
+                            }
                         });
                         ui.end_row();
                         ui.label(format!("Hilite: {hilite}"));

@@ -338,3 +338,13 @@ fn demo_stack_runs() {
     assert_eq!(click(&mut i, "Grace Hopper", "Home"), None);
     assert_eq!(current(&i), "Home");
 }
+
+#[test]
+fn icons_by_id_or_name() {
+    let mut s = stack();
+    s.icons.insert(128, crate::model::Icon { name: "Star".into(), picture: Picture::new(32, 32) });
+    let mut i = interp_with(s);
+    assert_eq!(run(&mut i, "set the icon of button 1 to \"star\"\nput the icon of button 1"), "128");
+    assert_eq!(run(&mut i, "set the icon of button 1 to 0\nput the icon of button 1"), "0");
+    assert!(run(&mut i, "set the icon of button 1 to \"Nope\"").starts_with("ERROR: No such icon"));
+}

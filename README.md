@@ -33,14 +33,28 @@ stack files. MacBinary-wrapped files work too. The import brings in:
   text styles;
 - shared and per-card field text, and per-card hilites of background
   buttons;
-- every script.
+- every script;
+- button icons from the stack's resource fork.
 
 Text is converted from MacRoman. The result opens as an unsaved stack;
 save it to keep it as a `.rcstack`.
 
-What doesn't come across: anything stored in the resource fork (icons,
-sounds, XCMDs/XFCNs, color), and styled runs within field text, which
-import as plain text. HyperCard 1.x stacks must first be converted with
+Linux and Windows have no resource forks, so RandomCard looks where Mac
+files usually carry them: a `Name.rsrc` file beside the stack, an
+AppleDouble `._Name` file (also inside `__MACOSX/`), Netatalk's
+`.AppleDouble/` and SheepShaver's `.rsrc/` folders, the stack file itself
+if it's MacBinary or AppleSingle, and the real fork on macOS. Icons are
+saved into the `.rcstack`.
+
+Many stacks use HyperCard's built-in icons, which live in the HyperCard
+application rather than the stack. As HyperCard did, RandomCard follows a
+resource chain for icons the stack lacks: files named `Home`, `HyperCard`
+or `HyperCard Player` beside the stack, then any resource files you put in
+`~/.config/randomcard/resources/` (such as the resource fork of your own
+copy of HyperCard). Only icons the stack's buttons use are copied.
+
+What doesn't come across: other resources (sounds, XCMDs/XFCNs, color)
+and styled runs within field text, which import as plain text. HyperCard 1.x stacks must first be converted with
 HyperCard 2.x. Private-access stacks import, since only the stack header is
 encrypted. Scripts that use menus, palettes or other windows parse, but
 those commands do nothing.
@@ -138,7 +152,7 @@ src/
 
 ## Not (yet) implemented
 
-Rich text within fields, button icons, sound playback (`play` beeps),
+Rich text within fields, creating or editing icons, sound playback (`play` beeps),
 scriptable menus, user levels, printing, `start using` (inheriting scripts
 from other stacks), and multiple open stack windows.
 
@@ -154,8 +168,8 @@ guides:
   reimplementation for the web.
 - [HyperCardPreview](https://github.com/PierreLorenzi/HyperCardPreview),
   Pierre Lorenzi's HyperCard stack viewer (MIT License). The stack importer
-  follows its file-format layouts and WyldCard's, and `src/import/woba.rs`
-  is a port of its WOBA bitmap decoder.
+  follows its file-format layouts and WyldCard's, `src/import/woba.rs`
+  is a port of its WOBA bitmap decoder, and icon masks follow its method.
 
 To test the importer against real stacks, point it at HyperCardPreview's
 sample files:

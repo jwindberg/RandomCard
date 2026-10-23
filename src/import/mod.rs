@@ -5,8 +5,10 @@
 //! order), BKGD and CARD (layers with their parts and contents), BMAP
 //! (WOBA-compressed pictures), FTBL (font names) and so on. The layouts here
 //! follow WyldCard's stack reader and Pierre Lorenzi's HyperCardPreview.
-//! Resources (icons, sounds, XCMDs) live in the resource fork and aren't read.
+//! Button icons come from the stack's resource fork when one can be found;
+//! other resources (sounds, XCMDs, color) aren't used.
 
+mod resources;
 mod woba;
 
 use std::collections::{HashMap, HashSet};
@@ -35,16 +37,22 @@ pub fn is_hypercard_stack(bytes: &[u8]) -> bool {
     data_fork(bytes).is_some()
 }
 
+/// MacBinary: a 128-byte header (type 'STAK' at 65), the data fork, then the resource fork.
+fn is_macbinary(bytes: &[u8]) -> bool {
+    bytes.len() > MACBINARY_HEADER
+        && bytes[0] == 0
+        && bytes.get(65..69) == Some(b"STAK")
+        && bytes.get(MACBINARY_HEADER + 4..MACBINARY_HEADER + 8) == Some(b"STAK")
+}
+
 fn data_fork(bytes: &[u8]) -> Option<&[u8]> {
     if bytes.get(4..8) == Some(b"STAK") {
         return Some(bytes);
     }
-    // MacBinary: a 128-byte header (type 'STAK' at 65) and then the data fork.
-    if bytes.len() > MACBINARY_HEADER
-        && bytes[0] == 0
-        && bytes.get(65..69) == Some(b"STAK")
-        && bytes.get(MACBINARY_HEADER + 4..MACBINARY_HEADER + 8) == Some(b"STAK")
-    {
+    if let Some(data) = resources::apple_entry(bytes, 1).filter(|d| d.get(4..8) == Some(b"STAK")) {
+        return Some(data);
+    }
+    if is_macbinary(bytes) {
         let len = u32::from_be_bytes(bytes[83..87].try_into().ok()?) as usize;
         return bytes.get(MACBINARY_HEADER..MACBINARY_HEADER + len);
     }
@@ -56,8 +64,33 @@ pub fn import_bytes(bytes: &[u8], path: &Path) -> Result<Stack, String> {
     let blocks = read_blocks(data)?;
     let name = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Imported".into());
     let mut stack = convert(&blocks, &name)?;
+    if let Some(fork) = resources::find_resource_fork(path, bytes) {
+        stack.icons = resources::icons(&fork);
+    }
+    add_chain_icons(&mut stack, path);
     stack.imported_from = Some(path.to_path_buf());
     Ok(stack)
+}
+
+/// Fetch icons the stack's buttons use but its own fork lacks from further
+/// along the resource chain.
+fn add_chain_icons(stack: &mut Stack, path: &Path) {
+    let all_parts = stack.cards.iter().flat_map(|c| &c.parts).chain(stack.backgrounds.iter().flat_map(|b| &b.parts));
+    let mut missing: HashSet<i32> = all_parts.map(|p| p.icon).filter(|i| *i != 0).collect();
+    missing.retain(|i| !stack.icons.contains_key(i));
+    if missing.is_empty() {
+        return;
+    }
+    for fork in resources::chain_forks(path) {
+        for (id, icon) in resources::icons(&fork) {
+            if missing.remove(&id) {
+                stack.icons.insert(id, icon);
+            }
+        }
+        if missing.is_empty() {
+            break;
+        }
+    }
 }
 
 // ----- binary reading -----
@@ -684,6 +717,25 @@ mod tests {
         assert!(!open("TestPrivateAccess").cards.is_empty());
         let home = open("Home");
         assert!(home.backgrounds.iter().any(|b| !b.picture.is_blank()));
+        // Home.rsrc beside Home.stack holds nine of the icons its buttons use;
+        // the rest are HyperCard's built-in icons, from HyperCard's own fork.
+        for id in [3000, 3001, 6134, 7024, 11316, 12659, 28226, 28867, 30504] {
+            assert!(home.icons.contains_key(&id), "icon {id}");
+        }
+        let used: HashSet<i32> = home.cards.iter().flat_map(|c| c.parts.iter().map(|p| p.icon)).collect();
+        assert!(used.contains(&3001) && used.contains(&28226));
+
+        // Icons a stack lacks come from further along the resource chain, e.g.
+        // a HyperCard application fork beside it; only the used ones are copied.
+        let tmp = std::env::temp_dir().join(format!("randomcard-chain-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::copy(dir.join("Home.stack"), tmp.join("My Stack")).unwrap();
+        std::fs::copy(dir.join("Home.rsrc"), tmp.join("HyperCard.rsrc")).unwrap();
+        let chained = load_any(&tmp.join("My Stack"));
+        std::fs::remove_dir_all(&tmp).ok();
+        let chained = chained.unwrap();
+        assert!(chained.icons.contains_key(&3001));
+        assert!(!chained.icons.contains_key(&3000), "unused icons aren't copied");
 
         // Every script in every sample stack parses.
         for entry in std::fs::read_dir(dir).unwrap().flatten() {

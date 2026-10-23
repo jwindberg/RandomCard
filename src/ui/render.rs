@@ -8,7 +8,7 @@ use eframe::egui::{
     TextureHandle, TextureOptions, Vec2, text::LayoutJob,
 };
 
-use crate::model::{Id, Layer, Part, PartKind, PartStyle, Picture, Pixel, TextAlign};
+use crate::model::{Icon, Id, Layer, Part, PartKind, PartStyle, Picture, Pixel, TextAlign};
 use crate::runtime::world::{Found, ObjRef, World};
 
 pub const BLACK: Color32 = Color32::BLACK;
@@ -36,6 +36,8 @@ pub struct Scene {
     /// Background parts first, then card parts, each in z-order.
     pub parts: Vec<PartView>,
     pub found: Option<Found>,
+    /// The icons this card's buttons show.
+    pub icons: HashMap<i32, Icon>,
 }
 
 impl Scene {
@@ -63,6 +65,11 @@ impl Scene {
                 });
             }
         }
+        let icons = parts
+            .iter()
+            .filter(|pv| pv.part.kind == PartKind::Button && pv.part.icon != 0)
+            .filter_map(|pv| Some((pv.part.icon, s.icons.get(&pv.part.icon)?.clone())))
+            .collect();
         Scene {
             card,
             bg,
@@ -73,6 +80,7 @@ impl Scene {
             edit_bg: w.edit_bg,
             parts,
             found: w.found.clone().filter(|f| f.card == card),
+            icons,
         }
     }
 
@@ -85,6 +93,8 @@ impl Scene {
 #[derive(Default)]
 pub struct Textures {
     map: HashMap<(Layer, Id), (u64, Option<TextureHandle>)>,
+    /// Icon textures, normal and inverted (for hilited buttons).
+    icons: HashMap<i32, (Icon, TextureHandle, TextureHandle)>,
 }
 
 pub fn picture_image(p: &Picture) -> egui::ColorImage {
@@ -102,6 +112,7 @@ pub fn picture_image(p: &Picture) -> egui::ColorImage {
 impl Textures {
     /// Make sure the textures for `scene` reflect the current pictures.
     pub fn refresh(&mut self, ctx: &egui::Context, w: &World, scene: &Scene) {
+        self.refresh_icons(ctx, scene);
         let rev = w.picture_rev;
         for (layer, id) in [(Layer::Background, scene.bg), (Layer::Card, scene.card)] {
             if self.map.get(&(layer, id)).is_some_and(|(r, _)| *r == rev) {
@@ -126,6 +137,29 @@ impl Textures {
                 })
             };
             self.map.insert((layer, id), (rev, handle));
+        }
+    }
+
+    fn icon(&self, id: i32, inverted: bool) -> Option<&TextureHandle> {
+        self.icons.get(&id).map(|(_, normal, inv)| if inverted { inv } else { normal })
+    }
+
+    fn refresh_icons(&mut self, ctx: &egui::Context, scene: &Scene) {
+        for (id, icon) in &scene.icons {
+            if self.icons.get(id).is_some_and(|(cached, _, _)| cached == icon) {
+                continue;
+            }
+            let normal = picture_image(&icon.picture);
+            let mut inverted = normal.clone();
+            for px in &mut inverted.pixels {
+                if px.a() > 0 {
+                    *px = if *px == BLACK { WHITE } else { BLACK };
+                }
+            }
+            let opts = TextureOptions::NEAREST;
+            let n = ctx.load_texture(format!("icon-{id}"), normal, opts);
+            let i = ctx.load_texture(format!("icon-{id}-inv"), inverted, opts);
+            self.icons.insert(*id, (icon.clone(), n, i));
         }
     }
 
@@ -179,7 +213,7 @@ pub fn draw_scene(painter: &Painter, tex: &Textures, scene: &Scene, origin: Pos2
             draw_card_picture(painter, tex, scene, card_rect, uv);
         }
         if pv.part.visible {
-            draw_part(painter, pv, origin, pressed == Some(pv.obj), scene.found.as_ref());
+            draw_part(painter, tex, pv, origin, pressed == Some(pv.obj), scene.found.as_ref());
         }
     }
     if !card_pict_drawn {
@@ -203,10 +237,10 @@ pub fn part_rect(part: &Part, origin: Pos2) -> Rect {
     )
 }
 
-pub fn draw_part(painter: &Painter, pv: &PartView, origin: Pos2, pressed: bool, found: Option<&Found>) {
+pub fn draw_part(painter: &Painter, tex: &Textures, pv: &PartView, origin: Pos2, pressed: bool, found: Option<&Found>) {
     let rect = part_rect(&pv.part, origin);
     match pv.part.kind {
-        PartKind::Button => draw_button(painter, pv, rect, pressed),
+        PartKind::Button => draw_button(painter, tex, pv, rect, pressed),
         PartKind::Field => draw_field(painter, pv, rect, found),
     }
 }
@@ -217,17 +251,20 @@ fn shadowed(painter: &Painter, rect: Rect, radius: f32, shadow: f32) {
     }
 }
 
-fn draw_button(painter: &Painter, pv: &PartView, rect: Rect, pressed: bool) {
+fn draw_button(painter: &Painter, tex: &Textures, pv: &PartView, rect: Rect, pressed: bool) {
     let p = &pv.part;
     let painter = painter.with_clip_rect(rect.expand(4.0).intersect(painter.clip_rect()));
     let checkable = matches!(p.style, PartStyle::CheckBox | PartStyle::Radio);
     let inverted = (pv.hilite || pressed) && !checkable;
-    let (fg, bg) = if inverted { (WHITE, BLACK) } else { (BLACK, WHITE) };
+    // A hilited transparent icon button inverts only its icon.
+    let has_icon = p.icon != 0 && !checkable;
+    let only_icon_inverts = has_icon && matches!(p.style, PartStyle::Transparent | PartStyle::Oval);
+    let (fg, bg) = if inverted && !only_icon_inverts { (WHITE, BLACK) } else { (BLACK, WHITE) };
     let fg = if p.enabled { fg } else { GRAY };
     let stroke = Stroke::new(1.0, BLACK);
     match p.style {
         PartStyle::Transparent => {
-            if inverted {
+            if inverted && !has_icon {
                 painter.rect_filled(rect, 0.0, BLACK);
             }
         }
@@ -284,20 +321,51 @@ fn draw_button(painter: &Painter, pv: &PartView, rect: Rect, pressed: bool) {
         }
         return;
     }
+    if has_icon {
+        draw_icon_and_name(&painter, tex, p, rect, inverted, fg);
+        return;
+    }
     if p.show_name && !p.name.is_empty() {
-        if p.icon != 0 {
-            // Icon buttons label the icon from below. Icons come from a stack's
-            // resource fork, which isn't imported, so only the label is drawn.
-            let pos = Pos2::new(rect.center().x, rect.bottom() - 2.0);
-            draw_label(&painter, p, pos, Align2::CENTER_BOTTOM, &p.name, fg);
-            return;
-        }
         let (pos, align) = match p.text_align {
             TextAlign::Left => (Pos2::new(rect.left() + 6.0, rect.center().y), Align2::LEFT_CENTER),
             TextAlign::Right => (Pos2::new(rect.right() - 6.0, rect.center().y), Align2::RIGHT_CENTER),
             TextAlign::Center => (rect.center(), Align2::CENTER_CENTER),
         };
         draw_label(&painter, p, pos, align, &p.name, fg);
+    }
+}
+
+pub const ICON_SIZE: f32 = 32.0;
+
+/// HyperCard's icon button layout: the icon and a 9-point name beneath it,
+/// centred together. A missing icon leaves its space empty, as in HyperCard.
+fn draw_icon_and_name(painter: &Painter, tex: &Textures, p: &Part, rect: Rect, inverted: bool, fg: Color32) {
+    let label_part = Part { text_size: 9, text_style: "plain".into(), text_font: "Geneva".into(), ..p.clone() };
+    let label = (p.show_name && !p.name.is_empty()).then(|| {
+        painter.layout_job(LayoutJob::single_section(p.name.clone(), text_format(&label_part, fg)))
+    });
+    let block_h = match &label {
+        Some(g) => ICON_SIZE + 1.0 + g.size().y + 1.0,
+        None => ICON_SIZE + 2.0,
+    };
+    let top = (rect.top() + rect.height() / 2.0 - block_h / 2.0 + 1.0).floor();
+    let icon_rect = Rect::from_min_size(Pos2::new((rect.center().x - ICON_SIZE / 2.0).floor(), top), Vec2::splat(ICON_SIZE));
+    if let Some(t) = tex.icon(p.icon, inverted) {
+        let tint = if p.enabled { WHITE } else { Color32::from_white_alpha(110) };
+        painter.image(t.id(), icon_rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), tint);
+    }
+    if let Some(g) = label {
+        let x = match p.text_align {
+            TextAlign::Left => rect.left() + 4.0,
+            TextAlign::Right => rect.right() - 4.0 - g.size().x,
+            TextAlign::Center => (rect.center().x - g.size().x / 2.0).floor(),
+        };
+        let pos = Pos2::new(x, icon_rect.bottom() + 1.0);
+        if p.style == PartStyle::Transparent {
+            // The name gets a white backdrop so it reads over the picture.
+            painter.rect_filled(Rect::from_min_size(pos - Vec2::new(2.0, 0.0), g.size() + Vec2::new(4.0, 0.0)), 0.0, WHITE);
+        }
+        painter.galley(pos, g, fg);
     }
 }
 

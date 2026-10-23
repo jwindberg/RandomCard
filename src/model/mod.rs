@@ -4,7 +4,7 @@
 mod demo;
 mod picture;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -292,6 +292,14 @@ pub struct Card {
     pub bg_hilite: HashMap<Id, bool>,
 }
 
+/// A 32×32 button icon. Clear pixels are transparent.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Icon {
+    pub name: String,
+    pub picture: Picture,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Stack {
@@ -303,6 +311,8 @@ pub struct Stack {
     pub backgrounds: Vec<Background>,
     pub cards: Vec<Card>,
     pub cant_modify: bool,
+    /// Button icons by resource id.
+    pub icons: BTreeMap<i32, Icon>,
     #[serde(skip)]
     pub path: Option<PathBuf>,
     /// The original HyperCard file this stack was imported from, until saved.
@@ -331,6 +341,7 @@ impl Stack {
             backgrounds: vec![bg],
             cards: vec![card],
             cant_modify: false,
+            icons: BTreeMap::new(),
             path: None,
             imported_from: None,
         }
@@ -338,6 +349,15 @@ impl Stack {
 
     pub fn demo() -> Stack {
         demo::build()
+    }
+
+    /// Find an icon by id, or by name (case-insensitively).
+    pub fn find_icon(&self, id_or_name: &str) -> Option<i32> {
+        let t = id_or_name.trim();
+        if let Ok(id) = t.parse::<i32>() {
+            return Some(id);
+        }
+        self.icons.iter().find(|(_, i)| i.name.eq_ignore_ascii_case(t)).map(|(id, _)| *id)
     }
 
     pub fn alloc_id(&mut self) -> Id {
