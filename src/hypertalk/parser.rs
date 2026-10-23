@@ -347,6 +347,27 @@ impl Parser {
         }
     }
 
+    /// Reconstruct the source text of tokens `start..end`.
+    fn source_text(&self, start: usize, end: usize) -> String {
+        let mut out = String::new();
+        for t in self.toks.get(start..end).unwrap_or(&[]) {
+            let piece = match &t.tok {
+                Tok::Word(_) => t.text.clone(),
+                Tok::Number(n) => n.clone(),
+                Tok::Str(s) => format!("\"{s}\""),
+                Tok::Sym(s) => s.to_string(),
+                Tok::Other(c) => c.to_string(),
+                Tok::Newline | Tok::Eof => break,
+            };
+            let tight = matches!(t.tok, Tok::Sym("," | ")")) || out.ends_with('(');
+            if !out.is_empty() && !tight {
+                out.push(' ');
+            }
+            out.push_str(&piece);
+        }
+        out
+    }
+
     fn starts_term_at(&self, n: usize) -> bool {
         match self.tok_at(n) {
             Tok::Number(_) | Tok::Str(_) => true,
@@ -478,7 +499,10 @@ impl Parser {
             _ => {}
         }
         if COMMANDS.contains(&w.as_str()) {
-            return Ok(StmtKind::Cmd(self.command(&w)?));
+            let start = self.pos + 1;
+            let cmd = self.command(&w)?;
+            let args = self.source_text(start, self.pos);
+            return Ok(StmtKind::Cmd { name: w, cmd, args });
         }
         if EXPR_START_WORDS.contains(&w.as_str()) || constant(&w).is_some() {
             return Ok(StmtKind::Expr(self.expr()?));
@@ -1974,7 +1998,7 @@ mod tests {
 
     #[test]
     fn precedence() {
-        let StmtKind::Cmd(Cmd::Put { value, .. }) = stmt("put 1 + 2 * 3 & \"x\"") else { panic!() };
+        let StmtKind::Cmd { cmd: Cmd::Put { value, .. }, .. } = stmt("put 1 + 2 * 3 & \"x\"") else { panic!() };
         let Expr::Binary(BinOp::Concat, lhs, _) = value else { panic!("{value:?}") };
         assert!(matches!(*lhs, Expr::Binary(BinOp::Add, _, _)));
     }

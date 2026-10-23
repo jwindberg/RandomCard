@@ -13,7 +13,7 @@ use eframe::egui::{
 };
 
 use crate::model::{Id, Layer, Part, PartKind, PartStyle, Picture, Pixel, Rect as CardRect, Stack};
-use crate::runtime::world::{Event, ObjRef, Tool, UiRequest, World, lock};
+use crate::runtime::world::{Event, KeyAction, ObjRef, Tool, UiRequest, World, lock};
 use crate::runtime::{self, Runtime};
 use render::{Scene, Textures};
 use windows::{ErrorAlert, InfoTarget, InfoWindow, ScriptEditor};
@@ -35,6 +35,12 @@ struct Editing {
     synced: String,
     changed: bool,
     focus_requested: bool,
+    /// Select all the text once focused (when tabbing into a field).
+    select_all: bool,
+}
+
+fn field_edit_id(obj: ObjRef) -> egui::Id {
+    egui::Id::unique(("field-edit", format!("{obj:?}")))
 }
 
 #[derive(Clone, Copy)]
@@ -92,6 +98,8 @@ pub struct App {
     dialog_init: bool,
     msg_buffer: String,
     msg_has_focus: bool,
+    /// Give the message box keyboard focus (after blind typing).
+    focus_msg_box: bool,
     beeps_seen: u32,
     flash_until: Option<Instant>,
     last_autosave: Instant,
@@ -129,6 +137,7 @@ impl App {
             dialog_init: false,
             msg_buffer: String::new(),
             msg_has_focus: false,
+            focus_msg_box: false,
             beeps_seen: 0,
             flash_until: None,
             last_autosave: Instant::now(),
@@ -398,6 +407,7 @@ impl App {
                 }
                 UiRequest::Undo => self.undo_paint(),
                 UiRequest::SelectPart(o) => self.selected = Some(o),
+                UiRequest::Key(target, action) => self.key_action(ctx, target, action),
             }
         }
     }
@@ -466,29 +476,35 @@ impl App {
     fn shortcuts(&mut self, ctx: &egui::Context) {
         let cmd = |k: Key| KeyboardShortcut::new(Modifiers::COMMAND, k);
         let cmd_alt = |k: Key| KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::ALT, k);
-        let menu = |ctx: &egui::Context, s: KeyboardShortcut, item: &str| {
-            if ctx.input_mut(|i| i.consume_shortcut(&s)) {
-                self.do_menu(item);
-            }
-        };
-        menu(ctx, cmd_alt(Key::C), "Card Script");
-        menu(ctx, cmd_alt(Key::B), "Bkgnd Script");
-        menu(ctx, cmd_alt(Key::S), "Stack Script");
-        menu(ctx, cmd(Key::N), "New Card");
-        menu(ctx, cmd(Key::Num1), "First");
-        menu(ctx, cmd(Key::Num2), "Prev");
-        menu(ctx, cmd(Key::Num3), "Next");
-        menu(ctx, cmd(Key::Num4), "Last");
-        menu(ctx, cmd(Key::M), "Message");
-        menu(ctx, cmd(Key::B), "Background");
-        menu(ctx, cmd(Key::O), "Open Stack…");
-        menu(ctx, cmd(Key::Q), "Quit RandomCard");
-        if ctx.input_mut(|i| i.consume_shortcut(&cmd(Key::S))) {
-            self.do_menu("Save Stack");
-        }
+        // Command-period always stops scripts; it can't be intercepted.
         if ctx.input_mut(|i| i.consume_shortcut(&cmd(Key::Period))) {
-            // Abort running scripts, like Command-period.
             self.rt.abort.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        // While a dialog is up, keys belong to it.
+        if self.modal_open() {
+            return;
+        }
+        // Command keys: offered to commandKeyDown handlers, else a menu command.
+        let menu = |s: &str| KeyAction::Menu(s.to_string());
+        let command_keys = [
+            (cmd_alt(Key::C), "c", menu("Card Script")),
+            (cmd_alt(Key::B), "b", menu("Bkgnd Script")),
+            (cmd_alt(Key::S), "s", menu("Stack Script")),
+            (cmd(Key::N), "n", menu("New Card")),
+            (cmd(Key::Num1), "1", menu("First")),
+            (cmd(Key::Num2), "2", menu("Prev")),
+            (cmd(Key::Num3), "3", menu("Next")),
+            (cmd(Key::Num4), "4", menu("Last")),
+            (cmd(Key::M), "m", menu("Message")),
+            (cmd(Key::B), "b", menu("Background")),
+            (cmd(Key::O), "o", menu("Open Stack…")),
+            (cmd(Key::Q), "q", menu("Quit RandomCard")),
+            (cmd(Key::S), "s", menu("Save Stack")),
+        ];
+        for (shortcut, ch, action) in command_keys {
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcut)) {
+                self.command_key(ctx, ch, action);
+            }
         }
         if ctx.input_mut(|i| i.consume_shortcut(&cmd(Key::Tab))) {
             self.choose_tool(Tool::Browse);
@@ -497,8 +513,8 @@ impl App {
             let mut w = self.world();
             w.menubar_visible = !w.menubar_visible;
         }
-        if ctx.input_mut(|i| i.consume_shortcut(&cmd(Key::Z))) && !ctx.egui_wants_keyboard_input() {
-            self.undo_paint();
+        if !ctx.egui_wants_keyboard_input() && ctx.input_mut(|i| i.consume_shortcut(&cmd(Key::Z))) {
+            self.command_key(ctx, "z", KeyAction::Undo);
         }
         if ctx.egui_wants_keyboard_input() {
             return;
@@ -526,6 +542,228 @@ impl App {
                     self.send(Event::Send { target: card, message: "arrowKey".into(), args: vec![dir.into()] });
                 }
             }
+        }
+    }
+
+    /// Whether any script on `target`'s message path mentions a handler.
+    /// Keys are only held back for scripts when this is true.
+    fn handles(&self, target: ObjRef, message: &str) -> bool {
+        let w = self.world();
+        let s = &w.stack;
+        let mut scripts: Vec<&str> = vec![&s.script];
+        let card = match target {
+            ObjRef::Part { layer, id, card } => {
+                if let Some(p) = s.part(card, layer, id) {
+                    scripts.push(&p.script);
+                }
+                card
+            }
+            ObjRef::Card(card) => card,
+            _ => w.card_id,
+        };
+        if let Some(c) = s.card(card) {
+            scripts.push(&c.script);
+            if let Some(b) = s.background(c.background) {
+                scripts.push(&b.script);
+            }
+        }
+        scripts.iter().any(|t| t.to_ascii_lowercase().contains(message))
+    }
+
+    fn command_key(&mut self, ctx: &egui::Context, ch: &str, action: KeyAction) {
+        let target = self.key_target();
+        if self.world().tool == Tool::Browse && self.handles(target, "commandkeydown") {
+            let message = "commandKeyDown".to_string();
+            self.send(Event::Key { target, message, args: vec![ch.into()], default: action });
+        } else {
+            self.key_action(ctx, target, action);
+        }
+    }
+
+    /// An answer/ask dialog, script error or quit prompt is showing.
+    fn modal_open(&self) -> bool {
+        self.world().dialog.is_some() || self.error.is_some() || self.quit_prompt
+    }
+
+    /// Keys go to the field being edited, or else the current card.
+    fn key_target(&self) -> ObjRef {
+        match &self.editing {
+            Some(e) => e.obj,
+            None => ObjRef::Card(self.world().card_id),
+        }
+    }
+
+    /// HyperCard's keyboard messages. Keys are only held back from the text
+    /// editor for scripts that handle the message; otherwise typing stays
+    /// immediate.
+    fn keyboard(&mut self, ctx: &egui::Context) {
+        if self.world().tool != Tool::Browse || self.modal_open() {
+            return;
+        }
+        let target = self.key_target();
+        let editing = self.editing.is_some();
+        if !editing && ctx.egui_wants_keyboard_input() {
+            // Typing in the message box or a dialog.
+            return;
+        }
+        let names = if editing {
+            ["keydown", "returninfield", "enterinfield", "tabkey"]
+        } else {
+            ["keydown", "returnkey", "enterkey", "tabkey"]
+        };
+        let [key_down, ret, enter, tab] = names.map(|n| self.handles(target, n));
+        let function = !editing && self.handles(target, "functionkey");
+        let auto_tab = editing && self.auto_tab_at_end(ctx);
+
+        // (message, params, default) to send to scripts, or defaults to do now.
+        let mut sends: Vec<(&str, Vec<String>, KeyAction)> = Vec::new();
+        let mut local: Vec<KeyAction> = Vec::new();
+        let mut route = |handled: bool, message: &'static str, params: Vec<String>, default: KeyAction| {
+            if handled {
+                sends.push((message, params, default));
+            } else {
+                local.push(default);
+            }
+        };
+        ctx.input_mut(|i| {
+            i.events.retain(|ev| match ev {
+                egui::Event::Text(t) if !editing || key_down => {
+                    for c in t.chars() {
+                        let default = if editing { KeyAction::Insert(c.into()) } else { KeyAction::BlindType(c.into()) };
+                        route(key_down, "keyDown", vec![c.into()], default);
+                    }
+                    false
+                }
+                egui::Event::Key { key: Key::Enter, pressed: true, modifiers, .. } if !modifiers.command => {
+                    // Shift+Return stands in for the Enter key.
+                    match (editing, modifiers.shift) {
+                        (true, true) => route(enter, "enterInField", vec![], KeyAction::CloseField),
+                        (true, false) if ret || auto_tab => {
+                            let default = if auto_tab { KeyAction::NextField } else { KeyAction::Insert("\n".into()) };
+                            route(ret, "returnInField", vec![], default);
+                        }
+                        // A plain Return in a field types a newline as usual.
+                        (true, false) => return true,
+                        (false, true) => route(enter, "enterKey", vec![], KeyAction::RunMessage),
+                        (false, false) => route(ret, "returnKey", vec![], KeyAction::RunMessage),
+                    }
+                    false
+                }
+                egui::Event::Key { key: Key::Tab, pressed: true, modifiers, .. } if !modifiers.command => {
+                    route(tab, "tabKey", vec![], KeyAction::NextField);
+                    false
+                }
+                egui::Event::Key { key, pressed: true, .. } if !editing && function_key(*key).is_some() => {
+                    let n = function_key(*key).unwrap();
+                    let default = if n == 1 { KeyAction::Undo } else { KeyAction::Nothing };
+                    route(function, "functionKey", vec![n.to_string()], default);
+                    false
+                }
+                _ => true,
+            })
+        });
+        for (message, args, default) in sends {
+            self.send(Event::Key { target, message: message.into(), args, default });
+        }
+        for action in local {
+            self.key_action(ctx, target, action);
+        }
+    }
+
+    /// In an autoTab field, Return on the last line moves to the next field.
+    fn auto_tab_at_end(&self, ctx: &egui::Context) -> bool {
+        let Some(e) = &self.editing else { return false };
+        let auto_tab = self.last_scene.as_ref().is_some_and(|s| {
+            s.parts.iter().any(|pv| pv.obj == e.obj && pv.part.auto_tab)
+        });
+        if !auto_tab {
+            return false;
+        }
+        let cursor = egui::text_edit::TextEditState::load(ctx, field_edit_id(e.obj))
+            .and_then(|s| s.cursor.char_range())
+            .map(|r| r.primary.index.0)
+            .unwrap_or(0);
+        !e.buffer.chars().skip(cursor).any(|c| c == '\n')
+    }
+
+    /// Do what a key does when no script took its message.
+    fn key_action(&mut self, ctx: &egui::Context, target: ObjRef, action: KeyAction) {
+        match action {
+            KeyAction::Insert(text) => self.insert_in_field(ctx, target, &text),
+            KeyAction::NextField => self.next_field(),
+            KeyAction::CloseField => self.end_editing(),
+            KeyAction::BlindType(text) => {
+                // The first key starts a new message; later ones continue it.
+                let continuing = self.msg_has_focus || self.focus_msg_box;
+                let mut w = self.world();
+                if !continuing {
+                    w.msg.clear();
+                }
+                w.msg.push_str(&text);
+                w.msg_visible = true;
+                drop(w);
+                self.focus_msg_box = true;
+            }
+            KeyAction::RunMessage => {
+                let msg = self.world().msg.clone();
+                if !msg.trim().is_empty() {
+                    self.send(Event::MsgBox(msg));
+                }
+            }
+            KeyAction::Menu(item) => self.do_menu(&item),
+            KeyAction::Undo => self.undo_paint(),
+            KeyAction::Nothing => {}
+        }
+    }
+
+    /// Type text at the cursor of the field being edited, replacing any selection.
+    fn insert_in_field(&mut self, ctx: &egui::Context, target: ObjRef, text: &str) {
+        let Some(e) = &mut self.editing else { return };
+        if e.obj != target {
+            return;
+        }
+        let id = field_edit_id(e.obj);
+        let mut state = egui::text_edit::TextEditState::load(ctx, id).unwrap_or_default();
+        let len = e.buffer.chars().count();
+        let (a, b) = state
+            .cursor
+            .char_range()
+            .map(|r| (r.primary.index.0, r.secondary.index.0))
+            .map(|(p, q)| (p.min(q), p.max(q)))
+            .unwrap_or((len, len));
+        let byte = |i: usize| e.buffer.char_indices().nth(i).map(|(b, _)| b).unwrap_or(e.buffer.len());
+        let (ba, bb) = (byte(a.min(len)), byte(b.min(len)));
+        e.buffer.replace_range(ba..bb, text);
+        let at = a.min(len) + text.chars().count();
+        state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(at))));
+        state.store(ctx, id);
+        e.changed = true;
+        e.synced = e.buffer.clone();
+        if let ObjRef::Part { layer, id, card } = e.obj {
+            let mut w = lock(&self.rt.world);
+            w.stack.set_field_text(card, layer, id, e.buffer.clone());
+            w.dirty = true;
+        }
+    }
+
+    /// Tab: move to the next unlocked, visible field (background fields
+    /// first, then card fields), selecting its text, as HyperCard does.
+    fn next_field(&mut self) {
+        let Some(scene) = &self.last_scene else { return };
+        let fields: Vec<(ObjRef, String)> = scene
+            .parts
+            .iter()
+            .filter(|pv| pv.part.kind == PartKind::Field && pv.part.visible && !pv.part.lock_text)
+            .map(|pv| (pv.obj, pv.text.clone()))
+            .collect();
+        if fields.is_empty() {
+            return;
+        }
+        let current = self.editing.as_ref().and_then(|e| fields.iter().position(|(o, _)| *o == e.obj));
+        let (obj, text) = fields[current.map(|i| (i + 1) % fields.len()).unwrap_or(0)].clone();
+        self.start_editing(obj, &text);
+        if let Some(e) = &mut self.editing {
+            e.select_all = true;
         }
     }
 
@@ -919,7 +1157,14 @@ impl App {
             self.world().focus = Some((layer, id));
         }
         self.editing =
-            Some(Editing { obj, buffer: text.to_string(), synced: text.to_string(), changed: false, focus_requested: false });
+            Some(Editing {
+                obj,
+                buffer: text.to_string(),
+                synced: text.to_string(),
+                changed: false,
+                focus_requested: false,
+                select_all: false,
+            });
         self.send(Event::Send { target: obj, message: "openField".into(), args: vec![] });
     }
 
@@ -953,7 +1198,7 @@ impl App {
             ui.painter().layout_job(job)
         };
         let edit = egui::TextEdit::multiline(&mut e.buffer)
-            .id(egui::Id::unique(("field-edit", format!("{:?}", e.obj))))
+            .id(field_edit_id(e.obj))
             .frame(egui::Frame::NONE)
             .margin(Vec2::ZERO)
             .desired_width(text_rect.width())
@@ -971,6 +1216,16 @@ impl App {
         if !e.focus_requested {
             resp.request_focus();
             e.focus_requested = true;
+            if e.select_all {
+                let id = field_edit_id(e.obj);
+                let mut state = egui::text_edit::TextEditState::load(ui.ctx(), id).unwrap_or_default();
+                let all = egui::text::CCursorRange::two(
+                    egui::text::CCursor::new(0),
+                    egui::text::CCursor::new(e.buffer.chars().count()),
+                );
+                state.cursor.set_char_range(Some(all));
+                state.store(ui.ctx(), id);
+            }
         }
         if resp.changed()
             && let ObjRef::Part { layer, id, card } = e.obj
@@ -1201,6 +1456,16 @@ impl App {
                     .desired_width(f32::INFINITY)
                     .hint_text("Type HyperTalk here and press Return, e.g.  go next card"),
             );
+            if self.focus_msg_box {
+                // Blind typing: continue in the message box, at the end.
+                self.focus_msg_box = false;
+                resp.request_focus();
+                let id = resp.id;
+                let mut state = egui::text_edit::TextEditState::load(ui.ctx(), id).unwrap_or_default();
+                let end = egui::text::CCursor::new(self.msg_buffer.chars().count());
+                state.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
+                state.store(ui.ctx(), id);
+            }
             self.msg_has_focus = resp.has_focus();
             if resp.changed() {
                 self.world().msg = self.msg_buffer.clone();
@@ -1341,6 +1606,25 @@ fn show_field_text(ui: &mut egui::Ui, pv: &render::PartView, origin: Pos2, found
     }
 }
 
+/// F1–F12 as HyperCard function key numbers.
+fn function_key(key: Key) -> Option<u32> {
+    let keys = [
+        Key::F1,
+        Key::F2,
+        Key::F3,
+        Key::F4,
+        Key::F5,
+        Key::F6,
+        Key::F7,
+        Key::F8,
+        Key::F9,
+        Key::F10,
+        Key::F11,
+        Key::F12,
+    ];
+    keys.iter().position(|k| *k == key).map(|i| i as u32 + 1)
+}
+
 fn with_ext(p: PathBuf) -> PathBuf {
     if p.extension().is_none() { p.with_extension(STACK_EXT) } else { p }
 }
@@ -1354,6 +1638,7 @@ impl eframe::App for App {
         }
         self.handle_requests(&ctx);
         self.shortcuts(&ctx);
+        self.keyboard(&ctx);
 
         let (title, beeps, busy, menubar, msg_visible) = {
             let w = self.world();

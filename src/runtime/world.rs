@@ -74,6 +74,25 @@ impl Tool {
         }
     }
 
+    /// HyperCard's tool number, as passed with the `choose` message.
+    pub fn number(self) -> u32 {
+        match self {
+            Tool::Browse => 1,
+            Tool::Button => 2,
+            Tool::Field => 3,
+            Tool::Select => 4,
+            Tool::Pencil => 6,
+            Tool::Brush => 7,
+            Tool::Eraser => 8,
+            Tool::Line => 9,
+            Tool::Spray => 10,
+            Tool::Rect => 11,
+            Tool::RoundRect => 12,
+            Tool::Bucket => 13,
+            Tool::Oval => 14,
+        }
+    }
+
     pub fn is_paint(self) -> bool {
         !matches!(self, Tool::Browse | Tool::Button | Tool::Field)
     }
@@ -166,6 +185,25 @@ pub enum DialogReply {
     Text(Option<String>),
 }
 
+/// What a key does when no script handles its message.
+#[derive(Clone, Debug, PartialEq)]
+pub enum KeyAction {
+    /// Type this text into the field being edited.
+    Insert(String),
+    /// Move to the next unlocked field, or the first one if none is active.
+    NextField,
+    /// Stop editing the field.
+    CloseField,
+    /// Type into the message box (HyperCard's blind typing).
+    BlindType(String),
+    /// Run what's in the message box.
+    RunMessage,
+    /// Do a menu command (for command-key shortcuts).
+    Menu(String),
+    Undo,
+    Nothing,
+}
+
 /// Things only the UI thread can do, requested by scripts or menu commands.
 #[derive(Clone, Debug)]
 pub enum UiRequest {
@@ -184,6 +222,8 @@ pub enum UiRequest {
     SendFarther,
     Undo,
     SelectPart(ObjRef),
+    /// A key's message wasn't handled: do what the key does by default.
+    Key(ObjRef, KeyAction),
 }
 
 /// Messages from the UI to the script thread.
@@ -193,6 +233,9 @@ pub enum Event {
     Send { target: ObjRef, message: String, args: Vec<String> },
     MsgBox(String),
     DoMenu(String),
+    /// A keyboard message (keyDown, returnInField, tabKey, ...), with what
+    /// the key does if no handler takes it.
+    Key { target: ObjRef, message: String, args: Vec<String>, default: KeyAction },
     /// Replace the open stack (already loaded by the UI) and send open messages.
     OpenStack(Box<Stack>),
     Shutdown,

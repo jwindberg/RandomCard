@@ -298,7 +298,10 @@ pub enum Cmd {
 
 #[derive(Clone, Debug)]
 pub enum StmtKind {
-    Cmd(Cmd),
+    /// A built-in command. `name` is its message name (e.g. "go"), and
+    /// `args` the rest of the statement as written, passed to handlers that
+    /// intercept the command.
+    Cmd { name: String, cmd: Cmd, args: String },
     If { cond: Expr, then: Vec<Stmt>, els: Option<Vec<Stmt>> },
     Repeat { kind: RepeatKind, body: Vec<Stmt> },
     Global(Vec<String>),

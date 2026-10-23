@@ -35,7 +35,7 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 | Object model (stacks, backgrounds, cards, buttons, fields) | Complete |
 | HyperTalk core (handlers, message path, chunks, control flow) | Complete |
 | HyperTalk commands and functions | Most; gaps below |
-| System messages | Mouse, navigation, `idle`, `doMenu`, `arrowKey`; keyboard missing |
+| System messages | Mouse, navigation, keyboard, `idle`, `doMenu`; all commands interceptable |
 | Browse, Button and Field tools | Working; no part clipboard or undo |
 | Paint tools | 10 of 18 tools, black only |
 | Fields | Plain text; no styled runs or text selection queries |
@@ -110,15 +110,11 @@ font, size, style and alignment for the whole field, `lockText`, `dontWrap`,
 sample stacks parse.
 
 **Missing:**
-- **Keyboard messages:** `keyDown`, `returnKey`, `enterKey`, `tabKey`,
-  `returnInField`, `enterInField`, `functionKey`, `commandKeyDown` and
-  `controlKey` aren't sent, so scripts can't intercept typing. The UI would
-  send them before applying a key, and only apply it if the message passes
-  through to RandomCard (`default_handler` in `src/runtime/interp.rs`).
-  This needs a synchronous round trip to the script thread for typing.
-- **Built-in commands as messages.** In HyperCard, `go`, `find`, `answer`
-  and the other commands travel the message path, so a script can intercept
-  them with `on go`. Only `doMenu` and `arrowKey` do here.
+- **Keyboard gaps:** keyboard messages and interceptable commands are done
+  (see the README). Still missing: `controlKey`; `keyDown` for editing keys
+  such as Backspace and the arrows inside a field; a separate Enter key
+  (keypad Enter arrives as Return, so Shift+Return stands in for it); and
+  keyboard messages with tools other than Browse.
 - **Chunk properties:** `textStyle`, `textFont` and `textSize` of a chunk
   (depends on styled text).
 - **Menus:** `create menu`, `put … into menu`, `delete menu`, `enable` and
@@ -200,8 +196,7 @@ and the resource chain.
 
 ## Suggested order
 
-1. **Keyboard messages and interceptable commands.** Many classic stacks
-   depend on `keyDown`, `returnInField` and `on go`.
+1. ~~Keyboard messages and interceptable commands.~~ Done.
 2. **Paint patterns and the remaining paint tools.** The most visible gap
    for anyone drawing; imported stacks carry their patterns in the STAK
    block.

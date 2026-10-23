@@ -364,3 +364,61 @@ fn playing_sounds() {
     assert_eq!(run(&mut i, "play \"nothing\"\nput the result"), "Can't find sound \"nothing\"");
     assert_eq!(run(&mut i, "dial \"555-1234\"\nput the sound"), "dial");
 }
+
+#[test]
+fn built_in_commands_are_messages() {
+    let mut i = interp_with(stack());
+    // A handler takes the command; it doesn't run.
+    set_script(&i, ObjRef::Stack, "on go dest\n  put \"stopped:\" && dest into msg\nend go");
+    assert_eq!(run(&mut i, "go to next card\nput msg && the number of this card"), "stopped: to next card 1");
+    // Passing it lets the command run.
+    set_script(&i, ObjRef::Stack, "on go\n  global log\n  put \"seen\" into log\n  pass go\nend go");
+    assert_eq!(run(&mut i, "global log\ngo next\nput log && the number of this card"), "seen 2");
+    // A command inside its own handler runs directly instead of recursing.
+    set_script(&i, ObjRef::Stack, "on go\n  go to card \"Three\"\nend go");
+    assert_eq!(run(&mut i, "go to card 1\nput the short name of this card"), "Three");
+    // choose gets the tool's name and number.
+    set_script(&i, ObjRef::Stack, "on choose toolName, toolNumber\n  put toolName & \",\" & toolNumber into msg\nend choose");
+    assert_eq!(run(&mut i, "choose pencil tool\nput msg && the tool"), "pencil,6 browse tool");
+    // Any command can be intercepted, including put.
+    set_script(&i, ObjRef::Stack, "on beep\n  put \"quiet\" into msg\nend beep");
+    assert_eq!(run(&mut i, "beep\nput msg"), "quiet");
+    assert_eq!(lock(&i.world).beeps, 0);
+    // Setting a script from HyperTalk takes effect at once.
+    set_script(&i, ObjRef::Stack, "");
+    assert_eq!(
+        run(&mut i, "set the script of this stack to \"on beep\" & return & \"put 7 into msg\" & return & \"end beep\"\nbeep\nput msg"),
+        "7"
+    );
+}
+
+#[test]
+fn keyboard_messages() {
+    use super::world::KeyAction;
+    let mut i = interp_with(stack());
+    let field = ObjRef::Part { layer: Layer::Background, id: 10, card: 3 };
+    let key = |i: &mut Interp, message: &str, args: &[&str], default: KeyAction| {
+        i.handle_event(Event::Key {
+            target: field,
+            message: message.into(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            default,
+        });
+        std::mem::take(&mut lock(&i.world).requests)
+    };
+    // Unhandled: the UI is asked to type the key.
+    let r = key(&mut i, "keyDown", &["a"], KeyAction::Insert("a".into()));
+    assert!(matches!(&r[..], [UiRequest::Key(o, KeyAction::Insert(t))] if *o == field && t == "a"));
+    // A handler that doesn't pass swallows keys; one that passes lets them through.
+    set_script(&i, ObjRef::Stack, "on keyDown k\n  if k is a number then pass keyDown\nend keyDown");
+    assert!(key(&mut i, "keyDown", &["x"], KeyAction::Insert("x".into())).is_empty());
+    assert_eq!(key(&mut i, "keyDown", &["7"], KeyAction::Insert("7".into())).len(), 1);
+    // returnInField reaches the field's own script first.
+    set_script(&i, field, "on returnInField\n  put \"done\" into msg\nend returnInField");
+    assert!(key(&mut i, "returnInField", &[], KeyAction::Insert("\n".into())).is_empty());
+    assert_eq!(lock(&i.world).msg, "done");
+    // An unhandled command key does its menu command on the script thread.
+    let before = lock(&i.world).stack.cards.len();
+    assert!(key(&mut i, "commandKeyDown", &["n"], KeyAction::Menu("New Card".into())).is_empty());
+    assert_eq!(lock(&i.world).stack.cards.len(), before + 1);
+}

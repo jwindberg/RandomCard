@@ -14,7 +14,7 @@ use crate::hypertalk::parser::{parse_expression, parse_object, parse_script, par
 use crate::hypertalk::value::*;
 use crate::model::{Id, Layer, Stack};
 
-use super::world::{Dialog, DialogReply, Event, ObjRef, Shared, UiRequest, World, lock};
+use super::world::{Dialog, DialogReply, Event, KeyAction, ObjRef, Shared, UiRequest, World, lock};
 
 const MAX_DEPTH: usize = 128;
 
@@ -113,6 +113,9 @@ pub struct Interp {
     /// For tests: canned dialog answers.
     pub canned_answers: Vec<DialogReply>,
     pub audio: crate::sound::Player,
+    /// Names of all message handlers in the stack's scripts, gathered when a
+    /// command first needs them during an event.
+    handler_names: Option<HashSet<String>>,
 }
 
 impl Interp {
@@ -136,6 +139,7 @@ impl Interp {
             msgbox_vars: HashMap::new(),
             canned_answers: Vec::new(),
             audio: crate::sound::Player::silent(),
+            handler_names: None,
         }
     }
 
@@ -183,6 +187,7 @@ impl Interp {
 
     pub fn handle_event(&mut self, ev: Event) {
         self.abort.store(false, Ordering::SeqCst);
+        self.handler_names = None;
         {
             let mut w = self.w();
             w.busy = true;
@@ -198,6 +203,7 @@ impl Interp {
                 let card = ObjRef::Card(self.w().card_id);
                 self.dispatch_top(card, "doMenu", vec![item])
             }
+            Event::Key { target, message, args, default } => self.key_message(target, &message, args, default),
             Event::Shutdown => Ok(()),
         };
         self.frames.clear();
@@ -239,6 +245,31 @@ impl Interp {
         match r {
             Err(Ctl::ExitToHyperCard) => Ok(()),
             other => other,
+        }
+    }
+
+    /// Send a keyboard message; if nobody takes it, the key does its default.
+    fn key_message(&mut self, target: ObjRef, message: &str, args: Vec<String>, default: KeyAction) -> R<()> {
+        let card = self.current_card_ref();
+        self.frames.push(Frame::new(card, target, message, args.clone()));
+        let handled = self.send_message(target, message, &args);
+        self.frames.pop();
+        match handled {
+            Ok(true) | Err(Ctl::ExitToHyperCard) => Ok(()),
+            Ok(false) => match default {
+                KeyAction::Menu(item) => {
+                    self.frames.push(Frame::new(card, card, "commandKeyDown", args));
+                    let r = self.perform_menu(&item);
+                    self.frames.pop();
+                    r
+                }
+                KeyAction::Nothing => Ok(()),
+                action => {
+                    self.w().requests.push(UiRequest::Key(target, action));
+                    Ok(())
+                }
+            },
+            Err(e) => Err(e),
         }
     }
 
@@ -507,7 +538,12 @@ impl Interp {
 
     fn exec_kind(&mut self, k: &StmtKind) -> R<()> {
         match k {
-            StmtKind::Cmd(c) => self.command(c),
+            StmtKind::Cmd { name, cmd, args } => {
+                if self.intercepted(name, cmd, args)? {
+                    return Ok(());
+                }
+                self.command(cmd)
+            }
             StmtKind::If { cond, then, els } => {
                 let v = self.eval(cond)?;
                 let b = parse_bool(&v).ok_or_else(|| {
@@ -548,6 +584,67 @@ impl Interp {
                 Ok(())
             }
         }
+    }
+
+    /// Built-in commands are messages too: a handler with the command's name
+    /// can take it (and the command doesn't run) or pass it on. Returns
+    /// whether a handler took it.
+    fn intercepted(&mut self, name: &str, cmd: &Cmd, args: &str) -> R<bool> {
+        // doMenu and arrowKey send their own messages.
+        if matches!(name, "domenu" | "arrowkey") {
+            return Ok(false);
+        }
+        // A command used inside its own handler goes straight to RandomCard.
+        if self.frame().message.eq_ignore_ascii_case(name) {
+            return Ok(false);
+        }
+        if !self.handler_names().contains(name) {
+            return Ok(false);
+        }
+        let params = match cmd {
+            Cmd::ChooseTool(e) => {
+                let v = self.eval(e)?;
+                match super::world::Tool::parse(&v) {
+                    Some(t) => vec![t.name().to_string(), t.number().to_string()],
+                    None => vec![v],
+                }
+            }
+            _ if args.is_empty() => Vec::new(),
+            _ => vec![args.to_string()],
+        };
+        let me = self.frame().me;
+        self.send_message(me, name, &params)
+    }
+
+    /// Every handler name defined anywhere in the stack (lowercase).
+    fn handler_names(&mut self) -> &HashSet<String> {
+        if self.handler_names.is_none() {
+            let mut names = HashSet::new();
+            {
+                let w = self.w();
+                let s = &w.stack;
+                let scripts = std::iter::once(&s.script)
+                    .chain(s.backgrounds.iter().flat_map(|b| std::iter::once(&b.script).chain(b.parts.iter().map(|p| &p.script))))
+                    .chain(s.cards.iter().flat_map(|c| std::iter::once(&c.script).chain(c.parts.iter().map(|p| &p.script))));
+                for script in scripts {
+                    for line in script.lines() {
+                        let mut words = line.split_whitespace();
+                        if words.next().is_some_and(|w| w.eq_ignore_ascii_case("on"))
+                            && let Some(n) = words.next()
+                        {
+                            names.insert(n.to_ascii_lowercase());
+                        }
+                    }
+                }
+            }
+            self.handler_names = Some(names);
+        }
+        self.handler_names.as_ref().unwrap()
+    }
+
+    /// Scripts changed: handler names must be gathered again.
+    pub fn scripts_changed(&mut self) {
+        self.handler_names = None;
     }
 
     fn message_stmt(&mut self, name: &str, args: &[Expr], from_msgbox: bool) -> R<()> {

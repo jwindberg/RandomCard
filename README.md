@@ -116,6 +116,20 @@ stack. Messages travel the HyperCard message path (part → card → background
   mouseWithin, mouseDoubleClick, openField, closeField, exitField, idle,
   arrowKey and doMenu. Menu commands go through `doMenu`, so scripts can
   intercept them.
+- Keyboard messages: keyDown, returnInField, enterInField and tabKey go to
+  the field being typed in; keyDown, returnKey, enterKey, tabKey,
+  functionKey and commandKeyDown go to the card when no field is active.
+  A handler that doesn't `pass` the message stops the key. Unhandled keys
+  do what HyperCard did: Tab moves to the next unlocked field and selects
+  its text, Return on the last line of an autoTab field moves on, typing
+  with no field active goes into the message box (blind typing) and Return
+  runs it, command keys do their menu items, and F1 undoes. Shift+Return
+  stands in for the Enter key.
+- Built-in commands are messages too: `on go`, `on find`, `on beep` and so
+  on intercept the command, and `pass` lets it run. `choose` passes the
+  tool's name and number; other commands pass the rest of the command as
+  written (e.g. `to next card`). A command used inside its own handler runs
+  directly.
 - Sound: `play "boing"`, `play "harpsichord" tempo 200 "c4e d e f g a b c5h"`
   (notes as a–g or MIDI numbers with `#`/`b`, octave, `w h q e s t x`
   durations, dots and triplets), `play stop`, `the sound`, `dial` (touch

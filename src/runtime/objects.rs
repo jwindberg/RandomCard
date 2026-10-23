@@ -603,6 +603,9 @@ impl Interp {
     pub fn set_property(&mut self, o: ObjRef, name: &str, v: &str) -> R<()> {
         let name = name.to_ascii_lowercase();
         let name = name.as_str();
+        if name == "script" {
+            self.scripts_changed();
+        }
         let bad = |what: &str| -> R<()> { err(format!("Expected {what} here, not \"{v}\"")) };
         match o {
             ObjRef::Part { layer, id, card } => {
