@@ -72,6 +72,9 @@ pub struct App {
     hover: Option<ObjRef>,
     pressed: Option<ObjRef>,
     pressed_inside: bool,
+    /// A scrolling field whose scroll thumb is being dragged, and where on
+    /// the thumb it was grabbed.
+    scroll_drag: Option<(ObjRef, f32)>,
     last_repeat_msg: Instant,
     editing: Option<Editing>,
     selected: Option<ObjRef>,
@@ -108,6 +111,7 @@ impl App {
             hover: None,
             pressed: None,
             pressed_inside: false,
+            scroll_drag: None,
             last_repeat_msg: Instant::now(),
             editing: None,
             selected: None,
@@ -856,6 +860,9 @@ impl App {
 
         let primary_pressed = ctx.input(|i| i.pointer.primary_pressed());
         let primary_released = ctx.input(|i| i.pointer.primary_released());
+        if self.scroll_bar_input(ctx, resp, origin, scene, over) {
+            return;
+        }
         if primary_pressed && resp.hovered() {
             {
                 let mut w = self.world();
@@ -900,6 +907,66 @@ impl App {
                         self.send(Event::Send { target: t, message: "mouseDoubleClick".into(), args: vec![] });
                     }
                 }
+            }
+        }
+    }
+
+    /// The scroll bar of a scrolling field that isn't being edited: drag the
+    /// thumb, or click the track to page. Returns whether it took the mouse.
+    fn scroll_bar_input(
+        &mut self,
+        ctx: &egui::Context,
+        resp: &egui::Response,
+        origin: Pos2,
+        scene: &Scene,
+        over: Option<&render::PartView>,
+    ) -> bool {
+        let pos = ctx.input(|i| i.pointer.latest_pos());
+        let geometry = |app: &Self, pv: &render::PartView| {
+            let rect = render::part_rect(&pv.part, origin);
+            let view = render::field_text_rect(&pv.part, rect).height();
+            let content = app.content_heights.get(&pv.obj).copied().unwrap_or(0.0);
+            (render::scrollbar(rect, pv.part.scroll as f32, content, view), view)
+        };
+        if let Some((obj, grab)) = self.scroll_drag {
+            if !ctx.input(|i| i.pointer.primary_down()) {
+                self.scroll_drag = None;
+            } else if let (Some(p), Some(pv)) = (pos, scene.parts.iter().find(|pv| pv.obj == obj)) {
+                let (sb, _) = geometry(self, pv);
+                if sb.travel > 0.0 {
+                    let frac = ((p.y - grab - sb.bar.top() - 1.0) / sb.travel).clamp(0.0, 1.0);
+                    self.set_scroll(obj, frac * sb.max_scroll);
+                }
+            }
+            return true;
+        }
+        let pressed = ctx.input(|i| i.pointer.primary_pressed()) && resp.hovered();
+        let (Some(p), Some(pv)) = (pos, over) else { return false };
+        let scrolling = pv.part.kind == PartKind::Field && pv.part.style == PartStyle::Scrolling;
+        if !pressed || !scrolling || self.editing.as_ref().is_some_and(|e| e.obj == pv.obj) {
+            return false;
+        }
+        let (sb, view) = geometry(self, pv);
+        if !sb.bar.contains(p) {
+            return false;
+        }
+        match sb.thumb {
+            Some(thumb) if thumb.contains(p) => self.scroll_drag = Some((pv.obj, p.y - thumb.top())),
+            Some(thumb) => {
+                // Clicking above or below the thumb pages by a field's height.
+                let page = if p.y < thumb.top() { -view } else { view };
+                self.set_scroll(pv.obj, (pv.part.scroll as f32 + page).clamp(0.0, sb.max_scroll));
+            }
+            None => {}
+        }
+        true
+    }
+
+    fn set_scroll(&self, obj: ObjRef, scroll: f32) {
+        if let ObjRef::Part { layer, id, card } = obj {
+            let mut w = self.world();
+            if let Some(p) = w.stack.part_mut(card, layer, id) {
+                p.scroll = scroll.round().max(0.0) as i32;
             }
         }
     }

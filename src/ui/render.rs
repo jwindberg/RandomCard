@@ -478,17 +478,35 @@ fn draw_field(painter: &Painter, pv: &PartView, rect: Rect, found: Option<&Found
     }
 }
 
-pub fn draw_scrollbar(painter: &Painter, rect: Rect, scroll: f32, content_h: f32, view_h: f32) {
+/// Where a scrolling field's scroll bar and thumb are.
+pub struct Scrollbar {
+    pub bar: Rect,
+    /// None when all the text fits.
+    pub thumb: Option<Rect>,
+    pub max_scroll: f32,
+    /// How far the thumb's top can move.
+    pub travel: f32,
+}
+
+pub fn scrollbar(rect: Rect, scroll: f32, content_h: f32, view_h: f32) -> Scrollbar {
     let bar = Rect::from_min_max(Pos2::new(rect.right() - SCROLLBAR, rect.top()), rect.max);
-    painter.rect_filled(bar, 0.0, Color32::from_gray(230));
-    painter.rect_stroke(bar, 0.0, Stroke::new(1.0, BLACK), StrokeKind::Inside);
-    if content_h > view_h {
-        let frac = view_h / content_h;
-        let track = bar.height() - 2.0;
-        let thumb_h = (track * frac).max(12.0);
-        let max_scroll = content_h - view_h;
-        let y = bar.top() + 1.0 + (track - thumb_h) * (scroll / max_scroll).clamp(0.0, 1.0);
-        let thumb = Rect::from_min_size(Pos2::new(bar.left() + 2.0, y), Vec2::new(SCROLLBAR - 4.0, thumb_h));
+    let track = bar.height() - 2.0;
+    if content_h <= view_h || track <= 0.0 {
+        return Scrollbar { bar, thumb: None, max_scroll: 0.0, travel: 0.0 };
+    }
+    let thumb_h = (track * view_h / content_h).clamp(12.0_f32.min(track), track);
+    let max_scroll = content_h - view_h;
+    let travel = track - thumb_h;
+    let y = bar.top() + 1.0 + travel * (scroll / max_scroll).clamp(0.0, 1.0);
+    let thumb = Rect::from_min_size(Pos2::new(bar.left() + 2.0, y), Vec2::new(SCROLLBAR - 4.0, thumb_h));
+    Scrollbar { bar, thumb: Some(thumb), max_scroll, travel }
+}
+
+pub fn draw_scrollbar(painter: &Painter, rect: Rect, scroll: f32, content_h: f32, view_h: f32) {
+    let sb = scrollbar(rect, scroll, content_h, view_h);
+    painter.rect_filled(sb.bar, 0.0, Color32::from_gray(230));
+    painter.rect_stroke(sb.bar, 0.0, Stroke::new(1.0, BLACK), StrokeKind::Inside);
+    if let Some(thumb) = sb.thumb {
         painter.rect_filled(thumb, 2.0, WHITE);
         painter.rect_stroke(thumb, 2.0, Stroke::new(1.0, BLACK), StrokeKind::Inside);
     }
