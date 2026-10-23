@@ -5,6 +5,29 @@ Each section says what exists today, what's missing, and where the work
 would go. The suggested order at the end ranks items by how much they
 matter to people building or importing stacks.
 
+## Design principles
+
+RandomCard aims for HyperCard's functionality, not its 1987 appearance.
+
+- **Modern around the card.** Menus, dialogs, Info windows, the script
+  editor, the message box and scroll bars use standard egui widgets. They
+  bring keyboard support, high-resolution displays, smooth scrolling and
+  accessibility, and need less code than imitations of classic controls.
+- **HyperCard's behaviour wherever scripts or stacks can see it.** Part
+  rectangles, card size and coordinates are exact, because scripts move
+  things by position and imported stacks are laid out to the pixel.
+  Properties keep their HyperCard meaning even when the visuals are
+  modern: `the scroll` of a field is still pixels scrolled, and `the style`
+  still takes `shadow` or `roundRect`. Changes to text rendering shouldn't
+  change how much text fits in a field.
+- **Recognizably HyperCard on the card.** Card content can be cleaner
+  (antialiased text, crisper outlines), but button and field styles stay
+  visibly distinct, since stack authors chose them deliberately.
+- **No compromise on semantics.** The message path, HyperTalk, and
+  painting behave as in HyperCard. The paint layer stays black and white
+  for now (imported pictures and patterns depend on it); colour would be
+  an addition, not a change to the model.
+
 ## Status at a glance
 
 | Area | State |
@@ -135,10 +158,12 @@ sample stacks parse.
 - **Cut, Copy and Paste of buttons and fields** (cards have them).
 - **Undo** for object edits (moving, resizing, deleting parts and cards).
 - **Bring to Front / Send to Back** (only one step closer or farther now).
-- **Fonts:** HyperCard's bitmap fonts (Chicago, Geneva, New York, Monaco).
-  Text is rendered with egui's fonts, slightly larger than the originals.
-  Freely licensed lookalike fonts could be bundled.
-- **Script editor:** find and replace, go to line, and syntax colouring.
+- **Font metrics:** text uses egui's fonts rather than HyperCard's bitmap
+  fonts, which is intended. It runs slightly larger than the originals, so
+  some imported fields show less text than they did; matching font sizes to
+  HyperCard's text metrics would fix that without changing the look.
+- **Script editor:** find and replace, go to line, and syntax colouring,
+  using egui's standard text-editing features.
 - **Font and Style menus**, and a **Home menu**.
 - **Printing** of cards and reports.
 
@@ -189,4 +214,4 @@ and the resource chain.
 7. **Multiple stacks, Home, and `start using`.** Larger architectural
    change to `World` and the message path.
 8. **HyperCard 1.x import, MACE, AddColor.**
-9. **Bitmap-style fonts, user levels, printing, the debugger.**
+9. **Font metrics, user levels, printing, the debugger.**

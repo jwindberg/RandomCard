@@ -72,9 +72,12 @@ pub struct App {
     hover: Option<ObjRef>,
     pressed: Option<ObjRef>,
     pressed_inside: bool,
-    /// A scrolling field whose scroll thumb is being dragged, and where on
-    /// the thumb it was grabbed.
-    scroll_drag: Option<(ObjRef, f32)>,
+    /// Each scrolling field's `scroll`, as last given to or read from its
+    /// scroll area, to tell script changes from the user's scrolling.
+    synced_scroll: std::collections::HashMap<ObjRef, i32>,
+    /// Where scrolling fields' scroll bars were last frame; clicks there
+    /// belong to the scroll bar, not the card.
+    scroll_bar_zones: Vec<Rect>,
     last_repeat_msg: Instant,
     editing: Option<Editing>,
     selected: Option<ObjRef>,
@@ -82,7 +85,6 @@ pub struct App {
     stroke: Option<PaintStroke>,
     undo: Option<(Layer, Id, Picture)>,
     marquee: Option<Marquee>,
-    content_heights: std::collections::HashMap<ObjRef, f32>,
     infos: Vec<InfoWindow>,
     editors: Vec<ScriptEditor>,
     error: Option<ErrorAlert>,
@@ -111,7 +113,8 @@ impl App {
             hover: None,
             pressed: None,
             pressed_inside: false,
-            scroll_drag: None,
+            synced_scroll: Default::default(),
+            scroll_bar_zones: Vec::new(),
             last_repeat_msg: Instant::now(),
             editing: None,
             selected: None,
@@ -119,7 +122,6 @@ impl App {
             stroke: None,
             undo: None,
             marquee: None,
-            content_heights: Default::default(),
             infos: Vec::new(),
             editors: Vec::new(),
             error: None,
@@ -816,7 +818,14 @@ impl App {
         let busy = self.world().busy;
         let pos = ctx.input(|i| i.pointer.latest_pos());
         let card_pos = pos.map(|q| ((q.x - origin.x) as i32, (q.y - origin.y) as i32));
-        let over = if resp.hovered() { card_pos.and_then(|(x, y)| scene.part_at(x, y)) } else { None };
+        // Over the card itself: not over a window in front of it, nor over a
+        // scrolling field's scroll bar (scroll areas take their own clicks).
+        let over_card = pos.is_some_and(|p| {
+            resp.rect.contains(p)
+                && ctx.layer_id_at(p) == Some(resp.layer_id)
+                && !self.scroll_bar_zones.iter().any(|z| z.contains(p))
+        });
+        let over = if over_card { card_pos.and_then(|(x, y)| scene.part_at(x, y)) } else { None };
         let over_obj = over.map(|pv| pv.obj);
         let card = ObjRef::Card(scene.card);
 
@@ -839,31 +848,9 @@ impl App {
             self.send(Event::Send { target: o, message: "mouseWithin".into(), args: vec![] });
         }
 
-        // Scrolling fields scroll with the wheel.
-        if let Some(pv) = over
-            && pv.part.kind == PartKind::Field
-            && pv.part.style == PartStyle::Scrolling
-            && self.editing.as_ref().is_none_or(|e| e.obj != pv.obj)
-        {
-            let dy = ctx.input(|i| i.smooth_scroll_delta.y);
-            if dy != 0.0
-                && let ObjRef::Part { layer, id, card } = pv.obj
-            {
-                let max = self.content_heights.get(&pv.obj).copied().unwrap_or(0.0);
-                let view = render::field_text_rect(&pv.part, render::part_rect(&pv.part, origin)).height();
-                let mut w = self.world();
-                if let Some(p) = w.stack.part_mut(card, layer, id) {
-                    p.scroll = ((p.scroll as f32 - dy).clamp(0.0, (max - view).max(0.0))) as i32;
-                }
-            }
-        }
-
         let primary_pressed = ctx.input(|i| i.pointer.primary_pressed());
         let primary_released = ctx.input(|i| i.pointer.primary_released());
-        if self.scroll_bar_input(ctx, resp, origin, scene, over) {
-            return;
-        }
-        if primary_pressed && resp.hovered() {
+        if primary_pressed && over_card {
             {
                 let mut w = self.world();
                 if let Some((x, y)) = card_pos {
@@ -907,66 +894,6 @@ impl App {
                         self.send(Event::Send { target: t, message: "mouseDoubleClick".into(), args: vec![] });
                     }
                 }
-            }
-        }
-    }
-
-    /// The scroll bar of a scrolling field that isn't being edited: drag the
-    /// thumb, or click the track to page. Returns whether it took the mouse.
-    fn scroll_bar_input(
-        &mut self,
-        ctx: &egui::Context,
-        resp: &egui::Response,
-        origin: Pos2,
-        scene: &Scene,
-        over: Option<&render::PartView>,
-    ) -> bool {
-        let pos = ctx.input(|i| i.pointer.latest_pos());
-        let geometry = |app: &Self, pv: &render::PartView| {
-            let rect = render::part_rect(&pv.part, origin);
-            let view = render::field_text_rect(&pv.part, rect).height();
-            let content = app.content_heights.get(&pv.obj).copied().unwrap_or(0.0);
-            (render::scrollbar(rect, pv.part.scroll as f32, content, view), view)
-        };
-        if let Some((obj, grab)) = self.scroll_drag {
-            if !ctx.input(|i| i.pointer.primary_down()) {
-                self.scroll_drag = None;
-            } else if let (Some(p), Some(pv)) = (pos, scene.parts.iter().find(|pv| pv.obj == obj)) {
-                let (sb, _) = geometry(self, pv);
-                if sb.travel > 0.0 {
-                    let frac = ((p.y - grab - sb.bar.top() - 1.0) / sb.travel).clamp(0.0, 1.0);
-                    self.set_scroll(obj, frac * sb.max_scroll);
-                }
-            }
-            return true;
-        }
-        let pressed = ctx.input(|i| i.pointer.primary_pressed()) && resp.hovered();
-        let (Some(p), Some(pv)) = (pos, over) else { return false };
-        let scrolling = pv.part.kind == PartKind::Field && pv.part.style == PartStyle::Scrolling;
-        if !pressed || !scrolling || self.editing.as_ref().is_some_and(|e| e.obj == pv.obj) {
-            return false;
-        }
-        let (sb, view) = geometry(self, pv);
-        if !sb.bar.contains(p) {
-            return false;
-        }
-        match sb.thumb {
-            Some(thumb) if thumb.contains(p) => self.scroll_drag = Some((pv.obj, p.y - thumb.top())),
-            Some(thumb) => {
-                // Clicking above or below the thumb pages by a field's height.
-                let page = if p.y < thumb.top() { -view } else { view };
-                self.set_scroll(pv.obj, (pv.part.scroll as f32 + page).clamp(0.0, sb.max_scroll));
-            }
-            None => {}
-        }
-        true
-    }
-
-    fn set_scroll(&self, obj: ObjRef, scroll: f32) {
-        if let ObjRef::Part { layer, id, card } = obj {
-            let mut w = self.world();
-            if let Some(p) = w.stack.part_mut(card, layer, id) {
-                p.scroll = scroll.round().max(0.0) as i32;
             }
         }
     }
@@ -1032,12 +959,15 @@ impl App {
             .desired_width(text_rect.width())
             .text_color(Color32::BLACK)
             .layouter(&mut layouter);
+        let pv = pv.clone();
         let resp = if pv.part.style == PartStyle::Scrolling {
-            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(text_rect));
-            egui::ScrollArea::vertical().max_height(text_rect.height()).show(&mut child, |ui| ui.add(edit)).inner
+            field_scroll_area(ui, &pv, origin, &self.rt.world, &mut self.synced_scroll, &mut self.scroll_bar_zones, |ui| {
+                ui.add(edit)
+            })
         } else {
             ui.put(text_rect, edit)
         };
+        let Some(e) = &mut self.editing else { return };
         if !e.focus_requested {
             resp.request_focus();
             e.focus_requested = true;
@@ -1116,17 +1046,36 @@ impl App {
         let pressed_button = pressed.filter(|o| {
             shown.parts.iter().any(|pv| pv.obj == *o && pv.part.kind == PartKind::Button && pv.part.auto_hilite)
         });
+        let animating = self.anim.as_ref().is_some_and(|a| a.start.elapsed().as_secs_f32() < a.seconds);
+        // Scrolling fields are live scroll areas while browsing a card that's
+        // on screen (not mid-transition or behind lock screen).
+        let live_fields = tool == Tool::Browse && !animating && self.frozen.is_none();
         match &self.anim {
-            Some(a) if a.start.elapsed().as_secs_f32() < a.seconds => {
+            Some(a) if animating => {
                 let t = a.start.elapsed().as_secs_f32() / a.seconds;
                 render::draw_transition(&painter, &self.tex, &a.old, &shown, origin, &a.effect, t);
             }
             _ => {
                 self.anim = None;
-                render::draw_scene(&painter, &self.tex, &shown, origin, pressed_button);
+                render::draw_scene(&painter, &self.tex, &shown, origin, pressed_button, live_fields);
             }
         }
-        self.record_content_heights(&painter, &shown, origin);
+        self.scroll_bar_zones.clear();
+        if live_fields {
+            let editing = self.editing.as_ref().map(|e| e.obj);
+            for pv in shown.parts.iter().filter(|pv| {
+                pv.part.visible
+                    && pv.part.kind == PartKind::Field
+                    && pv.part.style == PartStyle::Scrolling
+                    && Some(pv.obj) != editing
+            }) {
+                let found = shown.found.as_ref().filter(|f| pv.obj == (ObjRef::Part { layer: f.layer, id: f.field, card: f.card }));
+                let found = found.map(|f| (f.start, f.end));
+                field_scroll_area(ui, pv, origin, &self.rt.world, &mut self.synced_scroll, &mut self.scroll_bar_zones, |ui| {
+                    show_field_text(ui, pv, origin, found)
+                });
+            }
+        }
 
         // Update the mouse state scripts can query.
         {
@@ -1192,16 +1141,6 @@ impl App {
             ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
         }
         self.last_scene = Some(shown);
-    }
-
-    fn record_content_heights(&mut self, painter: &egui::Painter, scene: &Scene, origin: Pos2) {
-        for pv in &scene.parts {
-            if pv.part.kind == PartKind::Field && pv.part.style == PartStyle::Scrolling {
-                let r = render::field_text_rect(&pv.part, render::part_rect(&pv.part, origin));
-                let g = painter.layout_job(render::field_job(&pv.part, &pv.text, r.width(), None));
-                self.content_heights.insert(pv.obj, g.size().y);
-            }
-        }
     }
 
     fn paint_overlay(&self, painter: &egui::Painter, origin: Pos2, tool: Tool) {
@@ -1344,6 +1283,61 @@ impl App {
             Some(2) => self.quit_prompt = false,
             _ => {}
         }
+    }
+}
+
+/// Show a scrolling field's contents in a standard scroll area, keeping the
+/// field's `scroll` property (pixels scrolled) and the scroll area in step
+/// both ways.
+fn field_scroll_area<R>(
+    ui: &mut egui::Ui,
+    pv: &render::PartView,
+    origin: Pos2,
+    world: &crate::runtime::world::Shared,
+    synced: &mut std::collections::HashMap<ObjRef, i32>,
+    bar_zones: &mut Vec<Rect>,
+    add: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    let rect = render::part_rect(&pv.part, origin);
+    let area = render::scroll_view_rect(&pv.part, rect);
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(area));
+    let mut scroll_area = egui::ScrollArea::vertical()
+        .id_salt(("field-scroll", format!("{:?}", pv.obj)))
+        .auto_shrink([false, false])
+        .max_height(area.height())
+        .scroll_source(egui::containers::scroll_area::ScrollSource {
+            scroll_bar: true,
+            drag: egui::containers::scroll_area::DragScroll::Never,
+            mouse_wheel: true,
+        });
+    // A script (or a new card) changed the scroll: move the scroll area.
+    if synced.get(&pv.obj) != Some(&pv.part.scroll) {
+        scroll_area = scroll_area.vertical_scroll_offset(pv.part.scroll as f32);
+    }
+    let out = scroll_area.show(&mut child, add);
+    let now = out.state.clamped_offset().y.round() as i32;
+    synced.insert(pv.obj, now);
+    if now != pv.part.scroll
+        && let ObjRef::Part { layer, id, card } = pv.obj
+    {
+        // The user scrolled: publish it as the field's scroll.
+        if let Some(p) = lock(world).stack.part_mut(card, layer, id) {
+            p.scroll = now;
+        }
+    }
+    bar_zones.push(Rect::from_min_max(Pos2::new(area.right() - render::SCROLLBAR, area.top()), area.max));
+    out.inner
+}
+
+/// The text of a scrolling field that isn't being edited.
+fn show_field_text(ui: &mut egui::Ui, pv: &render::PartView, origin: Pos2, found: Option<(usize, usize)>) {
+    let text_rect = render::field_text_rect(&pv.part, render::part_rect(&pv.part, origin));
+    let galley = ui.painter().layout_job(render::field_job(&pv.part, &pv.text, text_rect.width(), found));
+    let (r, _) = ui.allocate_exact_size(Vec2::new(text_rect.width(), galley.size().y), Sense::hover());
+    let pos = Pos2::new(render::aligned_x(&pv.part, r), r.top());
+    ui.painter().galley(pos, galley.clone(), Color32::BLACK);
+    if pv.part.text_style.to_ascii_lowercase().contains("bold") {
+        ui.painter().galley(pos + Vec2::new(0.6, 0.0), galley, Color32::BLACK);
     }
 }
 

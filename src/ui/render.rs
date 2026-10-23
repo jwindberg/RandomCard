@@ -196,7 +196,8 @@ fn is_bold(part: &Part) -> bool {
 }
 
 /// Draw a scene with its top-left corner at `origin`.
-pub fn draw_scene(painter: &Painter, tex: &Textures, scene: &Scene, origin: Pos2, pressed: Option<ObjRef>) {
+/// Draw a scene. `live` leaves scrolling fields' text to scroll area widgets.
+pub fn draw_scene(painter: &Painter, tex: &Textures, scene: &Scene, origin: Pos2, pressed: Option<ObjRef>, live: bool) {
     let card_rect = Rect::from_min_size(origin, Vec2::new(scene.width as f32, scene.height as f32));
     painter.rect_filled(card_rect, 0.0, WHITE);
     let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
@@ -213,7 +214,7 @@ pub fn draw_scene(painter: &Painter, tex: &Textures, scene: &Scene, origin: Pos2
             draw_card_picture(painter, tex, scene, card_rect, uv);
         }
         if pv.part.visible {
-            draw_part(painter, tex, pv, origin, pressed == Some(pv.obj), scene.found.as_ref());
+            draw_part(painter, tex, pv, origin, pressed == Some(pv.obj), scene.found.as_ref(), live);
         }
     }
     if !card_pict_drawn {
@@ -237,11 +238,19 @@ pub fn part_rect(part: &Part, origin: Pos2) -> Rect {
     )
 }
 
-pub fn draw_part(painter: &Painter, tex: &Textures, pv: &PartView, origin: Pos2, pressed: bool, found: Option<&Found>) {
+pub fn draw_part(
+    painter: &Painter,
+    tex: &Textures,
+    pv: &PartView,
+    origin: Pos2,
+    pressed: bool,
+    found: Option<&Found>,
+    live: bool,
+) {
     let rect = part_rect(&pv.part, origin);
     match pv.part.kind {
         PartKind::Button => draw_button(painter, tex, pv, rect, pressed),
-        PartKind::Field => draw_field(painter, pv, rect, found),
+        PartKind::Field => draw_field(painter, pv, rect, found, live),
     }
 }
 
@@ -380,7 +389,15 @@ fn draw_label(painter: &Painter, p: &Part, pos: Pos2, align: Align2, text: &str,
 }
 
 pub const FIELD_MARGIN: f32 = 4.0;
-pub const SCROLLBAR: f32 = 16.0;
+/// Room kept free at the right of a scrolling field for its scroll bar.
+pub const SCROLLBAR: f32 = 14.0;
+
+/// Where a scrolling field's scroll area goes: the text area plus the room
+/// for its scroll bar.
+pub fn scroll_view_rect(p: &Part, rect: Rect) -> Rect {
+    let text = field_text_rect(p, rect);
+    Rect::from_min_max(text.min, Pos2::new(rect.right() - 1.0, text.bottom()))
+}
 
 pub fn field_text_rect(p: &Part, rect: Rect) -> Rect {
     let margin = if p.wide_margins { FIELD_MARGIN + 6.0 } else { FIELD_MARGIN };
@@ -446,9 +463,14 @@ pub fn draw_field_frame(painter: &Painter, p: &Part, rect: Rect) {
     }
 }
 
-fn draw_field(painter: &Painter, pv: &PartView, rect: Rect, found: Option<&Found>) {
+/// Draw a field. With `live` set, a scrolling field gets only its frame: its
+/// text is shown in a scroll area widget by the UI.
+fn draw_field(painter: &Painter, pv: &PartView, rect: Rect, found: Option<&Found>, live: bool) {
     let p = &pv.part;
     draw_field_frame(painter, p, rect);
+    if live && p.style == PartStyle::Scrolling {
+        return;
+    }
     let text_rect = field_text_rect(p, rect);
     let hl = found.filter(|f| pv.obj == (ObjRef::Part { layer: f.layer, id: f.field, card: f.card }));
     let job = field_job(p, &pv.text, text_rect.width(), hl.map(|f| (f.start, f.end)));
@@ -474,42 +496,21 @@ fn draw_field(painter: &Painter, pv: &PartView, rect: Rect, found: Option<&Found
         clip.galley(pos + Vec2::new(0.6, 0.0), galley.clone(), BLACK);
     }
     if p.style == PartStyle::Scrolling {
-        draw_scrollbar(painter, rect, scroll, galley.size().y, text_rect.height());
+        draw_scroll_indicator(painter, scroll_view_rect(p, rect), scroll, galley.size().y);
     }
 }
 
-/// Where a scrolling field's scroll bar and thumb are.
-pub struct Scrollbar {
-    pub bar: Rect,
-    /// None when all the text fits.
-    pub thumb: Option<Rect>,
-    pub max_scroll: f32,
-    /// How far the thumb's top can move.
-    pub travel: f32,
-}
-
-pub fn scrollbar(rect: Rect, scroll: f32, content_h: f32, view_h: f32) -> Scrollbar {
-    let bar = Rect::from_min_max(Pos2::new(rect.right() - SCROLLBAR, rect.top()), rect.max);
-    let track = bar.height() - 2.0;
-    if content_h <= view_h || track <= 0.0 {
-        return Scrollbar { bar, thumb: None, max_scroll: 0.0, travel: 0.0 };
+/// A still picture of a scroll bar, for when the field isn't live (during
+/// visual effects and with the authoring tools): a slim thumb like egui's.
+fn draw_scroll_indicator(painter: &Painter, area: Rect, scroll: f32, content_h: f32) {
+    let view_h = area.height();
+    if content_h <= view_h || view_h <= 0.0 {
+        return;
     }
-    let thumb_h = (track * view_h / content_h).clamp(12.0_f32.min(track), track);
-    let max_scroll = content_h - view_h;
-    let travel = track - thumb_h;
-    let y = bar.top() + 1.0 + travel * (scroll / max_scroll).clamp(0.0, 1.0);
-    let thumb = Rect::from_min_size(Pos2::new(bar.left() + 2.0, y), Vec2::new(SCROLLBAR - 4.0, thumb_h));
-    Scrollbar { bar, thumb: Some(thumb), max_scroll, travel }
-}
-
-pub fn draw_scrollbar(painter: &Painter, rect: Rect, scroll: f32, content_h: f32, view_h: f32) {
-    let sb = scrollbar(rect, scroll, content_h, view_h);
-    painter.rect_filled(sb.bar, 0.0, Color32::from_gray(230));
-    painter.rect_stroke(sb.bar, 0.0, Stroke::new(1.0, BLACK), StrokeKind::Inside);
-    if let Some(thumb) = sb.thumb {
-        painter.rect_filled(thumb, 2.0, WHITE);
-        painter.rect_stroke(thumb, 2.0, Stroke::new(1.0, BLACK), StrokeKind::Inside);
-    }
+    let thumb_h = (view_h * view_h / content_h).max(12.0_f32.min(view_h));
+    let y = area.top() + (view_h - thumb_h) * (scroll / (content_h - view_h)).clamp(0.0, 1.0);
+    let thumb = Rect::from_min_size(Pos2::new(area.right() - 8.0, y), Vec2::new(6.0, thumb_h));
+    painter.rect_filled(thumb, 3.0, Color32::from_gray(150));
 }
 
 /// Draw `old` transitioning to `new` with a HyperCard visual effect, `t` in 0..1.
@@ -542,16 +543,16 @@ pub fn draw_transition(
         "open"
     };
     let name = words.first().copied().unwrap_or("plain");
-    let draw_new_in = |r: Rect| draw_scene(&clipped(r), tex, new, origin, None);
+    let draw_new_in = |r: Rect| draw_scene(&clipped(r), tex, new, origin, None, false);
     match name {
         "dissolve" => {
-            draw_scene(&clipped(full), tex, old, origin, None);
+            draw_scene(&clipped(full), tex, old, origin, None, false);
             let mut p = clipped(full);
             p.set_opacity(t);
-            draw_scene(&p, tex, new, origin, None);
+            draw_scene(&p, tex, new, origin, None, false);
         }
         "wipe" => {
-            draw_scene(&clipped(full), tex, old, origin, None);
+            draw_scene(&clipped(full), tex, old, origin, None, false);
             let r = match dir {
                 "left" => Rect::from_min_max(Pos2::new(full.right() - w * t, full.top()), full.max),
                 "right" => Rect::from_min_max(full.min, Pos2::new(full.left() + w * t, full.bottom())),
@@ -573,11 +574,11 @@ pub fn draw_transition(
                 "up" => Vec2::new(0.0, h),
                 _ => Vec2::new(0.0, -h),
             };
-            draw_scene(&clipped(full), tex, old, origin + off, None);
-            draw_scene(&clipped(full), tex, new, origin + off + incoming, None);
+            draw_scene(&clipped(full), tex, old, origin + off, None, false);
+            draw_scene(&clipped(full), tex, new, origin + off + incoming, None, false);
         }
         "barn" => {
-            draw_scene(&clipped(full), tex, old, origin, None);
+            draw_scene(&clipped(full), tex, old, origin, None, false);
             if dir == "close" {
                 draw_new_in(Rect::from_min_max(full.min, Pos2::new(full.left() + w * t / 2.0, full.bottom())));
                 draw_new_in(Rect::from_min_max(Pos2::new(full.right() - w * t / 2.0, full.top()), full.max));
@@ -591,16 +592,16 @@ pub fn draw_transition(
         }
         "iris" | "zoom" | "stretch" | "shrink" => {
             if dir == "close" {
-                draw_scene(&clipped(full), tex, new, origin, None);
+                draw_scene(&clipped(full), tex, new, origin, None, false);
                 let r = Rect::from_center_size(full.center(), size * (1.0 - t));
-                draw_scene(&clipped(r), tex, old, origin, None);
+                draw_scene(&clipped(r), tex, old, origin, None, false);
             } else {
-                draw_scene(&clipped(full), tex, old, origin, None);
+                draw_scene(&clipped(full), tex, old, origin, None, false);
                 draw_new_in(Rect::from_center_size(full.center(), size * t));
             }
         }
         "venetian" => {
-            draw_scene(&clipped(full), tex, old, origin, None);
+            draw_scene(&clipped(full), tex, old, origin, None, false);
             let strips = 12;
             let sh = h / strips as f32;
             for i in 0..strips {
@@ -609,7 +610,7 @@ pub fn draw_transition(
             }
         }
         "checkerboard" => {
-            draw_scene(&clipped(full), tex, old, origin, None);
+            draw_scene(&clipped(full), tex, old, origin, None, false);
             let (cols, rows) = (8, 6);
             let (cw, ch) = (w / cols as f32, h / rows as f32);
             for row in 0..rows {
@@ -624,7 +625,7 @@ pub fn draw_transition(
                 }
             }
         }
-        _ => draw_scene(&clipped(full), tex, new, origin, None),
+        _ => draw_scene(&clipped(full), tex, new, origin, None, false),
     }
 }
 
