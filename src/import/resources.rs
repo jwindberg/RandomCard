@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use super::mac_roman;
-use crate::model::{Icon, Picture, Pixel};
+use crate::model::{Icon, Picture, Pixel, Sound};
 
 const APPLE_SINGLE: u32 = 0x0005_1600;
 const APPLE_DOUBLE: u32 = 0x0005_1607;
@@ -205,31 +205,257 @@ pub fn icons(fork: &[u8]) -> BTreeMap<i32, Icon> {
         .collect()
 }
 
+/// All the 'snd ' resources in a resource fork that can be decoded.
+pub fn sounds(fork: &[u8]) -> BTreeMap<i32, Sound> {
+    parse(fork)
+        .into_iter()
+        .filter(|r| &r.kind == b"snd ")
+        .filter_map(|r| Some((r.id as i32, decode_snd(r.data, &r.name)?)))
+        .collect()
+}
+
+const SOUND_CMD: u16 = 80;
+const BUFFER_CMD: u16 = 81;
+
+/// Decode a 'snd ' resource (format 1 or 2) holding a sampled sound.
+/// Standard, extended and IMA4-compressed sound headers are supported.
+pub fn decode_snd(data: &[u8], name: &str) -> Option<Sound> {
+    let format = be16(data, 0)?;
+    let mut pos = match format {
+        1 => {
+            let mods = be16(data, 2)? as usize;
+            4 + mods * 6
+        }
+        2 => 4,
+        _ => return None,
+    };
+    let commands = be16(data, pos)? as usize;
+    pos += 2;
+    // The header comes from the first sound or buffer command with a data offset.
+    let header = (0..commands).find_map(|i| {
+        let c = pos + i * 8;
+        let cmd = be16(data, c)?;
+        let kind = cmd & 0x7fff;
+        (cmd & 0x8000 != 0 && (kind == SOUND_CMD || kind == BUFFER_CMD)).then(|| be32(data, c + 4)).flatten()
+    })? as usize;
+    decode_sound_header(data, header, name)
+}
+
+fn decode_sound_header(data: &[u8], h: usize, name: &str) -> Option<Sound> {
+    let rate = be32(data, h + 8)? as f32 / 65536.0;
+    let loop_start = be32(data, h + 12)?;
+    let loop_end = be32(data, h + 16)?;
+    let encode = *data.get(h + 20)?;
+    let base_note = match *data.get(h + 21)? {
+        0 => 60,
+        n => n,
+    };
+    let samples = match encode {
+        // Standard: 8-bit unsigned mono; the length field counts bytes.
+        0x00 => {
+            let len = be32(data, h + 4)? as usize;
+            let bytes = data.get(h + 22..)?;
+            bytes[..len.min(bytes.len())].iter().map(|b| ((*b as i16) - 128) << 8).collect()
+        }
+        // Extended: 8- or 16-bit, any number of channels, interleaved.
+        0xff => {
+            let channels = be32(data, h + 4)?.max(1) as usize;
+            let frames = be32(data, h + 22)? as usize;
+            let bits = be16(data, h + 48)?;
+            let body = data.get(h + 64..)?;
+            let width = if bits == 16 { 2 } else { 1 };
+            let frames = frames.min(body.len() / (width * channels));
+            (0..frames)
+                .map(|f| {
+                    let sum: i32 = (0..channels)
+                        .map(|c| {
+                            let i = (f * channels + c) * width;
+                            if width == 2 {
+                                i16::from_be_bytes([body[i], body[i + 1]]) as i32
+                            } else {
+                                ((body[i] as i32) - 128) << 8
+                            }
+                        })
+                        .sum();
+                    (sum / channels as i32) as i16
+                })
+                .collect()
+        }
+        // Compressed: only IMA4 is decoded (MACE isn't).
+        0xfe => {
+            let channels = be32(data, h + 4)?.max(1) as usize;
+            if data.get(h + 40..h + 44)? != b"ima4" {
+                return None;
+            }
+            decode_ima4(data.get(h + 64..)?, channels)
+        }
+        _ => return None,
+    };
+    if samples.is_empty() || !(1000.0..=200_000.0).contains(&rate) {
+        return None;
+    }
+    Some(Sound { name: name.to_string(), rate, base_note, loop_start, loop_end, samples })
+}
+
+const IMA_STEPS: [i32; 89] = [
+    7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88, 97, 107,
+    118, 130, 143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408, 449, 494, 544, 598, 658, 724, 796, 876,
+    963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066, 2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871, 5358,
+    5894, 6484, 7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623, 27086,
+    29794, 32767,
+];
+const IMA_INDEX: [i32; 16] = [-1, -1, -1, -1, 2, 4, 6, 8, -1, -1, -1, -1, 2, 4, 6, 8];
+
+/// Apple IMA4: 34-byte packets of 64 samples, one packet per channel in turn.
+fn decode_ima4(body: &[u8], channels: usize) -> Vec<i16> {
+    let packets = body.len() / 34 / channels;
+    let mut per_channel: Vec<Vec<i32>> = vec![Vec::with_capacity(packets * 64); channels];
+    for p in 0..packets {
+        for (c, out) in per_channel.iter_mut().enumerate() {
+            let packet = &body[(p * channels + c) * 34..][..34];
+            let preamble = u16::from_be_bytes([packet[0], packet[1]]);
+            let mut predictor = (preamble & 0xff80) as i16 as i32;
+            let mut index = (preamble & 0x7f).min(88) as i32;
+            for byte in &packet[2..] {
+                for nibble in [byte & 0x0f, byte >> 4] {
+                    let step = IMA_STEPS[index as usize];
+                    let mut diff = step >> 3;
+                    if nibble & 1 != 0 {
+                        diff += step >> 2;
+                    }
+                    if nibble & 2 != 0 {
+                        diff += step >> 1;
+                    }
+                    if nibble & 4 != 0 {
+                        diff += step;
+                    }
+                    if nibble & 8 != 0 {
+                        diff = -diff;
+                    }
+                    predictor = (predictor + diff).clamp(-32768, 32767);
+                    index = (index + IMA_INDEX[nibble as usize]).clamp(0, 88);
+                    out.push(predictor);
+                }
+            }
+        }
+    }
+    (0..packets * 64).map(|i| (per_channel.iter().map(|ch| ch[i]).sum::<i32>() / channels as i32) as i16).collect()
+}
+
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
 
-    /// Build a minimal resource fork holding one ICON.
-    fn fork_with_icon(id: i16, name: &str, icon: &[u8; 128]) -> Vec<u8> {
+    /// A format 1 'snd ' with one bufferCmd pointing at a standard sound header.
+    pub fn standard_snd(samples: &[u8], rate: u32, base: u8, loop_points: (u32, u32)) -> Vec<u8> {
+        let mut d = Vec::new();
+        d.extend_from_slice(&1u16.to_be_bytes()); // format 1
+        d.extend_from_slice(&1u16.to_be_bytes()); // one modifier: sampled synth
+        d.extend_from_slice(&5u16.to_be_bytes());
+        d.extend_from_slice(&0u32.to_be_bytes());
+        d.extend_from_slice(&1u16.to_be_bytes()); // one command
+        d.extend_from_slice(&(0x8000 | BUFFER_CMD).to_be_bytes());
+        d.extend_from_slice(&0u16.to_be_bytes());
+        let header_at = d.len() as u32 + 4;
+        d.extend_from_slice(&header_at.to_be_bytes());
+        d.extend_from_slice(&0u32.to_be_bytes()); // samplePtr
+        d.extend_from_slice(&(samples.len() as u32).to_be_bytes());
+        d.extend_from_slice(&(rate << 16).to_be_bytes());
+        d.extend_from_slice(&loop_points.0.to_be_bytes());
+        d.extend_from_slice(&loop_points.1.to_be_bytes());
+        d.push(0); // standard encoding
+        d.push(base);
+        d.extend_from_slice(samples);
+        d
+    }
+
+    #[test]
+    fn standard_sound_header() {
+        let snd = standard_snd(&[0x80, 0xff, 0x00, 0x80], 22050, 62, (1, 3));
+        let s = decode_snd(&snd, "Boing").unwrap();
+        assert_eq!(s.name, "Boing");
+        assert_eq!(s.rate, 22050.0);
+        assert_eq!(s.base_note, 62);
+        assert_eq!((s.loop_start, s.loop_end), (1, 3));
+        assert_eq!(s.samples, vec![0, 127 << 8, -128 << 8, 0]);
+    }
+
+    #[test]
+    fn sounds_in_a_fork() {
+        let snd = standard_snd(&[0x80; 100], 11025, 60, (0, 0));
+        let fork = make_fork(&[(b"ICON", 1, "", vec![0; 128]), (b"snd ", 9, "Ding", snd)]);
+        let sounds = sounds(&fork);
+        assert_eq!(sounds[&9].name, "Ding");
+        assert_eq!(sounds[&9].samples.len(), 100);
+        assert_eq!(icons(&fork).len(), 1);
+    }
+
+    #[test]
+    fn extended_16_bit_stereo() {
+        let mut d = vec![0, 2, 0, 0, 0, 1];
+        d.extend_from_slice(&(0x8000 | SOUND_CMD).to_be_bytes());
+        d.extend_from_slice(&[0, 0]);
+        d.extend_from_slice(&14u32.to_be_bytes());
+        let mut h = vec![0u8; 64];
+        h[4..8].copy_from_slice(&2u32.to_be_bytes());
+        h[8..12].copy_from_slice(&(44100u32 << 16).to_be_bytes());
+        h[20] = 0xff;
+        h[21] = 60;
+        h[22..26].copy_from_slice(&2u32.to_be_bytes());
+        h[48..50].copy_from_slice(&16u16.to_be_bytes());
+        d.extend_from_slice(&h);
+        for v in [1000i16, 3000, -2000, -4000] {
+            d.extend_from_slice(&v.to_be_bytes());
+        }
+        let s = decode_snd(&d, "x").unwrap();
+        assert_eq!(s.samples, vec![2000, -3000]);
+        assert_eq!(s.rate, 44100.0);
+    }
+
+    #[test]
+    fn ima4_packet() {
+        // A packet starting at 0 whose nibbles all mean "step up" grows steadily.
+        let mut body = vec![0u8, 0];
+        body.extend(std::iter::repeat_n(0x44u8, 32));
+        let out = decode_ima4(&body, 1);
+        assert_eq!(out.len(), 64);
+        assert!(out.windows(2).all(|w| w[1] >= w[0]));
+        assert!(out[1] > out[0] && out[63] == 32767);
+    }
+
+    /// Build a resource fork holding the given (type, id, name, data) resources.
+    pub fn make_fork(entries: &[(&[u8; 4], i16, &str, Vec<u8>)]) -> Vec<u8> {
         let mut data = Vec::new();
-        data.extend_from_slice(&128u32.to_be_bytes());
-        data.extend_from_slice(icon);
+        let mut offsets = Vec::new();
+        for (_, _, _, d) in entries {
+            offsets.push(data.len() as u32);
+            data.extend_from_slice(&(d.len() as u32).to_be_bytes());
+            data.extend_from_slice(d);
+        }
+        // Map: 24-byte header copy, then type list offset (28) and name list offset.
+        let n = entries.len();
+        let type_list = 28usize;
+        let refs_at = 2 + n * 8; // reference lists start after the type entries
+        let names_at = type_list + refs_at + n * 12;
         let mut map = vec![0u8; 24];
-        map.extend_from_slice(&28u16.to_be_bytes()); // type list offset
-        let name_list_pos = map.len();
-        map.extend_from_slice(&0u16.to_be_bytes()); // name list offset, patched below
-        map.extend_from_slice(&0u16.to_be_bytes()); // type count - 1
-        map.extend_from_slice(b"ICON");
-        map.extend_from_slice(&0u16.to_be_bytes()); // ref count - 1
-        map.extend_from_slice(&10u16.to_be_bytes()); // ref list, from type list
-        map.extend_from_slice(&id.to_be_bytes());
-        map.extend_from_slice(&0u16.to_be_bytes()); // name offset
-        map.extend_from_slice(&0u32.to_be_bytes()); // attrs + data offset
-        map.extend_from_slice(&0u32.to_be_bytes()); // handle
-        let names = map.len() as u16;
-        map[name_list_pos..name_list_pos + 2].copy_from_slice(&names.to_be_bytes());
-        map.push(name.len() as u8);
-        map.extend_from_slice(name.as_bytes());
+        map.extend_from_slice(&(type_list as u16).to_be_bytes());
+        map.extend_from_slice(&(names_at as u16).to_be_bytes());
+        map.extend_from_slice(&((n as u16).wrapping_sub(1)).to_be_bytes());
+        for (i, (kind, ..)) in entries.iter().enumerate() {
+            map.extend_from_slice(*kind);
+            map.extend_from_slice(&0u16.to_be_bytes());
+            map.extend_from_slice(&((refs_at + i * 12) as u16).to_be_bytes());
+        }
+        let mut names = Vec::new();
+        for (i, (_, id, name, _)) in entries.iter().enumerate() {
+            map.extend_from_slice(&id.to_be_bytes());
+            map.extend_from_slice(&(names.len() as u16).to_be_bytes());
+            map.extend_from_slice(&offsets[i].to_be_bytes());
+            map.extend_from_slice(&0u32.to_be_bytes());
+            names.push(name.len() as u8);
+            names.extend_from_slice(name.as_bytes());
+        }
+        map.extend_from_slice(&names);
         let mut fork = Vec::new();
         let (data_off, map_off) = (256u32, 256 + data.len() as u32);
         for v in [data_off, map_off, data.len() as u32, map.len() as u32] {
@@ -252,7 +478,7 @@ mod tests {
                 }
             }
         }
-        let fork = fork_with_icon(128, "Box", &bits);
+        let fork = make_fork(&[(b"ICON", 128, "Box", bits.to_vec())]);
         let icons = icons(&fork);
         let icon = &icons[&128];
         assert_eq!(icon.name, "Box");

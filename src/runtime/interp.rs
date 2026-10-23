@@ -112,6 +112,7 @@ pub struct Interp {
     msgbox_vars: HashMap<String, String>,
     /// For tests: canned dialog answers.
     pub canned_answers: Vec<DialogReply>,
+    pub audio: crate::sound::Player,
 }
 
 impl Interp {
@@ -134,6 +135,7 @@ impl Interp {
             pushed_cards: Vec::new(),
             msgbox_vars: HashMap::new(),
             canned_answers: Vec::new(),
+            audio: crate::sound::Player::silent(),
         }
     }
 

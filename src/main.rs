@@ -4,6 +4,7 @@ mod hypertalk;
 mod import;
 mod model;
 mod runtime;
+mod sound;
 mod ui;
 
 use model::Stack;

@@ -116,6 +116,9 @@ impl Interp {
                     None => 1,
                 };
                 self.w().beeps += n;
+                for _ in 0..n {
+                    self.audio.play("beep", crate::sound::beep_tone(), 22050.0);
+                }
                 Ok(())
             }
             Cmd::Go(dest) => self.go(dest),
@@ -380,8 +383,34 @@ impl Interp {
                     Ok(())
                 }
             }
-            Cmd::Play | Cmd::Dial => {
-                self.w().beeps += 1;
+            Cmd::Play { sound, tempo, notes } => {
+                let name = self.eval(sound)?;
+                let tempo = match tempo {
+                    Some(t) => self.eval_number(t)? as f32,
+                    None => crate::sound::DEFAULT_TEMPO,
+                };
+                let mut text = Vec::new();
+                for n in notes {
+                    text.push(self.eval(n)?);
+                }
+                // The stack's own sound, else RandomCard's stand-in for a HyperCard voice.
+                let found = self.w().stack.find_sound(&name).cloned();
+                let Some(snd) = found.or_else(|| crate::sound::builtin(&name)) else {
+                    self.result = format!("Can't find sound \"{name}\"");
+                    self.w().beeps += 1;
+                    return Ok(());
+                };
+                let samples = crate::sound::render(&snd, &crate::sound::parse_notes(&text.join(" ")), tempo);
+                self.audio.play(&snd.name, samples, snd.rate);
+                Ok(())
+            }
+            Cmd::PlayStop => {
+                self.audio.stop();
+                Ok(())
+            }
+            Cmd::Dial(number) => {
+                let number = self.eval(number)?;
+                self.audio.play("dial", crate::sound::dial_tones(&number), 22050.0);
                 Ok(())
             }
             Cmd::Speak(e) => {

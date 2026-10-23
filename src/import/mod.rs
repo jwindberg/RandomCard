@@ -5,8 +5,8 @@
 //! order), BKGD and CARD (layers with their parts and contents), BMAP
 //! (WOBA-compressed pictures), FTBL (font names) and so on. The layouts here
 //! follow WyldCard's stack reader and Pierre Lorenzi's HyperCardPreview.
-//! Button icons come from the stack's resource fork when one can be found;
-//! other resources (sounds, XCMDs, color) aren't used.
+//! Button icons and sounds come from the stack's resource fork when one can
+//! be found; other resources (XCMDs, color) aren't used.
 
 mod resources;
 mod woba;
@@ -66,31 +66,50 @@ pub fn import_bytes(bytes: &[u8], path: &Path) -> Result<Stack, String> {
     let mut stack = convert(&blocks, &name)?;
     if let Some(fork) = resources::find_resource_fork(path, bytes) {
         stack.icons = resources::icons(&fork);
+        stack.sounds = resources::sounds(&fork);
     }
-    add_chain_icons(&mut stack, path);
+    add_chain_resources(&mut stack, path);
     stack.imported_from = Some(path.to_path_buf());
     Ok(stack)
 }
 
-/// Fetch icons the stack's buttons use but its own fork lacks from further
-/// along the resource chain.
-fn add_chain_icons(stack: &mut Stack, path: &Path) {
+/// Fetch icons the stack's buttons use, and sounds its scripts name, from
+/// further along the resource chain when the stack's own fork lacks them.
+fn add_chain_resources(stack: &mut Stack, path: &Path) {
     let all_parts = stack.cards.iter().flat_map(|c| &c.parts).chain(stack.backgrounds.iter().flat_map(|b| &b.parts));
-    let mut missing: HashSet<i32> = all_parts.map(|p| p.icon).filter(|i| *i != 0).collect();
-    missing.retain(|i| !stack.icons.contains_key(i));
-    if missing.is_empty() {
-        return;
-    }
+    let mut missing_icons: HashSet<i32> = all_parts.map(|p| p.icon).filter(|i| *i != 0).collect();
+    missing_icons.retain(|i| !stack.icons.contains_key(i));
+    let scripts = all_scripts(stack).to_lowercase();
+    let mut have_sounds: HashSet<String> = stack.sounds.values().map(|s| s.name.to_lowercase()).collect();
     for fork in resources::chain_forks(path) {
         for (id, icon) in resources::icons(&fork) {
-            if missing.remove(&id) {
+            if missing_icons.remove(&id) {
                 stack.icons.insert(id, icon);
             }
         }
-        if missing.is_empty() {
-            break;
+        for (id, sound) in resources::sounds(&fork) {
+            let name = sound.name.to_lowercase();
+            // Scripts name sounds in quotes: play "boing".
+            if !name.is_empty() && !have_sounds.contains(&name) && scripts.contains(&format!("\"{name}\"")) {
+                have_sounds.insert(name);
+                let id = if stack.sounds.contains_key(&id) { stack.sounds.keys().max().unwrap_or(&0) + 1 } else { id };
+                stack.sounds.insert(id, sound);
+            }
         }
     }
+}
+
+fn all_scripts(stack: &Stack) -> String {
+    let mut text = stack.script.clone();
+    for b in &stack.backgrounds {
+        text.push_str(&b.script);
+        b.parts.iter().for_each(|p| text.push_str(&p.script));
+    }
+    for c in &stack.cards {
+        text.push_str(&c.script);
+        c.parts.iter().for_each(|p| text.push_str(&p.script));
+    }
+    text
 }
 
 // ----- binary reading -----
@@ -649,6 +668,29 @@ mod tests {
         // Styled: 2-byte length (with high bit) covering itself and one 4-byte run.
         assert_eq!(content_text(&[0x80, 0x06, 0, 0, 0, 1, b'h', b'i']), "hi");
         assert_eq!(content_text(b""), "");
+    }
+
+    #[test]
+    fn resource_chain_supplies_named_sounds_and_used_icons() {
+        use resources::tests::{make_fork, standard_snd};
+        let dir = std::env::temp_dir().join(format!("randomcard-snd-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let snd = |n| standard_snd(&[0x80; 50], 11025, 60, (0, 0)).into_iter().chain(std::iter::repeat_n(0, n)).collect();
+        let fork = make_fork(&[
+            (b"snd ", 1, "Boing", snd(0)),
+            (b"snd ", 2, "Unused", snd(1)),
+            (b"ICON", 3001, "Stack", vec![0xff; 128]),
+            (b"ICON", 3002, "Other", vec![0; 128]),
+        ]);
+        std::fs::write(dir.join("HyperCard.rsrc"), fork).unwrap();
+        let mut stack = Stack::new("Test");
+        stack.script = "on mouseUp\n  play \"boing\"\nend mouseUp".into();
+        stack.cards[0].parts.push(Part { icon: 3001, ..Part::new_button(1, "B", Rect::new(0, 0, 10, 10)) });
+        add_chain_resources(&mut stack, &dir.join("Test"));
+        std::fs::remove_dir_all(&dir).ok();
+        let names: Vec<&str> = stack.sounds.values().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["Boing"]);
+        assert_eq!(stack.icons.keys().copied().collect::<Vec<_>>(), vec![3001]);
     }
 
     #[test]

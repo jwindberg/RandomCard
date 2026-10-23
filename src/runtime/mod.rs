@@ -34,7 +34,11 @@ pub fn start(stack: Stack) -> Runtime {
     std::thread::Builder::new()
         .name("hypertalk".into())
         .stack_size(256 * 1024 * 1024)
-        .spawn(move || interp::Interp::new(w, Some(dialog_rx), a).run(event_rx))
+        .spawn(move || {
+            let mut interp = interp::Interp::new(w, Some(dialog_rx), a);
+            interp.audio = crate::sound::Player::new();
+            interp.run(event_rx)
+        })
         .expect("can't start script thread");
     let _ = events.send(Event::Startup);
     Runtime { world, events, dialog_replies, abort }

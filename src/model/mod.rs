@@ -300,6 +300,41 @@ pub struct Icon {
     pub picture: Picture,
 }
 
+/// A sampled sound, as played by HyperTalk's `play` command.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Sound {
+    pub name: String,
+    /// Samples per second.
+    pub rate: f32,
+    /// The MIDI note the sample sounds at when played unchanged (60 = middle C).
+    pub base_note: u8,
+    /// Sustain loop, in samples; no loop when `loop_end <= loop_start`.
+    pub loop_start: u32,
+    pub loop_end: u32,
+    /// Mono 16-bit samples.
+    #[serde(with = "pcm")]
+    pub samples: Vec<i16>,
+}
+
+/// Samples are stored as base64 little-endian 16-bit PCM.
+mod pcm {
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(samples: &[i16], s: S) -> Result<S::Ok, S::Error> {
+        let bytes: Vec<u8> = samples.iter().flat_map(|v| v.to_le_bytes()).collect();
+        s.serialize_str(&STANDARD.encode(bytes))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<i16>, D::Error> {
+        let text = String::deserialize(d)?;
+        let bytes = STANDARD.decode(text).map_err(serde::de::Error::custom)?;
+        Ok(bytes.as_chunks::<2>().0.iter().map(|c| i16::from_le_bytes(*c)).collect())
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Stack {
@@ -313,6 +348,8 @@ pub struct Stack {
     pub cant_modify: bool,
     /// Button icons by resource id.
     pub icons: BTreeMap<i32, Icon>,
+    /// Sounds by resource id; scripts play them by name.
+    pub sounds: BTreeMap<i32, Sound>,
     #[serde(skip)]
     pub path: Option<PathBuf>,
     /// The original HyperCard file this stack was imported from, until saved.
@@ -342,6 +379,7 @@ impl Stack {
             cards: vec![card],
             cant_modify: false,
             icons: BTreeMap::new(),
+            sounds: BTreeMap::new(),
             path: None,
             imported_from: None,
         }
@@ -358,6 +396,15 @@ impl Stack {
             return Some(id);
         }
         self.icons.iter().find(|(_, i)| i.name.eq_ignore_ascii_case(t)).map(|(id, _)| *id)
+    }
+
+    /// Find a sound by name (case-insensitively) or id.
+    pub fn find_sound(&self, name: &str) -> Option<&Sound> {
+        let t = name.trim();
+        self.sounds
+            .values()
+            .find(|s| s.name.eq_ignore_ascii_case(t))
+            .or_else(|| t.parse::<i32>().ok().and_then(|id| self.sounds.get(&id)))
     }
 
     pub fn alloc_id(&mut self) -> Id {
@@ -506,6 +553,8 @@ mod tests {
     fn save_and_load_round_trip() {
         let mut stack = Stack::demo();
         stack.cards[0].picture.set(5, 5, Pixel::Black);
+        let sound = Sound { name: "Ding".into(), rate: 11025.0, base_note: 62, loop_start: 2, loop_end: 4, samples: vec![0, -32768, 32767, 12] };
+        stack.sounds.insert(7, sound.clone());
         let dir = std::env::temp_dir().join(format!("randomcard-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("demo.rcstack");
@@ -518,5 +567,6 @@ mod tests {
         let last = loaded.cards.last().unwrap();
         assert_eq!(last.bg_text, stack.cards.last().unwrap().bg_text);
         assert_eq!(loaded.path.as_deref(), Some(path.as_path()));
+        assert_eq!(loaded.sounds[&7], sound);
     }
 }

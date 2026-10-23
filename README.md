@@ -34,7 +34,7 @@ stack files. MacBinary-wrapped files work too. The import brings in:
 - shared and per-card field text, and per-card hilites of background
   buttons;
 - every script;
-- button icons from the stack's resource fork.
+- button icons and sounds from the stack's resource fork.
 
 Text is converted from MacRoman. The result opens as an unsaved stack;
 save it to keep it as a `.rcstack`.
@@ -43,17 +43,19 @@ Linux and Windows have no resource forks, so RandomCard looks where Mac
 files usually carry them: a `Name.rsrc` file beside the stack, an
 AppleDouble `._Name` file (also inside `__MACOSX/`), Netatalk's
 `.AppleDouble/` and SheepShaver's `.rsrc/` folders, the stack file itself
-if it's MacBinary or AppleSingle, and the real fork on macOS. Icons are
-saved into the `.rcstack`.
+if it's MacBinary or AppleSingle, and the real fork on macOS. Icons and
+sounds are saved into the `.rcstack`. Sounds can be 8- or 16-bit, mono or
+stereo, uncompressed or IMA4-compressed; MACE-compressed sounds are skipped.
 
 Many stacks use HyperCard's built-in icons, which live in the HyperCard
 application rather than the stack. As HyperCard did, RandomCard follows a
-resource chain for icons the stack lacks: files named `Home`, `HyperCard`
+resource chain for icons and sounds the stack lacks: files named `Home`, `HyperCard`
 or `HyperCard Player` beside the stack, then any resource files you put in
 `~/.config/randomcard/resources/` (such as the resource fork of your own
-copy of HyperCard). Only icons the stack's buttons use are copied.
+copy of HyperCard). Only icons the stack's buttons use, and sounds its
+scripts name in quotes, are copied.
 
-What doesn't come across: other resources (sounds, XCMDs/XFCNs, color)
+What doesn't come across: other resources (XCMDs/XFCNs, color)
 and styled runs within field text, which import as plain text. HyperCard 1.x stacks must first be converted with
 HyperCard 2.x. Private-access stacks import, since only the stack header is
 encrypted. Scripts that use menus, palettes or other windows parse, but
@@ -114,6 +116,11 @@ stack. Messages travel the HyperCard message path (part → card → background
   mouseWithin, mouseDoubleClick, openField, closeField, exitField, idle,
   arrowKey and doMenu. Menu commands go through `doMenu`, so scripts can
   intercept them.
+- Sound: `play "boing"`, `play "harpsichord" tempo 200 "c4e d e f g a b c5h"`
+  (notes as a–g or MIDI numbers with `#`/`b`, octave, `w h q e s t x`
+  durations, dots and triplets), `play stop`, `the sound`, `dial` (touch
+  tones) and `beep`. Sounds come from the stack; HyperCard's harpsichord,
+  flute and boing fall back to voices RandomCard synthesizes itself.
 - Visual effects: dissolve, wipe, scroll/push, barn door, iris, zoom,
   venetian blinds and checkerboard, at four speeds.
 
@@ -146,13 +153,14 @@ src/
   hypertalk/   lexer, parser, syntax tree, values and chunk expressions
   runtime/     shared World state, interpreter, objects and properties,
                commands, functions, dates; end-to-end tests
+  sound/       note parsing, rendering, built-in voices and audio output
   ui/          egui app: menus, palette, card rendering, transitions,
                paint tools, info dialogs, script editor
 ```
 
 ## Not (yet) implemented
 
-Rich text within fields, creating or editing icons, sound playback (`play` beeps),
+Rich text within fields, creating or editing icons and sounds, MACE sounds,
 scriptable menus, user levels, printing, `start using` (inheriting scripts
 from other stacks), and multiple open stack windows.
 

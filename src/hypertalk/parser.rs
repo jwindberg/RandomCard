@@ -923,14 +923,19 @@ impl Parser {
             }
             "play" => {
                 if self.accept("stop") {
-                    return Ok(Cmd::NoOp);
+                    return Ok(Cmd::PlayStop);
                 }
-                self.expr()?;
+                let sound = self.expr()?;
+                let mut tempo = None;
+                let mut notes = Vec::new();
                 while !self.at_stmt_end() {
-                    self.accept("tempo");
-                    self.expr()?;
+                    if self.accept("tempo") {
+                        tempo = Some(self.term()?);
+                    } else {
+                        notes.push(self.expr()?);
+                    }
                 }
-                Cmd::Play
+                Cmd::Play { sound, tempo, notes }
             }
             "speak" => {
                 let e = self.expr()?;
@@ -940,9 +945,10 @@ impl Parser {
                 Cmd::Speak(e)
             }
             "dial" => {
-                self.expr()?;
+                let number = self.expr()?;
+                // `with modem` and the like don't apply.
                 self.rest_of_line();
-                Cmd::Dial
+                Cmd::Dial(number)
             }
             "save" => {
                 self.accept("this");

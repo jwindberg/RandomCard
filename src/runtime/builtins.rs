@@ -161,7 +161,8 @@ impl Interp {
                 w.stack.path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| w.stack.name.clone())
             }
             "windows" => "card window\nmessage box".into(),
-            "sound" | "speech" => "done".into(),
+            "sound" => self.audio.current(),
+            "speech" => "done".into(),
             "voices" => String::new(),
             "screenrect" => "0,0,1920,1080".into(),
             "systemversion" | "osversion" => "1.0".into(),

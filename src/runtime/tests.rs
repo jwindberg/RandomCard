@@ -348,3 +348,19 @@ fn icons_by_id_or_name() {
     assert_eq!(run(&mut i, "set the icon of button 1 to 0\nput the icon of button 1"), "0");
     assert!(run(&mut i, "set the icon of button 1 to \"Nope\"").starts_with("ERROR: No such icon"));
 }
+
+#[test]
+fn playing_sounds() {
+    let mut s = stack();
+    let ding = crate::model::Sound { name: "Ding".into(), rate: 11025.0, base_note: 60, samples: vec![0; 11025], ..Default::default() };
+    s.sounds.insert(9, ding);
+    let mut i = interp_with(s);
+    assert_eq!(run(&mut i, "put the sound"), "done");
+    assert_eq!(run(&mut i, "play \"ding\"\nput the sound"), "Ding");
+    assert_eq!(run(&mut i, "play stop\nput the sound"), "done");
+    // HyperCard's voices fall back to RandomCard's own.
+    assert_eq!(run(&mut i, "play \"harpsichord\" tempo 200 \"c4e d e f g a b c5h\"\nput the sound"), "harpsichord");
+    run(&mut i, "play stop");
+    assert_eq!(run(&mut i, "play \"nothing\"\nput the result"), "Can't find sound \"nothing\"");
+    assert_eq!(run(&mut i, "dial \"555-1234\"\nput the sound"), "dial");
+}

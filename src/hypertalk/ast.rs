@@ -286,9 +286,11 @@ pub enum Cmd {
     ClickAt(Expr),
     Type(Expr),
     Convert { value: Expr, to: String },
-    Play,
+    /// `play "harpsichord" tempo 200 "c4 e g"`
+    Play { sound: Expr, tempo: Option<Expr>, notes: Vec<Expr> },
+    PlayStop,
     Speak(Expr),
-    Dial,
+    Dial(Expr),
     SaveStack(Option<Expr>),
     ArrowKey(Expr),
     NoOp,
