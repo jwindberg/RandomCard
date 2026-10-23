@@ -160,9 +160,10 @@ src/
 
 ## Not (yet) implemented
 
-Rich text within fields, creating or editing icons and sounds, MACE sounds,
-scriptable menus, user levels, printing, `start using` (inheriting scripts
-from other stacks), and multiple open stack windows.
+The main gaps are paint patterns and some paint tools, keyboard messages,
+styled text in fields, scriptable menus, multiple open stacks, and
+XCMDs. [ROADMAP.md](ROADMAP.md) lists the remaining work by area, with
+notes on how to approach each piece and a suggested order.
 
 ## References
 
