@@ -149,14 +149,14 @@ fn house(p: &mut Picture) {
 const STACK_SCRIPT: &str = r#"-- A menu of the stack's own. Its items arrive as doMenu messages.
 on openStack
   if there is no menu "Tour" then create menu "Tour"
-  put "Home,Basics,Dice,Drawing,Animation,-,Address Book" into menu "Tour"
+  put "Contents,Basics,Dice,Drawing,Animation,-,Address Book" into menu "Tour"
 end openStack
 
 on doMenu what
   if what is "Address Book" then
     visual effect zoom open
     go to first card of background "Address"
-  else if "," & what & "," is in ",Home,Basics,Dice,Drawing,Animation," then
+  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation," then
     visual effect dissolve
     go to card what
   else
@@ -210,8 +210,13 @@ pub fn build() -> Stack {
     }
     let prev = b.button("◀", Rect::new(8, 314, 52, 336), "on mouseUp\n  visual effect scroll right fast\n  go to previous card\nend mouseUp");
     let next = b.button("▶", Rect::new(58, 314, 102, 336), "on mouseUp\n  visual effect scroll left fast\n  go to next card\nend mouseUp");
-    let home = b.button("Home", Rect::new(108, 314, 168, 336), "on mouseUp\n  visual effect iris close\n  go to card \"Home\"\nend mouseUp");
-    for mut p in [prev, next, home] {
+    // The Tour's own contents; Go ▸ Home is the Home stack.
+    let contents = b.button(
+        "Contents",
+        Rect::new(108, 314, 184, 336),
+        "on mouseUp\n  visual effect iris close\n  go to card \"Contents\"\nend mouseUp",
+    );
+    for mut p in [prev, next, contents] {
         p.style = PartStyle::RoundRect;
         b.bg_part(main, p);
     }
@@ -219,9 +224,9 @@ pub fn build() -> Stack {
     page.text_align = TextAlign::Right;
     b.bg_part(main, page);
 
-    // ----- Home -----
-    let c = b.card(main, "Home");
-    let mut title = b.label("Title", Rect::new(40, 18, 472, 62), "RandomCard", 34);
+    // ----- Contents -----
+    let c = b.card(main, "Contents");
+    let mut title = b.label("Title", Rect::new(40, 18, 472, 62), "The RandomCard Tour", 30);
     title.text_align = TextAlign::Center;
     title.text_style = "bold".into();
     b.card_part(c, title);
@@ -238,7 +243,7 @@ pub fn build() -> Stack {
     intro.text_align = TextAlign::Center;
     b.card_part(c, intro);
     let buttons = [
-        ("Take the Tour", "on mouseUp\n  visual effect dissolve\n  go to card \"Basics\"\nend mouseUp"),
+        ("Start with the Basics", "on mouseUp\n  visual effect dissolve\n  go to card \"Basics\"\nend mouseUp"),
         ("Talk to Me", "on mouseUp\n  ask \"What is your name?\" with \"Bill Atkinson\"\n  if it is empty then exit mouseUp\n  answer \"Hello,\" && it & \"! Welcome to RandomCard.\" with \"Thanks\"\nend mouseUp"),
         ("Dice & Effects", "on mouseUp\n  visual effect checkerboard\n  go to card \"Dice\"\nend mouseUp"),
         ("Draw Something", "on mouseUp\n  visual effect wipe left\n  go to card \"Drawing\"\nend mouseUp"),
@@ -350,7 +355,7 @@ end mouseUp"#,
   repeat with i = 1 to the number of items in effects
     put "visual effect" && item i of effects into msg
     do "visual effect" && item i of effects
-    go to card "Home"
+    go to card "Contents"
     do "visual effect" && item i of effects
     go to card "Dice"
   end repeat
@@ -462,7 +467,7 @@ end mouseUp"#,
         ("Sort", "on mouseUp\n  sort cards of this background by field \"Name\"\n  go to first card of this background\nend mouseUp"),
         ("New", "on mouseUp\n  doMenu \"New Card\"\n  select text of field \"Name\"\nend mouseUp"),
         ("Delete", "on mouseUp\n  if the number of cards of this background is 1 then\n    answer \"This is the last address.\"\n    exit mouseUp\n  end if\n  answer \"Delete\" && field \"Name\" & \"?\" with \"Cancel\" or \"Delete\"\n  if it is \"Delete\" then doMenu \"Delete Card\"\nend mouseUp"),
-        ("Home", "on mouseUp\n  visual effect zoom close\n  go to card \"Home\"\nend mouseUp"),
+        ("Contents", "on mouseUp\n  visual effect zoom close\n  go to card \"Contents\"\nend mouseUp"),
     ];
     for (i, (name, script)) in addr_buttons.iter().enumerate() {
         let x = 20 + i as i32 * 68;

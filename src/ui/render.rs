@@ -287,39 +287,56 @@ fn matched_size(ctx: &egui::Context, font: &str, size: u32, id: &FontId) -> f32 
     matched
 }
 
-/// Append text spaced by HyperCard's character widths, a word at a time:
-/// each word (with the spaces after it) is stretched or squeezed to the
-/// width it had in HyperCard, so lines break where they did.
+/// Append text spaced by HyperCard's character widths, so lines break
+/// where they did. Words keep their own letter spacing, squeezed only when
+/// they'd run past where HyperCard put them; the spaces between words
+/// widen to bring the next word to its place. (A space never starts a
+/// wrapped line, so the extra room can't indent one.)
 fn append_spaced(ctx: &egui::Context, job: &mut LayoutJob, text: &str, m: &metrics::Metrics, fmt: TextFormat) {
+    // Words and runs of spaces, each its own section; a newline ends a word.
+    let mut tokens: Vec<&str> = Vec::new();
     let mut start = 0;
-    let mut in_space = false;
-    let mut words: Vec<&str> = Vec::new();
+    let mut prev_space = None;
     for (i, c) in text.char_indices() {
         let space = c == ' ' || c == '\t';
-        if in_space && !space {
-            words.push(&text[start..i]);
+        if prev_space.is_some_and(|p| p != space) && start < i {
+            tokens.push(&text[start..i]);
             start = i;
         }
-        in_space = space;
+        prev_space = Some(space);
         if c == '\n' {
-            words.push(&text[start..i + 1]);
+            tokens.push(&text[start..i + 1]);
             start = i + 1;
-            in_space = false;
+            prev_space = None;
         }
     }
     if start < text.len() {
-        words.push(&text[start..]);
+        tokens.push(&text[start..]);
     }
-    for word in words {
-        let glyphs: Vec<char> = word.chars().filter(|c| *c != '\n').collect();
+    // How far egui's pen has got ahead of HyperCard's.
+    let mut drift = 0.0;
+    for token in tokens {
+        let glyphs: Vec<char> = token.chars().filter(|c| *c != '\n').collect();
+        let ours: f32 = glyphs.iter().map(|c| glyph_width(ctx, &fmt.font_id, *c)).sum();
+        let theirs = m.text_width(token);
         let mut f = fmt.clone();
-        // egui adds the spacing between the glyphs of a section.
-        if glyphs.len() > 1 {
-            let ours: f32 = glyphs.iter().map(|c| glyph_width(ctx, &fmt.font_id, *c)).sum();
-            let theirs = m.text_width(word);
-            f.extra_letter_spacing = (theirs - ours) / (glyphs.len() - 1) as f32;
+        let word = glyphs.first().is_some_and(|c| *c != ' ' && *c != '\t');
+        let mut lead = 0.0;
+        if word && glyphs.len() > 1 {
+            // egui adds the spacing between the glyphs of a section.
+            let gaps = (glyphs.len() - 1) as f32;
+            f.extra_letter_spacing = ((theirs - ours - drift) / gaps).clamp(-1.5, 0.0);
+            drift += ours + f.extra_letter_spacing * gaps - theirs;
+        } else if word {
+            drift += ours - theirs;
+        } else {
+            lead = (theirs - ours - drift).max(0.0);
+            drift += lead + ours - theirs;
         }
-        job.append(word, 0.0, f);
+        if token.ends_with('\n') {
+            drift = 0.0;
+        }
+        job.append(token, lead, f);
     }
 }
 

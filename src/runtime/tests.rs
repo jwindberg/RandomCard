@@ -306,7 +306,7 @@ fn demo_stack_runs() {
     i.handle_event(Event::DoMenu("Dice".into()));
     assert_eq!(current(&i), "Dice");
     i.handle_event(Event::DoMenu("First".into()));
-    assert_eq!(click(&mut i, "Home", "Take the Tour"), None);
+    assert_eq!(click(&mut i, "Contents", "Start with the Basics"), None);
     assert_eq!(current(&i), "Basics");
     for b in ["Count Words", "Chunks", "Do Some Math", "What Time Is It?"] {
         i.canned_answers.push(DialogReply::Button("OK".into()));
@@ -315,7 +315,7 @@ fn demo_stack_runs() {
     i.canned_answers.push(DialogReply::Text(Some("Dan".into())));
     i.canned_answers.push(DialogReply::Button("OK".into()));
     assert_eq!(click(&mut i, "Basics", "Say Hello"), None);
-    assert_eq!(click(&mut i, "Home", "Dice & Effects"), None);
+    assert_eq!(click(&mut i, "Contents", "Dice & Effects"), None);
     assert_eq!(click(&mut i, "Dice", "Roll"), None);
     assert!(run(&mut i, "put field \"Result\" of card \"Dice\"").starts_with("You rolled"));
     // A fast bounce runs to completion.
@@ -323,7 +323,7 @@ fn demo_stack_runs() {
     assert_eq!(click(&mut i, "Animation", "Bounce"), None);
     assert_eq!(click(&mut i, "Animation", "Show the ball"), None);
     // Address book on its own background.
-    assert_eq!(click(&mut i, "Home", "Address Book"), None);
+    assert_eq!(click(&mut i, "Contents", "Address Book"), None);
     assert_eq!(current(&i), "Grace Hopper");
     // The address book is for using, not editing: it runs at the Typing level.
     assert_eq!(run(&mut i, "put the userLevel"), "2");
@@ -342,8 +342,8 @@ fn demo_stack_runs() {
     i.canned_answers.push(DialogReply::Button("Delete".into()));
     assert_eq!(click(&mut i, "", "Delete"), None);
     assert_eq!(run(&mut i, "put the number of cards"), "8");
-    assert_eq!(click(&mut i, "Grace Hopper", "Home"), None);
-    assert_eq!(current(&i), "Home");
+    assert_eq!(click(&mut i, "Grace Hopper", "Contents"), None);
+    assert_eq!(current(&i), "Contents");
     assert_eq!(run(&mut i, "put the userLevel"), "5");
 }
 
