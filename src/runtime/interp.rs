@@ -88,6 +88,7 @@ pub struct OpenFile {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum ScriptKey {
     Stack,
+    OtherStack(u32),
     Background(Id),
     Card(Id),
     Part(Layer, Id),
@@ -196,10 +197,14 @@ impl Interp {
         }
         let outcome = match ev {
             Event::Startup => self.open_stack_messages(),
-            Event::OpenFile(path) => match self.load_stack_file(&path) {
-                Ok(Some(stack)) => self.switch_stack(stack),
-                Ok(None) => Ok(()),
-                Err(e) => Err(e),
+            Event::OpenFile(path) => match { self.w().find_other("", Some(&path)) } {
+                // Already loaded (Home, a stack in use): show that copy.
+                Some(key) => self.go_to_stack(key),
+                None => match self.load_stack_file(&path) {
+                    Ok(Some(stack)) => self.switch_stack(stack),
+                    Ok(None) => Ok(()),
+                    Err(e) => Err(e),
+                },
             },
             Event::Send { target, message, args } => self.dispatch_top(target, &message, args),
             Event::MsgBox(text) => self.run_msgbox(&text),
@@ -337,6 +342,7 @@ impl Interp {
     fn script_key(obj: ObjRef) -> Option<ScriptKey> {
         Some(match obj {
             ObjRef::Stack => ScriptKey::Stack,
+            ObjRef::OtherStack(k) => ScriptKey::OtherStack(k),
             ObjRef::Background(id) => ScriptKey::Background(id),
             ObjRef::Card(id) => ScriptKey::Card(id),
             ObjRef::Part { layer, id, .. } => ScriptKey::Part(layer, id),
@@ -349,6 +355,7 @@ impl Interp {
         let s = &w.stack;
         Some(match obj {
             ObjRef::Stack => s.script.clone(),
+            ObjRef::OtherStack(k) => w.other(k)?.script.clone(),
             ObjRef::Background(id) => s.background(id)?.script.clone(),
             ObjRef::Card(id) => s.card(id)?.script.clone(),
             ObjRef::Part { layer, id, card } => s.part(card, layer, id)?.script.clone(),
@@ -417,9 +424,26 @@ impl Interp {
                 }
             }
             ObjRef::Stack => {}
+            ObjRef::OtherStack(k) => {
+                // A message sent to another stack goes on to Home.
+                path.push(target);
+                if let Some(home) = w.home_key().filter(|h| *h != k) {
+                    path.push(ObjRef::OtherStack(home));
+                }
+                return path;
+            }
             ObjRef::HyperCard => return path,
         }
+        // Then the stack, the stacks in use, and Home.
         path.push(ObjRef::Stack);
+        for name in &w.in_use {
+            if let Some(k) = w.find_other(name, None) {
+                path.push(ObjRef::OtherStack(k));
+            }
+        }
+        if let Some(home) = w.home_key().filter(|h| !path.contains(&ObjRef::OtherStack(*h))) {
+            path.push(ObjRef::OtherStack(home));
+        }
         path
     }
 

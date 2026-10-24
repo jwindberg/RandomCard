@@ -183,6 +183,16 @@ impl Interp {
                 let w = self.w();
                 w.stack.path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| w.stack.name.clone())
             }
+            "stacksinuse" => {
+                let w = self.w();
+                let names: Vec<String> = w
+                    .in_use
+                    .iter()
+                    .filter_map(|n| w.find_other(n, None).and_then(|k| w.other(k)))
+                    .map(|s| s.path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| s.name.clone()))
+                    .collect();
+                names.join("\n")
+            }
             "windows" => "card window\nmessage box".into(),
             "sound" => self.audio.current(),
             "speech" => "done".into(),

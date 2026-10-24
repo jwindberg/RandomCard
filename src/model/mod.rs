@@ -2,6 +2,7 @@
 //! cards each hold a picture layer plus buttons and fields ("parts").
 
 mod demo;
+mod home;
 pub mod password;
 mod picture;
 pub mod styles;
@@ -439,6 +440,11 @@ impl Stack {
 
     pub fn demo() -> Stack {
         demo::build()
+    }
+
+    /// A new Home stack, for the first time RandomCard runs.
+    pub fn home() -> Stack {
+        home::build()
     }
 
     /// Find an icon by id, or by name (case-insensitively).

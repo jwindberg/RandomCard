@@ -7,7 +7,7 @@ HyperCard's message passing.
 ## Running
 
 ```sh
-cargo run --release                 # opens the built-in tour stack
+cargo run --release                 # opens your Home stack
 cargo run --release -- my.rcstack   # opens a stack file
 cargo run --release -- "Home"       # imports an original HyperCard stack
 cargo test                          # language, runtime and demo-stack tests
@@ -21,6 +21,13 @@ fields keep separate text on each card unless `sharedText` is set. Background
 buttons work the same way with `sharedHilite`. Stacks save as JSON
 (`.rcstack`). Like HyperCard, changes are saved automatically once a stack has
 a file.
+
+**Home and other stacks.** As HyperCard came with one, RandomCard makes a
+Home stack the first time it runs, at `~/.config/randomcard/Home.rcstack`,
+and opens it at startup. Go ▸ Home (Ctrl+H) and `go home` return to it, and
+its button takes you to the built-in Tour. Scripts can `go to stack "X"` or
+`go to card 3 of stack "X"`. The stack you leave is saved first, and one
+without a file stays loaded so you can come back to it.
 
 **Importing HyperCard stacks.** File ▸ Import HyperCard Stack… (or
 Open Stack…, or a path on the command line) reads original HyperCard 2.x
@@ -119,7 +126,10 @@ show as one monospaced font and the rest as one sans-serif font.
 
 **HyperTalk.** Scripts live on buttons, fields, cards, backgrounds and the
 stack. Messages travel the HyperCard message path (part → card → background
-→ stack) and can be passed on with `pass`.
+→ stack → stacks in use → Home) and can be passed on with `pass`.
+`start using stack "Library"` puts a stack's script in the path (it gets a
+`libraryStack` message), `stop using` takes it out (`releaseStack`), and
+`the stacksInUse` lists them. Handlers in Home's script work in every stack.
 
 - Control flow: `on`/`function` handlers, `if`/`then`/`else` (single-line,
   block and `else if` chains), `repeat` (forever, N times, while, until,
@@ -216,6 +226,7 @@ and offer to open the script editor there.
 | ← → | Previous / next card (an `arrowKey` message) |
 | Ctrl+N | New card |
 | Ctrl+M | Message box |
+| Ctrl+H | Home |
 | Ctrl+B | Edit background |
 | Ctrl+Alt+C / B / S | Card / background / stack script (Scripting level) |
 | Ctrl+Tab | Browse tool |
@@ -229,7 +240,8 @@ and offer to open the script editor there.
 
 ```
 src/
-  model/       Stack, Background, Card, Part, Picture; JSON save/load; demo stack
+  model/       Stack, Background, Card, Part, Picture; JSON save/load; Tour and
+               Home stacks
   import/      reader for original HyperCard 2.x stack files, WOBA decoder
   hypertalk/   lexer, parser, syntax tree, values and chunk expressions
   runtime/     shared World state, interpreter, objects and properties,

@@ -340,6 +340,14 @@ impl Interp {
                 let name = self.eval(e)?;
                 self.create_menu(&name)
             }
+            Cmd::StartUsing(e) => {
+                let name = self.eval(e)?;
+                self.start_using(&name)
+            }
+            Cmd::StopUsing(e) => {
+                let name = self.eval(e)?;
+                self.stop_using(&name)
+            }
             Cmd::ResetMenuBar => {
                 self.reset_menu_bar();
                 Ok(())
@@ -585,6 +593,15 @@ impl Interp {
         let target = match dest {
             GoDest::Card(CardSpec::Back) => return self.go_history(-1),
             GoDest::Card(CardSpec::Forth) => return self.go_history(1),
+            GoDest::Home => return self.go_home(),
+            GoDest::Stack(name) => {
+                let name = self.eval(name)?;
+                return self.go_stack(&name, None);
+            }
+            GoDest::Card(CardSpec::OfStack(inner, name)) => {
+                let name = self.eval(name)?;
+                return self.go_stack(&name, Some(inner));
+            }
             GoDest::Card(cs) => match self.resolve_card(cs) {
                 Ok(id) => Some(id),
                 Err(Ctl::Error(_)) => None,
@@ -595,9 +612,14 @@ impl Interp {
                 match self.go_target_from_text(&v)? {
                     Some(id) => Some(id),
                     None => {
-                        // `go stack "Other"` or `go "path/to/stack"`
-                        if let Some(path) = self.find_stack_file(&v) {
-                            return self.open_stack_file(&path);
+                        // `go "stack Other"` or `go "path/to/stack"`
+                        let t = v.trim();
+                        let name = match t.get(..6) {
+                            Some(p) if p.eq_ignore_ascii_case("stack ") => &t[6..],
+                            _ => t,
+                        };
+                        if self.stack_ref(name)?.is_some() {
+                            return self.go_stack(name, None);
                         }
                         None
                     }
@@ -638,17 +660,144 @@ impl Interp {
         }
     }
 
+    /// A stack file by name or path: as given, then beside the current
+    /// stack, then beside Home.
     fn find_stack_file(&self, v: &str) -> Option<std::path::PathBuf> {
         let t = v.trim();
         let lower = t.to_ascii_lowercase();
         let name = if lower.starts_with("stack ") { t[6..].trim().trim_matches('"') } else { t.trim_matches('"') };
-        let base = self.w().stack.path.as_ref().and_then(|p| p.parent().map(|d| d.to_path_buf()));
+        if name.is_empty() {
+            return None;
+        }
+        let w = self.w();
+        let dirs = [w.stack.path.as_ref(), w.home_path.as_ref()].into_iter().flatten().filter_map(|p| p.parent());
         let mut candidates = vec![std::path::PathBuf::from(name), std::path::PathBuf::from(format!("{name}.rcstack"))];
-        if let Some(dir) = base {
+        for dir in dirs {
             candidates.push(dir.join(name));
             candidates.push(dir.join(format!("{name}.rcstack")));
         }
         candidates.into_iter().find(|p| p.is_file())
+    }
+
+    /// The stack a name refers to: the current one, one already loaded, or
+    /// one loaded now from its file (the built-in Tour has none). None if
+    /// there's no such stack, or the user cancelled its password.
+    pub(super) fn stack_ref(&mut self, name: &str) -> R<Option<ObjRef>> {
+        let name = name.trim().trim_matches('"');
+        {
+            let w = self.w();
+            if name.is_empty() || super::world::names_stack(&w.stack, name) {
+                return Ok(Some(ObjRef::Stack));
+            }
+            if let Some(k) = w.find_other(name, None) {
+                return Ok(Some(ObjRef::OtherStack(k)));
+            }
+        }
+        let path = self.find_stack_file(name);
+        if let Some(path) = path {
+            let current = self.w().stack.path.clone();
+            if super::world::same_path(current.as_deref(), Some(&path)) {
+                return Ok(Some(ObjRef::Stack));
+            }
+            if let Some(k) = self.w().find_other("", Some(&path)) {
+                return Ok(Some(ObjRef::OtherStack(k)));
+            }
+            let Some(stack) = self.load_stack_file(&path)? else { return Ok(None) };
+            return Ok(Some(ObjRef::OtherStack(self.w().add_other(stack))));
+        }
+        if name.eq_ignore_ascii_case("Tour") {
+            return Ok(Some(ObjRef::OtherStack(self.w().add_other(crate::model::Stack::demo()))));
+        }
+        Ok(None)
+    }
+
+    /// `start using stack "Library"`: its script joins the message path,
+    /// after the current stack and before Home.
+    fn start_using(&mut self, name: &str) -> R<()> {
+        match self.stack_ref(name)? {
+            Some(ObjRef::OtherStack(k)) => {
+                {
+                    let mut w = self.w();
+                    let name = w.other(k).map(|s| s.name.clone()).unwrap_or_default();
+                    if !w.is_in_use(&name) {
+                        w.in_use.push(name);
+                    }
+                }
+                self.send_system(ObjRef::OtherStack(k), "libraryStack")
+            }
+            // The current stack is in the path anyway.
+            Some(_) => Ok(()),
+            None => err(format!("No such stack \"{name}\"")),
+        }
+    }
+
+    fn stop_using(&mut self, name: &str) -> R<()> {
+        let target = self.stack_ref(name)?;
+        let full = {
+            let w = self.w();
+            match target {
+                Some(ObjRef::OtherStack(k)) => w.other(k).map(|s| s.name.clone()),
+                _ => None,
+            }
+        };
+        let Some(full) = full else { return Ok(()) };
+        self.w().in_use.retain(|n| !n.eq_ignore_ascii_case(&full));
+        if let Some(ObjRef::OtherStack(k)) = target {
+            self.send_system(ObjRef::OtherStack(k), "releaseStack")?;
+        }
+        Ok(())
+    }
+
+    /// `go to stack "X"`, optionally to one of its cards.
+    fn go_stack(&mut self, name: &str, card: Option<&CardSpec>) -> R<()> {
+        match self.stack_ref(name)? {
+            Some(ObjRef::OtherStack(k)) => self.go_to_stack(k)?,
+            Some(_) => {}
+            None => {
+                self.result = "No such stack.".into();
+                return Ok(());
+            }
+        }
+        if let Some(spec) = card {
+            match self.resolve_card(spec) {
+                Ok(id) => self.go_card_id(id, true)?,
+                Err(Ctl::Error(_)) => self.result = "No such card.".into(),
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
+    }
+
+    /// `go home`: to the Home stack, or the first card if there's none.
+    pub(super) fn go_home(&mut self) -> R<()> {
+        let (is_home, key) = {
+            let mut w = self.w();
+            w.load_home();
+            (w.is_home(&w.stack) || w.home_path.is_none(), w.home_key())
+        };
+        match key {
+            Some(k) if !is_home => self.go_to_stack(k),
+            _ => {
+                let id = self.resolve_card(&CardSpec::Which(Which::Ordinal(Ordinal::Nth(1))))?;
+                self.go_card_id(id, true)
+            }
+        }
+    }
+
+    /// Show a loaded stack, sending the close and open messages.
+    pub(super) fn go_to_stack(&mut self, key: u32) -> R<()> {
+        let card = self.current_card_ref();
+        for m in ["closeCard", "closeBackground", "closeStack"] {
+            self.send_system(card, m)?;
+        }
+        let Some(stack) = self.w().take_other(key) else { return Ok(()) };
+        self.scripts_changed();
+        self.w().replace_stack(stack);
+        let card = self.current_card_ref();
+        for m in ["openStack", "openBackground", "openCard"] {
+            self.send_system(card, m)?;
+        }
+        Ok(())
     }
 
     /// Load a stack file, asking for the password of private-access stacks.
@@ -701,20 +850,6 @@ impl Interp {
             DialogReply::Text(Some(t)) | DialogReply::Button(t) => Some(t),
             DialogReply::Text(None) => None,
         })
-    }
-
-    fn open_stack_file(&mut self, path: &std::path::Path) -> R<()> {
-        let Some(stack) = self.load_stack_file(path)? else { return Ok(()) };
-        let card = self.current_card_ref();
-        for m in ["closeCard", "closeBackground", "closeStack"] {
-            self.send_system(card, m)?;
-        }
-        self.w().replace_stack(stack);
-        let card = self.current_card_ref();
-        for m in ["openStack", "openBackground", "openCard"] {
-            self.send_system(card, m)?;
-        }
-        Ok(())
     }
 
     fn go_history(&mut self, delta: i64) -> R<()> {
@@ -1520,7 +1655,8 @@ impl Interp {
             }
             "back" => self.go_history(-1),
             "forth" => self.go_history(1),
-            "recent" | "home" => {
+            "home" => self.go_home(),
+            "recent" => {
                 let id = self.resolve_card(&CardSpec::Which(Which::Ordinal(Ordinal::Nth(1))))?;
                 self.go_card_id(id, true)
             }

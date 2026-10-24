@@ -71,6 +71,8 @@ pub enum CardSpec {
     Back,
     Forth,
     OfBackground(Box<CardSpec>, Box<BgSpec>),
+    /// `card 2 of stack "Addresses"`.
+    OfStack(Box<CardSpec>, Box<Expr>),
 }
 
 #[derive(Clone, Debug)]
@@ -222,6 +224,10 @@ pub struct Effect {
 #[derive(Clone, Debug)]
 pub enum GoDest {
     Card(CardSpec),
+    /// `go to stack "Addresses"`.
+    Stack(Expr),
+    /// `go home`: the Home stack.
+    Home,
     Expr(Expr),
 }
 
@@ -267,6 +273,9 @@ pub enum Cmd {
     Get(Expr),
     Set { prop: String, obj: Option<Expr>, value: Expr },
     CreateMenu(Expr),
+    /// `start using stack "Library"`.
+    StartUsing(Expr),
+    StopUsing(Expr),
     ResetMenuBar,
     Add { value: Expr, dest: Expr },
     Subtract { value: Expr, dest: Expr },

@@ -5,6 +5,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::model::Stack;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -21,11 +23,41 @@ impl Default for Settings {
     }
 }
 
-fn path() -> Option<PathBuf> {
+/// RandomCard's folder in the user's config directory.
+pub fn config_dir() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-    Some(base.join("randomcard").join("settings.json"))
+    Some(base.join("randomcard"))
+}
+
+fn path() -> Option<PathBuf> {
+    Some(config_dir()?.join("settings.json"))
+}
+
+/// Where the Home stack lives.
+pub fn home_path() -> Option<PathBuf> {
+    Some(config_dir()?.join("Home.rcstack"))
+}
+
+/// The Home stack, made the first time RandomCard runs. A Home file that
+/// can't be read is left alone, and a fresh Home is used without a file.
+pub fn open_home() -> Stack {
+    let Some(path) = home_path() else { return Stack::home() };
+    if path.exists() {
+        return Stack::load(&path).unwrap_or_else(|e| {
+            eprintln!("RandomCard: {e}; using a new Home stack for now.");
+            Stack::home()
+        });
+    }
+    let mut home = Stack::home();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if home.save(&path).is_ok() {
+        home.path = Some(path);
+    }
+    home
 }
 
 impl Settings {

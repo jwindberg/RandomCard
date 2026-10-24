@@ -31,9 +31,11 @@ pub struct Runtime {
 
 /// Start the script thread with a stack, or with a file to open (which may
 /// need a password, so it's opened on the script thread).
-pub fn start(stack: Stack, open: Option<std::path::PathBuf>, user_level: u8) -> Runtime {
+pub fn start(stack: Stack, open: Option<std::path::PathBuf>, user_level: u8, home: Option<std::path::PathBuf>) -> Runtime {
     let mut world = World::new(stack);
     world.user_level = user_level.clamp(1, 5);
+    world.home_path = home;
+    world.load_home();
     let world = Arc::new(Mutex::new(world));
     let (events, event_rx) = channel();
     let (dialog_replies, dialog_rx) = channel();

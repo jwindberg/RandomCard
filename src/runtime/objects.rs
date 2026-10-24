@@ -21,16 +21,10 @@ impl Interp {
             ObjSpec::Stack(None) => ObjRef::Stack,
             ObjSpec::Stack(Some(e)) => {
                 let name = self.eval(e)?;
-                let w = self.w();
-                let matches = name.eq_ignore_ascii_case(&w.stack.name)
-                    || w.stack.path.as_ref().is_some_and(|p| {
-                        p.to_string_lossy().eq_ignore_ascii_case(&name)
-                            || p.file_stem().is_some_and(|s| s.to_string_lossy().eq_ignore_ascii_case(&name))
-                    });
-                if !matches {
-                    return err(format!("No such stack \"{name}\""));
+                match self.stack_ref(&name)? {
+                    Some(o) => o,
+                    None => return err(format!("No such stack \"{name}\"")),
                 }
-                ObjRef::Stack
             }
             ObjSpec::Card(cs) => ObjRef::Card(self.resolve_card(cs)?),
             ObjSpec::Background(bs) => ObjRef::Background(self.resolve_bg(bs)?),
@@ -158,6 +152,14 @@ impl Interp {
             CardSpec::Forth => {
                 let w = self.w();
                 Ok(w.history.get(w.history_pos + 1).copied().unwrap_or(current))
+            }
+            CardSpec::OfStack(inner, name) => {
+                // Only cards of the current stack can be referred to.
+                let name = self.eval(name)?;
+                match self.stack_ref(&name)? {
+                    Some(ObjRef::Stack) => self.resolve_card_in(inner, cards, current, marked),
+                    _ => err(format!("Can't refer to cards of stack \"{name}\" unless you go there")),
+                }
             }
             CardSpec::OfBackground(inner, bs) => {
                 let bg = self.resolve_bg(bs)?;
@@ -311,6 +313,14 @@ impl Interp {
                 NameLength::Short => s.name.clone(),
                 NameLength::Long => stack_long(),
                 _ => format!("stack \"{}\"", s.name),
+            },
+            ObjRef::OtherStack(k) => match w.other(k) {
+                Some(o) => match (len, &o.path) {
+                    (NameLength::Short, _) => o.name.clone(),
+                    (NameLength::Long, Some(p)) => format!("stack \"{}\"", p.display()),
+                    _ => format!("stack \"{}\"", o.name),
+                },
+                None => "unknown object".into(),
             },
             ObjRef::Card(id) => {
                 let name = s.card(id).map(|c| c.name.clone()).unwrap_or_default();
@@ -605,6 +615,15 @@ impl Interp {
                     }
                 }
             }
+            ObjRef::OtherStack(k) => match (w.other(k), name) {
+                (Some(o), "size") => serde_json::to_string(o).map(|j| j.len()).unwrap_or(0).to_string(),
+                (Some(o), "cantmodify") => bool_str(o.cant_modify),
+                (Some(o), "number") => o.cards.len().to_string(),
+                _ => {
+                    drop(w);
+                    return err(format!("Can't get the {name} of that stack"));
+                }
+            },
             ObjRef::MsgBox => match name {
                 "visible" => bool_str(w.msg_visible),
                 "contents" | "text" => w.msg.clone(),
@@ -750,6 +769,22 @@ impl Interp {
                     "privateaccess" => w.stack.protection.private_access = to_bool(v)?,
                     "userlevel" => {}
                     _ => return err(format!("Can't set the {name} of a stack")),
+                }
+                Ok(())
+            }
+            ObjRef::OtherStack(k) => {
+                // Changes to other stacks are saved right away.
+                let mut w = self.w();
+                let Some(s) = w.other_mut(k) else { return err("No such stack") };
+                match name {
+                    "name" => s.name = v.to_string(),
+                    "script" => s.script = v.to_string(),
+                    _ => return err(format!("Can't set the {name} of another stack")),
+                }
+                if let Some(path) = s.path.clone()
+                    && !s.cant_modify
+                {
+                    s.save(&path).or_else(err)?;
                 }
                 Ok(())
             }

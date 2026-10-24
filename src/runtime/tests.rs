@@ -684,3 +684,66 @@ fn scripted_menus() {
     run(&mut i, "delete menu \"Go\"\nreset menuBar");
     assert_eq!(run(&mut i, "put there is a menu \"Go\" && the enabled of menuItem \"Delete Card\" of menu \"Edit\""), "true true");
 }
+
+#[test]
+fn stacks_home_and_libraries() {
+    let dir = std::env::temp_dir().join(format!("randomcard-stacks-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let home_path = dir.join("Home.rcstack");
+    Stack::home().save(&home_path).unwrap();
+    let lib_path = dir.join("Lib.rcstack");
+    let mut lib = Stack::new("Lib");
+    lib.script = "function libFn\n  return \"from lib\"\nend libFn\non libraryStack\n  global inUse\n  put \"yes\" into inUse\nend libraryStack".into();
+    lib.save(&lib_path).unwrap();
+    let main_path = dir.join("Main.rcstack");
+    let mut main = stack();
+    main.name = "Main".into();
+    main.path = Some(main_path.clone());
+    main.save(&main_path).unwrap();
+
+    let mut i = interp_with(main);
+    {
+        let mut w = lock(&i.world);
+        w.home_path = Some(home_path.clone());
+        w.load_home();
+    }
+    let this_stack = |i: &mut Interp| run(i, "put the short name of this stack");
+    // Home's script is in every stack's message path.
+    assert_eq!(run(&mut i, "put homeVersion()"), "Home 1.0");
+    // A library's is too, once it's in use.
+    assert!(run(&mut i, "put libFn()").starts_with("ERROR"));
+    run(&mut i, "start using stack \"Lib\"");
+    assert_eq!(run(&mut i, "put libFn()"), "from lib");
+    assert_eq!(run(&mut i, "global inUse\nput inUse"), "yes");
+    assert_eq!(run(&mut i, "global inUse\nput empty into inUse\nsend \"libraryStack\" to stack \"Lib\"\nput inUse"), "yes");
+    assert!(run(&mut i, "put the stacksInUse").ends_with("Lib.rcstack"));
+    assert_eq!(run(&mut i, "put the short name of stack \"Lib\""), "Lib");
+    // Changing another stack's script saves it.
+    run(&mut i, "set the script of stack \"Lib\" to \"function libFn\" & return & \"return 2\" & return & \"end libFn\"");
+    assert_eq!(run(&mut i, "put libFn()"), "2");
+    assert!(Stack::load(&lib_path).unwrap().script.contains("return 2"));
+    run(&mut i, "stop using stack \"Lib\"");
+    assert!(run(&mut i, "put libFn()").starts_with("ERROR"));
+    // Cards of other stacks can only be reached by going there.
+    assert!(run(&mut i, "put the name of card 1 of stack \"Lib\"").starts_with("ERROR"));
+
+    // Going to another stack saves the one left.
+    run(&mut i, "put \"changed\" into field \"Name\"\ngo to stack \"Lib\"");
+    assert_eq!(this_stack(&mut i), "Lib");
+    let saved = Stack::load(&main_path).unwrap();
+    assert_eq!(saved.field_text(saved.cards[0].id, Layer::Background, 10), "changed");
+    run(&mut i, "go home");
+    assert_eq!(this_stack(&mut i), "Home");
+    // Home's own script isn't run twice from Home.
+    assert_eq!(run(&mut i, "put homeVersion()"), "Home 1.0");
+    run(&mut i, "go to card \"Two\" of stack \"Main\"");
+    assert_eq!(run(&mut i, "put the short name of this stack && the short name of this card"), "Main Two");
+    // The built-in Tour has no file; Home's button goes there.
+    run(&mut i, "go home");
+    assert_eq!(click(&mut i, "Home", "Take the Tour"), None);
+    assert_eq!(this_stack(&mut i), "Tour");
+    run(&mut i, "go home");
+    assert_eq!(this_stack(&mut i), "Home");
+    assert_eq!(run(&mut i, "go to stack \"Nowhere\"\nput the result"), "No such stack.");
+    std::fs::remove_dir_all(&dir).ok();
+}

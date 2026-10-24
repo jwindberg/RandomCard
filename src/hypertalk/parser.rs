@@ -19,7 +19,7 @@ const ZERO_ARG_FUNCS: &[&str] = &[
     "clickloc", "clickh", "clickv", "clickchunk", "clickline", "clicktext", "shiftkey", "optionkey",
     "commandkey", "cmdkey", "controlkey", "ctrlkey", "result", "tool", "paramcount", "params", "version",
     "selectedtext", "selectedchunk", "selectedline", "selectedfield", "selectedloc", "foundtext",
-    "foundchunk", "foundline", "foundfield", "menus", "stacks", "windows", "sound", "speech", "voices",
+    "foundchunk", "foundline", "foundfield", "menus", "stacks", "stacksinuse", "windows", "sound", "speech", "voices",
     "screenrect", "systemversion", "diskspace", "heapspace", "osname", "osversion", "dateitems",
 ];
 
@@ -1016,6 +1016,16 @@ impl Parser {
                 self.advance();
                 Cmd::CreateMenu(self.expr()?)
             }
+            "start" | "stop" if self.is("using") => {
+                self.advance();
+                // `start using stack "X"`, or just a name.
+                let e = self.expr()?;
+                let e = match e {
+                    Expr::Object(ObjSpec::Stack(Some(name))) => *name,
+                    e => e,
+                };
+                if name == "start" { Cmd::StartUsing(e) } else { Cmd::StopUsing(e) }
+            }
             "reset" if self.is("menubar") => {
                 self.advance();
                 Cmd::ResetMenuBar
@@ -1213,7 +1223,7 @@ impl Parser {
             return Ok(GoDest::Card(CardSpec::Forth));
         }
         if self.accept("home") {
-            return Ok(GoDest::Card(CardSpec::Which(Which::Ordinal(Ordinal::Nth(1)))));
+            return Ok(GoDest::Home);
         }
         if let Some(ord) = self.word().and_then(ordinal_of)
             && self.at_stmt_end_at(1)
@@ -1223,10 +1233,11 @@ impl Parser {
             return Ok(GoDest::Card(CardSpec::Which(Which::Ordinal(ord))));
         }
         let e = self.expr()?;
-        if let Expr::Object(ObjSpec::Card(spec)) = e {
-            return Ok(GoDest::Card(spec));
+        match e {
+            Expr::Object(ObjSpec::Card(spec)) => Ok(GoDest::Card(spec)),
+            Expr::Object(ObjSpec::Stack(Some(name))) => Ok(GoDest::Stack(*name)),
+            e => Ok(GoDest::Expr(e)),
         }
-        Ok(GoDest::Expr(e))
     }
 
     fn position_word(&self) -> Option<Position> {
@@ -1962,6 +1973,10 @@ impl Parser {
                 return Ok(CardSpec::OfBackground(Box::new(spec), Box::new(bg)));
             }
             return Err(self.err_here("Expected a background"));
+        }
+        if self.is("of") && self.is_at(1, "stack") && self.starts_term_at(2) {
+            self.pos += 2;
+            return Ok(CardSpec::OfStack(Box::new(spec), Box::new(self.term()?)));
         }
         self.skip_of_this_stack();
         Ok(spec)

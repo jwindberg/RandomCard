@@ -114,6 +114,8 @@ pub struct App {
     beeps_seen: u32,
     /// The world's `selection_rev` the field editor has caught up with.
     selection_rev_seen: u64,
+    /// The world's `stack_serial` the view belongs to.
+    stack_seen: u64,
     flash_until: Option<Instant>,
     last_autosave: Instant,
     quit_prompt: bool,
@@ -127,7 +129,7 @@ impl App {
         cc.egui_ctx.set_visuals(egui::Visuals::light());
         let settings = Settings::load();
         App {
-            rt: runtime::start(stack, open, settings.user_level),
+            rt: runtime::start(stack, open, settings.user_level, runtime::settings::home_path()),
             settings,
             prefs_open: false,
             protect_open: false,
@@ -162,6 +164,7 @@ impl App {
             focus_msg_box: false,
             beeps_seen: 0,
             selection_rev_seen: 0,
+            stack_seen: 0,
             flash_until: None,
             last_autosave: Instant::now(),
             quit_prompt: false,
@@ -403,6 +406,12 @@ impl App {
 
     fn reset_view(&mut self) {
         self.end_editing();
+        self.forget_stack_view();
+    }
+
+    /// Drop selections and windows that belong to the stack being left.
+    fn forget_stack_view(&mut self) {
+        self.editing = None;
         self.selected = None;
         self.marquee = None;
         self.polygon = None;
@@ -478,6 +487,7 @@ impl App {
             (cmd(Key::Num3), "3", menu("Next"), true),
             (cmd(Key::Num4), "4", menu("Last"), true),
             (cmd(Key::M), "m", menu("Message"), true),
+            (cmd(Key::H), "h", menu("Home"), true),
             (cmd(Key::B), "b", menu("Background"), editing >= 3),
             (cmd(Key::O), "o", menu("Open Stack…"), true),
             (cmd(Key::Q), "q", menu("Quit RandomCard"), true),
@@ -1588,6 +1598,11 @@ impl eframe::App for App {
             self.request_quit(&ctx);
         }
         self.handle_requests(&ctx);
+        let serial = self.world().stack_serial;
+        if serial != self.stack_seen {
+            self.stack_seen = serial;
+            self.forget_stack_view();
+        }
         self.enforce_level();
         self.shortcuts(&ctx);
         self.keyboard(&ctx);

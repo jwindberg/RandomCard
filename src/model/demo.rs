@@ -195,7 +195,7 @@ end openCard
 "#;
 
 pub fn build() -> Stack {
-    let mut s = Stack::new("Welcome to RandomCard");
+    let mut s = Stack::new("Tour");
     s.backgrounds.clear();
     s.cards.clear();
     s.script = STACK_SCRIPT.into();

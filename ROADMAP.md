@@ -47,7 +47,8 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 | HyperCard 2.x import | Structure, pictures, parts, text, scripts, icons, sounds |
 | User levels and stack protection | Levels, Protect Stack, passwords, private access |
 | Script-modifiable menus | Complete, except submenus |
-| Multiple stacks, printing, externals | Missing |
+| Home, stacks in use, going between stacks | One stack window at a time |
+| Printing, externals | Missing |
 
 ## Using and authoring stacks
 
@@ -194,14 +195,24 @@ sample stacks parse.
 
 ## Stacks
 
+**Today:** a Home stack (made on first run in `~/.config/randomcard/`,
+opened at startup, Go ▸ Home and `go home`), the message path stack →
+stacks in use → Home, `start using`/`stop using` with `libraryStack` and
+`releaseStack`, `the stacksInUse`, `go to stack "X"` and
+`go to card 3 of stack "X"`, `send … to stack "X"`, and the name and script
+of other stacks. Leaving a stack saves it; a stack without a file stays
+loaded to come back to.
+
 **Missing:**
-- **Multiple open stacks,** `go to stack` in a new window, and `the stacks`.
-  Today one stack is open and opening another replaces it.
-- **A Home stack** and HyperCard's message path beyond the stack
-  (stack → Home → HyperCard), including `start using` and `stop using` for
-  shared script libraries.
-- **References to other stacks:** `card 1 of stack "X"` currently ignores
-  the stack part, and objects in other stacks can't be counted or read.
+- **Multiple stack windows:** `go to stack … in a new window` opens it in
+  the same window, and `the stacks` lists only the current stack.
+- **Objects in other stacks:** `field 1 of card 2 of stack "X"` and
+  counting other stacks' cards need object references that name a stack;
+  today only going there works.
+- **History across stacks:** Back and Recent forget cards of stacks you've
+  left.
+- **Home as HyperCard had it:** its user-level card, search paths and stack
+  list. RandomCard keeps the user level in Preferences instead.
 - **Card size** changes (`set the rect of card window`), and **Compact Stack**.
 - **Recent cards** view (the Recent dialog) and a **Find dialog**
   (Ctrl+F) in the UI; `find` works from scripts and the message box.
@@ -261,7 +272,7 @@ and the resource chain.
 5. ~~Selection and click functions.~~ Done.
 6. ~~Styled text.~~ Done.
 7. ~~Script-modifiable menus.~~ Done.
-8. **Multiple stacks, Home, and `start using`.** Larger architectural
-   change to `World` and the message path.
+8. ~~Multiple stacks, Home, and `start using`.~~ Done, except stack windows
+   and objects in other stacks.
 9. **HyperCard 1.x import, MACE, AddColor.**
 10. **Font metrics, printing, the debugger.**

@@ -1,5 +1,6 @@
 //! State shared between the UI thread and the script thread.
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::model::{Id, Layer, Picture, Stack};
@@ -18,6 +19,9 @@ pub enum ObjRef {
     /// A button or field. `card` is the card it is seen on, which matters for
     /// background fields whose text differs from card to card.
     Part { layer: Layer, id: Id, card: Id },
+    /// A stack that's loaded but not the one shown: Home, a stack in use,
+    /// or one left without a file (see `World::others`).
+    OtherStack(u32),
     MsgBox,
     HyperCard,
 }
@@ -345,6 +349,21 @@ pub struct World {
     pub user_level: u8,
     /// The stack's password was given this session, lifting its level limit.
     pub unlocked: bool,
+    /// Stacks loaded besides the current one: Home, stacks in use, and stacks
+    /// left that have no file to come back to.
+    pub others: Vec<LoadedStack>,
+    pub next_stack_key: u32,
+    /// Stacks in use (`start using`), by name, in message-path order.
+    pub in_use: Vec<String>,
+    /// Where the Home stack lives.
+    pub home_path: Option<PathBuf>,
+    /// Counts stack changes, so the UI can drop windows of the old stack.
+    pub stack_serial: u64,
+}
+
+pub struct LoadedStack {
+    pub key: u32,
+    pub stack: Stack,
 }
 
 impl World {
@@ -392,18 +411,92 @@ impl World {
             redo: Vec::new(),
             user_level: 5,
             unlocked: false,
+            others: Vec::new(),
+            next_stack_key: 1,
+            in_use: Vec::new(),
+            home_path: None,
+            stack_serial: 0,
         }
     }
 
+    /// Show another stack. The one being left is saved if it has a file,
+    /// and stays loaded if it's Home, in use, or has no file to reopen.
     pub fn replace_stack(&mut self, stack: Stack) {
-        let msg_visible = self.msg_visible;
-        let msg = std::mem::take(&mut self.msg);
-        let user_level = self.user_level;
-        *self = World::new(stack);
-        self.msg_visible = msg_visible;
-        self.msg = msg;
-        self.user_level = user_level;
-        self.picture_rev = rand::random();
+        let mut fresh = World::new(stack);
+        fresh.msg_visible = self.msg_visible;
+        fresh.msg = std::mem::take(&mut self.msg);
+        fresh.user_level = self.user_level;
+        fresh.others = std::mem::take(&mut self.others);
+        fresh.next_stack_key = self.next_stack_key;
+        fresh.in_use = std::mem::take(&mut self.in_use);
+        fresh.home_path = self.home_path.take();
+        fresh.stack_serial = self.stack_serial + 1;
+        fresh.picture_rev = rand::random();
+        let dirty = self.dirty && !self.stack.cant_modify;
+        let old = std::mem::replace(self, fresh).stack;
+        // Changes with nowhere to be saved keep the stack loaded.
+        let unsaved = match &old.path {
+            Some(p) => dirty && old.save(p).is_err(),
+            None => dirty,
+        };
+        if unsaved || self.is_home(&old) || self.is_in_use(&old.name) {
+            self.add_other(old);
+        }
+        self.load_home();
+    }
+
+    pub fn is_home(&self, s: &Stack) -> bool {
+        same_path(s.path.as_deref(), self.home_path.as_deref())
+    }
+
+    pub fn is_in_use(&self, name: &str) -> bool {
+        self.in_use.iter().any(|n| n.eq_ignore_ascii_case(name))
+    }
+
+    /// Keep a stack loaded; returns its key.
+    pub fn add_other(&mut self, stack: Stack) -> u32 {
+        let key = self.next_stack_key;
+        self.next_stack_key += 1;
+        self.others.push(LoadedStack { key, stack });
+        key
+    }
+
+    pub fn other(&self, key: u32) -> Option<&Stack> {
+        self.others.iter().find(|o| o.key == key).map(|o| &o.stack)
+    }
+
+    pub fn other_mut(&mut self, key: u32) -> Option<&mut Stack> {
+        self.others.iter_mut().find(|o| o.key == key).map(|o| &mut o.stack)
+    }
+
+    /// A loaded stack by name, or by file path.
+    pub fn find_other(&self, name: &str, path: Option<&std::path::Path>) -> Option<u32> {
+        self.others
+            .iter()
+            .find(|o| names_stack(&o.stack, name) || path.is_some() && same_path(o.stack.path.as_deref(), path))
+            .map(|o| o.key)
+    }
+
+    /// Take a stack out of the loaded ones, to show it.
+    pub fn take_other(&mut self, key: u32) -> Option<Stack> {
+        let i = self.others.iter().position(|o| o.key == key)?;
+        Some(self.others.remove(i).stack)
+    }
+
+    /// The loaded Home stack, unless it's the current stack.
+    pub fn home_key(&self) -> Option<u32> {
+        self.others.iter().find(|o| self.is_home(&o.stack)).map(|o| o.key)
+    }
+
+    /// Make sure Home is loaded, for the message path.
+    pub fn load_home(&mut self) {
+        let Some(path) = self.home_path.clone() else { return };
+        if self.is_home(&self.stack) || self.home_key().is_some() {
+            return;
+        }
+        if let Ok(home) = Stack::load(&path) {
+            self.add_other(home);
+        }
     }
 
     /// The highest level the stack allows right now.
@@ -501,4 +594,22 @@ pub fn line_at(text: &str, at: usize) -> (usize, usize) {
 /// The 1-based line number of character `at`.
 pub fn line_number(text: &str, at: usize) -> usize {
     text.chars().take(at).filter(|c| *c == '\n').count() + 1
+}
+
+/// Whether two stack files are the same file.
+pub fn same_path(a: Option<&std::path::Path>, b: Option<&std::path::Path>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => a == b || a.canonicalize().ok().is_some_and(|x| b.canonicalize().ok() == Some(x)),
+        _ => false,
+    }
+}
+
+/// Whether a name refers to a stack: its name, its file's name, or its path.
+pub fn names_stack(s: &Stack, name: &str) -> bool {
+    let name = name.trim();
+    s.name.eq_ignore_ascii_case(name)
+        || s.path.as_ref().is_some_and(|p| {
+            p.to_string_lossy().eq_ignore_ascii_case(name)
+                || p.file_stem().is_some_and(|f| f.to_string_lossy().eq_ignore_ascii_case(name))
+        })
 }

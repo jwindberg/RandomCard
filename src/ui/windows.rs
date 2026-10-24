@@ -44,6 +44,7 @@ pub fn script_of(w: &World, obj: ObjRef) -> Option<String> {
         ObjRef::Background(id) => s.background(id)?.script.clone(),
         ObjRef::Card(id) => s.card(id)?.script.clone(),
         ObjRef::Part { layer, id, card } => s.part(card, layer, id)?.script.clone(),
+        ObjRef::OtherStack(k) => w.other(k)?.script.clone(),
         _ => return None,
     })
 }
@@ -66,6 +67,16 @@ fn set_script(w: &mut World, obj: ObjRef, text: String) {
             if let Some(p) = s.part_mut(card, layer, id) {
                 p.script = text;
             }
+        }
+        // Home or a stack in use: saved to its file right away.
+        ObjRef::OtherStack(k) => {
+            if let Some(s) = w.other_mut(k) {
+                s.script = text;
+                if let Some(path) = s.path.clone() {
+                    let _ = s.save(&path);
+                }
+            }
+            return;
         }
         _ => return,
     }
@@ -588,6 +599,7 @@ pub fn object_title(w: &World, obj: ObjRef) -> String {
     let s = &w.stack;
     match obj {
         ObjRef::Stack => format!("stack \"{}\"", s.name),
+        ObjRef::OtherStack(k) => format!("stack \"{}\"", w.other(k).map(|o| o.name.as_str()).unwrap_or("?")),
         ObjRef::Card(id) => match s.card(id) {
             Some(c) if !c.name.is_empty() => format!("card \"{}\"", c.name),
             _ => format!("card id {id}"),
