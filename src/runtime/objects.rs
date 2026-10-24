@@ -642,6 +642,14 @@ impl Interp {
                 if matches!(name, "contents" | "text") {
                     return self.set_object_value(o, v.to_string());
                 }
+                if matches!(name, "textfont" | "textsize" | "textstyle") {
+                    // The whole field takes the new setting, as in HyperCard.
+                    self.w().stack.restyle_field(card, layer, id, |s| match name {
+                        "textfont" => s.font = None,
+                        "textsize" => s.size = None,
+                        _ => s.style = None,
+                    });
+                }
                 if name == "icon" {
                     // By id or by name; empty or 0 removes the icon.
                     let mut w = self.w();
@@ -673,7 +681,7 @@ impl Interp {
                     "textfont" => p.text_font = v.to_string(),
                     "textsize" => p.text_size = to_int(v)?.clamp(6, 128) as u32,
                     "textheight" => {}
-                    "textstyle" => p.text_style = v.to_string(),
+                    "textstyle" => p.text_style = crate::model::styles::normalize_style(v),
                     "textalign" => match TextAlign::parse(v) {
                         Some(a) => p.text_align = a,
                         None => return bad("left, center or right"),

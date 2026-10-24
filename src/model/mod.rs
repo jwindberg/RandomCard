@@ -4,11 +4,14 @@
 mod demo;
 pub mod password;
 mod picture;
+pub mod styles;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+
+use styles::StyleRun;
 
 pub use picture::{Picture, Pixel};
 
@@ -182,6 +185,9 @@ pub struct Part {
     pub text_size: u32,
     pub text_style: String,
     pub text_align: TextAlign,
+    /// Style runs of `contents`, for card fields and shared background text.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub styles: Vec<StyleRun>,
     /// Button contents, card field text, or shared background field text.
     pub contents: String,
 
@@ -222,6 +228,7 @@ impl Default for Part {
             text_size: 12,
             text_style: "plain".into(),
             text_align: TextAlign::Center,
+            styles: Vec::new(),
             contents: String::new(),
             hilite: false,
             auto_hilite: true,
@@ -294,6 +301,9 @@ pub struct Card {
     pub bg_text: HashMap<Id, String>,
     /// Per-card hilite of background buttons (unless the button has sharedHilite).
     pub bg_hilite: HashMap<Id, bool>,
+    /// Style runs of the per-card text of background fields.
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub bg_styles: HashMap<Id, Vec<StyleRun>>,
 }
 
 /// A 32×32 button icon. Clear pixels are transparent.
@@ -521,7 +531,17 @@ impl Stack {
         }
     }
 
+    /// Set a field's text. Its style runs follow the edit: new text takes
+    /// the style of the text it replaces.
     pub fn set_field_text(&mut self, card: Id, layer: Layer, id: Id, text: String) {
+        let old = self.field_text(card, layer, id);
+        let mut runs = self.field_styles(card, layer, id);
+        styles::retext(&mut runs, &old, &text);
+        self.set_field_content(card, layer, id, text, runs);
+    }
+
+    /// Set a field's text and style runs together.
+    pub fn set_field_content(&mut self, card: Id, layer: Layer, id: Id, text: String, runs: Vec<StyleRun>) {
         let shared = match self.part(card, layer, id) {
             Some(p) => p.kind == PartKind::Button || p.shared_text,
             None => return,
@@ -529,9 +549,50 @@ impl Stack {
         if layer == Layer::Background && !shared {
             if let Some(c) = self.card_mut(card) {
                 c.bg_text.insert(id, text);
+                if runs.is_empty() {
+                    c.bg_styles.remove(&id);
+                } else {
+                    c.bg_styles.insert(id, runs);
+                }
             }
         } else if let Some(p) = self.part_mut(card, layer, id) {
             p.contents = text;
+            p.styles = runs;
+        }
+    }
+
+    /// Change every style run of a field, on every card (for setting the
+    /// whole field's textFont, textSize or textStyle).
+    pub fn restyle_field(&mut self, card: Id, layer: Layer, id: Id, change: impl Fn(&mut styles::TextStyle)) {
+        let fix = |runs: &mut Vec<StyleRun>, len: usize| {
+            for r in runs.iter_mut() {
+                change(&mut r.style);
+            }
+            styles::normalize(runs, len);
+        };
+        if layer == Layer::Background {
+            let bg = self.card(card).map(|c| c.background);
+            for c in self.cards.iter_mut().filter(|c| Some(c.background) == bg) {
+                let len = c.bg_text.get(&id).map(|t| t.chars().count()).unwrap_or(0);
+                if let Some(runs) = c.bg_styles.get_mut(&id) {
+                    fix(runs, len);
+                }
+                c.bg_styles.retain(|_, r| !r.is_empty());
+            }
+        }
+        if let Some(p) = self.part_mut(card, layer, id) {
+            let len = p.contents.chars().count();
+            fix(&mut p.styles, len);
+        }
+    }
+
+    /// A field's style runs (empty when all its text has the field's style).
+    pub fn field_styles(&self, card: Id, layer: Layer, id: Id) -> Vec<StyleRun> {
+        let Some(p) = self.part(card, layer, id) else { return Vec::new() };
+        if layer == Layer::Background && p.kind == PartKind::Field && !p.shared_text {
+            self.card(card).and_then(|c| c.bg_styles.get(&id).cloned()).unwrap_or_default()
+        } else {
+            p.styles.clone()
         }
     }
 
@@ -613,6 +674,10 @@ mod tests {
         assert_eq!(loaded.cards[0].picture, stack.cards[0].picture);
         let last = loaded.cards.last().unwrap();
         assert_eq!(last.bg_text, stack.cards.last().unwrap().bg_text);
+        // The demo's lesson has styled text.
+        let lesson = |s: &Stack| s.cards[1].parts.iter().find(|p| p.name == "Lesson").unwrap().styles.clone();
+        assert!(!lesson(&stack).is_empty());
+        assert_eq!(lesson(&loaded), lesson(&stack));
         assert_eq!(loaded.path.as_deref(), Some(path.as_path()));
         assert_eq!(loaded.sounds[&7], sound);
     }

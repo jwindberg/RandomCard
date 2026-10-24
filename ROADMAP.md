@@ -41,7 +41,7 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 | System messages | Mouse, navigation, keyboard, `idle`, `doMenu`; all commands interceptable |
 | Browse, Button and Field tools | Working, with clipboard and undo |
 | Paint tools | All 18 tools, patterns, Paint menu; no FatBits |
-| Fields | Plain text, the selection, click functions, list fields; no styled runs |
+| Fields | Styled text, the selection, click functions, list fields |
 | Visual effects | Complete |
 | Sound | `play`, notes, `dial`, `beep`; no MACE |
 | HyperCard 2.x import | Structure, pictures, parts, text, scripts, icons, sounds |
@@ -112,7 +112,7 @@ menu bar or replace HyperCard's menus with their own.
   the level when you leave.
 
 **Still to do:**
-- Font and Style menus while editing text; Options and Patterns as menus.
+- Options and Patterns as menus.
 - Delete Stack, which should respect `cantDelete`.
 - Stacks hiding the menu bar or adding their own menus (item 7 below).
 
@@ -136,24 +136,24 @@ text, multi-level undo and redo, and script-driven painting with `drag`,
 - **Paint menu:** Pickup, Scale, and Revert; `the grid`, `centered` and
   `multiple` options; Shift-constrained drawing (straight lines, squares,
   circles).
-- **A font and style menu** for the text tool. Today scripts or the message
-  box set `the textFont`, `textSize` and `textStyle` for painted text.
 
 ## Fields and text
 
-**Today:** plain text per field (shared or per card for background fields),
-font, size, style and alignment for the whole field, `lockText`, `dontWrap`,
+**Today:** text per field (shared or per card for background fields) with
+style runs of font, size and style, a font, size, style and alignment for
+the whole field, `lockText`, `dontWrap`,
 `showLines`, `wideMargins`, scrolling fields, `find` highlighting, the text
 selection (`select`, `the selectedText` and friends, `the selection` as a
 container), click functions in locked fields, and autoSelect list fields.
 
 **Missing:**
-- **Styled text runs.** Per-character font, size and style
-  (`set the textStyle of word 2 of field 1 to bold`). Needs a style-run model
-  in `Part`/`Card`, rendering via multiple `LayoutJob` sections, and editing
-  that preserves runs. The importer already skips HyperCard's style runs
-  (`content_text` in `src/import/mod.rs`) and could convert them with the
-  STBL block.
+- **How styled text looks.** Only egui's built-in fonts are available: one
+  sans-serif and one monospaced (used for Courier and Monaco), with no bold
+  weight, so bold is drawn twice slightly offset. Outline and shadow aren't
+  drawn. Bundling or finding fonts like HyperCard's (Chicago, Geneva, New
+  York, Times) would make styled stacks look closer to the original.
+- **Copying styled text:** text copied from one field and pasted into
+  another loses its styles.
 - **List fields:** Command-click to select lines that aren't next to each
   other in a multipleLines field (Shift-click runs work), and
   `the selectedLine` reporting such selections.
@@ -181,8 +181,6 @@ sample stacks parse.
   such as Backspace and the arrows inside a field; a separate Enter key
   (keypad Enter arrives as Return, so Shift+Return stands in for it); and
   keyboard messages with tools other than Browse.
-- **Chunk properties:** `textStyle`, `textFont` and `textSize` of a chunk
-  (depends on styled text).
 - **Menus:** `create menu`, `put … into menu`, `delete menu`, `enable` and
   `disable menuItem`, `the checkMark`, `the menuMessage` and `reset menuBar`
   are accepted and do nothing. Needs a script-modifiable menu model that the
@@ -223,8 +221,7 @@ sample stacks parse.
   HyperCard's text metrics would fix that without changing the look.
 - **Script editor:** find and replace, go to line, and syntax colouring,
   using egui's standard text-editing features.
-- **Font and Style menus:** part of the menu restructuring in "Using and
-  authoring stacks". A **Home menu** belongs with Home stack support.
+- **A Home menu** belongs with Home stack support.
 - **Printing** of cards and reports.
 
 ## Importing HyperCard stacks
@@ -236,7 +233,6 @@ and the resource chain.
 **Missing:**
 - **HyperCard 1.x stacks.** Their blocks use 12-byte headers (offsets shift
   by 4); HyperCardPreview handles both layouts and is the reference.
-- **Styled text** (STBL style table and per-field style runs).
 - **AddColor** color data (HCcd/HCbg resources).
 - **MACE-compressed sounds** (MACE 3:1 and 6:1).
 - **XCMDs and XFCNs.** These are 68k/PowerPC code and can't run directly.
@@ -263,9 +259,9 @@ and the resource chain.
 1. ~~Keyboard messages and interceptable commands.~~ Done.
 2. ~~Paint patterns and the remaining paint tools.~~ Done, except FatBits.
 3. ~~Cut, Copy and Paste of parts, and undo for object edits.~~ Done.
-4. ~~Using and authoring stacks.~~ Done, except Font and Style menus.
+4. ~~Using and authoring stacks.~~ Done.
 5. ~~Selection and click functions.~~ Done.
-6. **Styled text.** Needed for faithful imports and chunk properties.
+6. ~~Styled text.~~ Done.
 7. **Script-modifiable menus.** Many stacks add their own menus; builds on
    the menus from item 4.
 8. **Multiple stacks, Home, and `start using`.** Larger architectural

@@ -778,12 +778,8 @@ impl Interp {
                 if matches!(&args[2], Expr::Call(n, _) if n == "__menu") {
                     return Ok(String::new());
                 }
-                if matches!(args[2], Expr::Chunk(..)) {
-                    // Text styles of chunks: text is unstyled, so report plain.
-                    return Ok(match prop.as_str() {
-                        "textstyle" => "plain".into(),
-                        _ => String::new(),
-                    });
+                if matches!(args[2], Expr::Chunk(..) | Expr::Selection) {
+                    return self.chunk_property(&args[2], &prop.to_ascii_lowercase());
                 }
                 let obj = self.resolve_dynamic(&args[2])?;
                 self.get_property(obj, &prop, length)

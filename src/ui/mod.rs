@@ -14,6 +14,7 @@ use eframe::egui::{
     TextureHandle, Vec2,
 };
 
+use crate::model::styles;
 use crate::model::{Layer, Part, PartKind, PartStyle, Rect as CardRect, Stack};
 use crate::runtime::world::{Event, FieldRange, KeyAction, ObjRef, Tool, UiRequest, World, line_at, lock, word_at};
 use crate::runtime::{self, Runtime};
@@ -192,6 +193,7 @@ impl App {
                 !w.redo.is_empty(),
             )
         };
+        let text_style = self.current_text_style();
         let item = |ui: &mut egui::Ui, enabled: bool, label: &str| ui.add_enabled(enabled, egui::Button::new(label)).clicked();
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
@@ -293,6 +295,34 @@ impl App {
                     }
                 });
             }
+            if let Some((font, size, style)) = &text_style {
+                ui.menu_button("Font", |ui| {
+                    for f in styles::FONTS {
+                        let label = if font.eq_ignore_ascii_case(f) { format!("✔ {f}") } else { f.to_string() };
+                        if item(ui, true, &label) {
+                            self.do_menu(f);
+                        }
+                    }
+                });
+                ui.menu_button("Style", |ui| {
+                    let check = |on: bool, name: &str| if on { format!("✔ {name}") } else { name.to_string() };
+                    if item(ui, true, &check(style == "plain", "Plain")) {
+                        self.do_menu("Plain");
+                    }
+                    for s in styles::STYLES {
+                        let name = format!("{}{}", s[..1].to_ascii_uppercase(), &s[1..]);
+                        if item(ui, true, &check(styles::has_style(style, s), &name)) {
+                            self.do_menu(&name);
+                        }
+                    }
+                    ui.separator();
+                    for s in styles::SIZES {
+                        if item(ui, true, &check(size == s, &format!("{s} Point"))) {
+                            self.do_menu(&format!("{s} Point"));
+                        }
+                    }
+                });
+            }
             if editing >= 4 {
                 ui.menu_button("Objects", |ui| {
                     for label in ["Button Info…", "Field Info…", "Card Info…", "Bkgnd Info…", "Stack Info…"] {
@@ -323,6 +353,20 @@ impl App {
                 });
             }
         });
+    }
+
+    /// The font, size and style the Font and Style menus show: of the
+    /// selected text in the field being edited, or for the text tool.
+    fn current_text_style(&self) -> Option<(String, u32, String)> {
+        let w = self.world();
+        if w.tool == Tool::Text {
+            return Some((w.paint_font.clone(), w.paint_text_size, styles::normalize_style(&w.paint_text_style)));
+        }
+        let sel = w.current_selection().filter(|_| self.editing.is_some())?;
+        let part = w.stack.part(sel.card, sel.layer, sel.field)?;
+        let s = styles::style_at(&w.stack.field_styles(sel.card, sel.layer, sel.field), sel.start);
+        let style = styles::normalize_style(s.style.as_deref().unwrap_or(&part.text_style));
+        Some((s.font.unwrap_or_else(|| part.text_font.clone()), s.size.unwrap_or(part.text_size), style))
     }
 
     fn toggle_tool_panel(&mut self) {
@@ -1101,12 +1145,24 @@ impl App {
         let rect = render::part_rect(&pv.part, origin);
         render::draw_field_frame(ui.painter(), &pv.part, rect);
         let text_rect = render::field_text_rect(&pv.part, rect);
-        let part = pv.part.clone();
+        let (part, text, runs) = (pv.part.clone(), pv.text.clone(), pv.styles.clone());
+        // The runs belong to the text as last synced; follow any typing since.
+        let runs_for = move |buf: &str| {
+            let mut r = runs.clone();
+            styles::retext(&mut r, &text, buf);
+            r
+        };
+        let job_for = {
+            let (part, runs_for) = (part.clone(), runs_for.clone());
+            move |buf: &str, wrap: f32, bold_pass: bool| {
+                let mut job = render::field_job(&part, buf, &runs_for(buf), wrap, None, bold_pass);
+                // The editor positions rows itself, so lay out left-aligned while typing.
+                job.halign = egui::Align::LEFT;
+                job
+            }
+        };
         let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap: f32| {
-            let mut job = render::field_job(&part, buf.as_str(), wrap, None);
-            // The editor positions rows itself, so lay out left-aligned while typing.
-            job.halign = egui::Align::LEFT;
-            ui.painter().layout_job(job)
+            ui.painter().layout_job(job_for(buf.as_str(), wrap, false))
         };
         let edit = egui::TextEdit::multiline(&mut e.buffer)
             .id(field_edit_id(e.obj))
@@ -1116,19 +1172,34 @@ impl App {
             .text_color(Color32::BLACK)
             .layouter(&mut layouter);
         let pv = pv.clone();
+        // Bold runs get a second pass, as in `render::paint_field_text`.
+        let thicken = |ui: &egui::Ui, out: &egui::text_edit::TextEditOutput| {
+            let buf = out.galley.text();
+            if render::has_bold(&part, &runs_for(buf)) {
+                let bold = ui.painter().layout_job(job_for(buf, text_rect.width(), true));
+                ui.painter().galley(out.galley_pos + Vec2::new(0.6, 0.0), bold, Color32::BLACK);
+            }
+        };
         let resp = if pv.part.style == PartStyle::Scrolling {
             field_scroll_area(ui, &pv, origin, &self.rt.world, &mut self.synced_scroll, &mut self.scroll_bar_zones, |ui| {
-                ui.add(edit)
+                let out = edit.show(ui);
+                thicken(ui, &out);
+                out.response
             })
         } else {
-            ui.put(text_rect, edit)
+            ui.scope_builder(egui::UiBuilder::new().max_rect(text_rect), |ui| {
+                let out = edit.show(ui);
+                thicken(ui, &out);
+                out.response
+            })
+            .inner
         };
         let Some(e) = &mut self.editing else { return };
         if !e.focus_requested {
             resp.request_focus();
             e.focus_requested = true;
         }
-        self.sync_selection(ui.ctx());
+        self.sync_selection(ui.ctx(), resp.has_focus());
         let Some(e) = &mut self.editing else { return };
         if resp.changed()
             && let ObjRef::Part { layer, id, card } = e.obj
@@ -1139,17 +1210,31 @@ impl App {
             w.stack.set_field_text(card, layer, id, e.buffer.clone());
             w.dirty = true;
         }
+        // Clicking elsewhere on the card, or into another text box such as
+        // the message box, ends editing. Menus don't: the Font and Style
+        // menus act on the selection, so the field keeps it.
+        let card_rect = Rect::from_min_size(origin, Vec2::new(scene.width as f32, scene.height as f32));
+        let on_card = |p: Pos2| card_rect.contains(p) && ui.ctx().layer_id_at(p) == Some(ui.layer_id());
         let clicked_elsewhere = ui.input(|i| i.pointer.primary_pressed())
-            && ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| !rect.contains(p));
-        if (resp.lost_focus() && !resp.has_focus()) || clicked_elsewhere {
+            && ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| on_card(p) && !rect.contains(p));
+        let focus_taken = ui.memory(|m| m.focused()).is_some_and(|f| f != resp.id);
+        let menu_open = ui.ctx().any_popup_open();
+        let escaped = !menu_open && ui.input(|i| i.key_pressed(Key::Escape));
+        if clicked_elsewhere || focus_taken || escaped {
             self.end_editing();
+        } else if !resp.has_focus() && !menu_open {
+            // Back from a menu: egui forgot the selection while unfocused.
+            resp.request_focus();
+            if let Some(e) = &mut self.editing {
+                e.select = e.published;
+            }
         }
     }
 
     /// Keep the editor's selection and the world's in step: a script's
     /// `select` shows in the editor, and the user's selection is published
     /// for `the selectedText` and friends.
-    fn sync_selection(&mut self, ctx: &egui::Context) {
+    fn sync_selection(&mut self, ctx: &egui::Context, focused: bool) {
         let Some(e) = &mut self.editing else { return };
         let ObjRef::Part { layer, id: field, card } = e.obj else { return };
         let mut w = lock(&self.rt.world);
@@ -1168,6 +1253,8 @@ impl App {
                 state.store(ctx, id);
                 (a, b)
             }
+            // Unfocused, egui collapses the selection: keep the last one.
+            None if !focused => return,
             None => match state.cursor.char_range() {
                 Some(r) => {
                     let (p, q) = (r.primary.index.0, r.secondary.index.0);
@@ -1193,7 +1280,11 @@ impl App {
         let shift = ctx.input(|i| i.modifiers.shift);
         let mut w = self.world();
         let range = |(start, end)| FieldRange { card, layer, field, start, end };
-        w.click = at.map(|at| range(word_at(&pv.text, at)));
+        let len = pv.text.chars().count();
+        w.click = at.map(|at| {
+            let group = styles::group_at(&pv.styles, &pv.part.text_style, len, at);
+            range(group.unwrap_or_else(|| word_at(&pv.text, at)))
+        });
         if pv.part.auto_select && pv.part.lock_text {
             w.selection = at.map(|at| {
                 let (mut start, mut end) = line_at(&pv.text, at);
@@ -1535,14 +1626,11 @@ fn field_scroll_area<R>(
 /// The text of a scrolling field that isn't being edited.
 fn show_field_text(ui: &mut egui::Ui, pv: &render::PartView, origin: Pos2, found: Option<(usize, usize)>) {
     let text_rect = render::field_text_rect(&pv.part, render::part_rect(&pv.part, origin));
-    let galley = ui.painter().layout_job(render::field_job(&pv.part, &pv.text, text_rect.width(), found));
+    let galley = ui.painter().layout_job(render::field_job(&pv.part, &pv.text, &pv.styles, text_rect.width(), found, false));
     let (r, _) = ui.allocate_exact_size(Vec2::new(text_rect.width(), galley.size().y), Sense::hover());
     let pos = Pos2::new(render::aligned_x(&pv.part, r), r.top());
     render::hilite_lines(ui.painter(), &pv.part, &galley, pos, r, found);
-    ui.painter().galley(pos, galley.clone(), Color32::BLACK);
-    if pv.part.text_style.to_ascii_lowercase().contains("bold") {
-        ui.painter().galley(pos + Vec2::new(0.6, 0.0), galley, Color32::BLACK);
-    }
+    render::paint_field_text(ui.painter(), pv, galley, pos, text_rect.width(), found);
 }
 
 /// F1–F12 as HyperCard function key numbers.

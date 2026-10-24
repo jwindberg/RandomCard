@@ -8,6 +8,7 @@ use eframe::egui::{
     TextureHandle, TextureOptions, Vec2, text::LayoutJob,
 };
 
+use crate::model::styles::{self, StyleRun};
 use crate::model::{Icon, Id, Layer, Part, PartKind, PartStyle, Picture, Pixel, TextAlign};
 use crate::runtime::world::{FieldRange, ObjRef, World};
 
@@ -20,6 +21,8 @@ pub struct PartView {
     pub obj: ObjRef,
     pub part: Part,
     pub text: String,
+    /// The style runs of a field's text.
+    pub styles: Vec<StyleRun>,
     pub hilite: bool,
 }
 
@@ -61,6 +64,7 @@ impl Scene {
                     } else {
                         p.contents.clone()
                     },
+                    styles: if p.kind == PartKind::Field { s.field_styles(card, layer, p.id) } else { Vec::new() },
                     hilite: s.hilite(card, layer, p.id),
                     part,
                 });
@@ -177,27 +181,39 @@ impl Textures {
     }
 }
 
-pub fn font_for(part: &Part) -> FontId {
-    let font = part.text_font.to_ascii_lowercase();
+/// The nearest built-in font: monospaced for Courier and Monaco.
+fn font_id(font: &str, size: u32) -> FontId {
+    let font = font.to_ascii_lowercase();
     let family = if font.contains("courier") || font.contains("monaco") || font.contains("mono") {
         FontFamily::Monospace
     } else {
         FontFamily::Proportional
     };
-    FontId::new(part.text_size.clamp(6, 128) as f32, family)
+    FontId::new(size.clamp(6, 128) as f32, family)
+}
+
+pub fn font_for(part: &Part) -> FontId {
+    font_id(&part.text_font, part.text_size)
+}
+
+/// How text in a font, size and style looks. Bold is drawn as a second,
+/// offset pass (see `field_job`); outline and shadow aren't drawn.
+fn format_for(font: &str, size: u32, style: &str, color: Color32) -> TextFormat {
+    let mut f = TextFormat { font_id: font_id(font, size), color, ..Default::default() };
+    f.italics = styles::has_style(style, "italic");
+    if styles::has_style(style, "underline") {
+        f.underline = Stroke::new(1.0, color);
+    }
+    if styles::has_style(style, "condense") {
+        f.extra_letter_spacing = -0.6;
+    } else if styles::has_style(style, "extend") {
+        f.extra_letter_spacing = 1.0;
+    }
+    f
 }
 
 fn text_format(part: &Part, color: Color32) -> TextFormat {
-    let style = part.text_style.to_ascii_lowercase();
-    let mut f = TextFormat { font_id: font_for(part), color, ..Default::default() };
-    f.italics = style.contains("italic");
-    if style.contains("underline") {
-        f.underline = Stroke::new(1.0, color);
-    }
-    if style.contains("strike") {
-        f.strikethrough = Stroke::new(1.0, color);
-    }
-    f
+    format_for(&part.text_font, part.text_size, &part.text_style, color)
 }
 
 fn is_bold(part: &Part) -> bool {
@@ -417,22 +433,47 @@ pub fn field_text_rect(p: &Part, rect: Rect) -> Rect {
     r
 }
 
-/// Lay out field text, optionally hiliting a range of characters.
-pub fn field_job(p: &Part, text: &str, width: f32, found: Option<(usize, usize)>) -> LayoutJob {
+/// Lay out field text with its style runs, optionally hiliting a range of
+/// characters. The built-in fonts have no bold weight, so bold text is drawn
+/// twice: `bold_pass` lays out the same text with only the bold runs
+/// visible, to draw again slightly to the right.
+pub fn field_job(
+    p: &Part,
+    text: &str,
+    runs: &[StyleRun],
+    width: f32,
+    hl: Option<(usize, usize)>,
+    bold_pass: bool,
+) -> LayoutJob {
     let mut job = LayoutJob::default();
-    let fmt = text_format(p, BLACK);
-    match found {
-        Some((s, e)) => {
-            let bs = text.char_indices().nth(s).map(|(i, _)| i).unwrap_or(text.len());
-            let be = text.char_indices().nth(e).map(|(i, _)| i).unwrap_or(text.len());
-            job.append(&text[..bs], 0.0, fmt.clone());
-            let mut hl = fmt.clone();
-            hl.background = BLACK;
-            hl.color = WHITE;
-            job.append(&text[bs..be], 0.0, hl);
-            job.append(&text[be..], 0.0, fmt);
+    let bytes: Vec<usize> = text.char_indices().map(|(i, _)| i).chain(std::iter::once(text.len())).collect();
+    let len = bytes.len() - 1;
+    let mut cuts: Vec<usize> = vec![0, len];
+    cuts.extend(runs.iter().map(|r| r.start.min(len)));
+    if let Some((s, e)) = hl {
+        cuts.extend([s.min(len), e.min(len)]);
+    }
+    cuts.sort_unstable();
+    cuts.dedup();
+    for w in cuts.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let run = styles::style_at(runs, a);
+        let style = run.style.as_deref().unwrap_or(&p.text_style);
+        let lit = hl.is_some_and(|(s, e)| a >= s && a < e);
+        let ink = if lit { WHITE } else { BLACK };
+        let color = match bold_pass {
+            false => ink,
+            true if styles::has_style(style, "bold") => ink,
+            true => Color32::TRANSPARENT,
+        };
+        let mut fmt = format_for(run.font.as_deref().unwrap_or(&p.text_font), run.size.unwrap_or(p.text_size), style, color);
+        if lit && !bold_pass {
+            fmt.background = BLACK;
         }
-        None => job.append(text, 0.0, fmt),
+        job.append(&text[bytes[a]..bytes[b]], 0.0, fmt);
+    }
+    if text.is_empty() {
+        job.append("", 0.0, text_format(p, BLACK));
     }
     job.wrap.max_width = if p.dont_wrap { f32::INFINITY } else { width };
     job.halign = match p.text_align {
@@ -441,6 +482,21 @@ pub fn field_job(p: &Part, text: &str, width: f32, found: Option<(usize, usize)>
         TextAlign::Right => egui::Align::RIGHT,
     };
     job
+}
+
+/// Whether any of a field's text is bold.
+pub fn has_bold(p: &Part, runs: &[StyleRun]) -> bool {
+    let bold = |s: &str| styles::has_style(s, "bold");
+    runs.iter().any(|r| r.style.style.as_deref().map_or(bold(&p.text_style), bold)) || (bold(&p.text_style) && runs.first().is_none_or(|r| r.start > 0))
+}
+
+/// Draw a field's laid-out text at `pos`, thickening its bold runs.
+pub fn paint_field_text(painter: &Painter, pv: &PartView, galley: std::sync::Arc<egui::Galley>, pos: Pos2, width: f32, hl: Option<(usize, usize)>) {
+    painter.galley(pos, galley, BLACK);
+    if has_bold(&pv.part, &pv.styles) {
+        let bold = painter.layout_job(field_job(&pv.part, &pv.text, &pv.styles, width, hl, true));
+        painter.galley(pos + Vec2::new(0.6, 0.0), bold, BLACK);
+    }
 }
 
 /// List fields (autoSelect) hilite whole lines, across the field.
@@ -463,7 +519,7 @@ fn field_text_origin(p: &Part, text_rect: Rect) -> Pos2 {
 pub fn field_char_at(painter: &Painter, pv: &PartView, origin: Pos2, pos: Pos2) -> Option<usize> {
     let p = &pv.part;
     let text_rect = field_text_rect(p, part_rect(p, origin));
-    let galley = painter.layout_job(field_job(p, &pv.text, text_rect.width(), None));
+    let galley = painter.layout_job(field_job(p, &pv.text, &pv.styles, text_rect.width(), None, false));
     let rel = pos - field_text_origin(p, text_rect);
     if rel.y > galley.size().y {
         return None;
@@ -479,7 +535,7 @@ pub fn field_char_at(painter: &Painter, pv: &PartView, origin: Pos2, pos: Pos2) 
 pub fn field_char_point(painter: &Painter, pv: &PartView, at: usize) -> Pos2 {
     let p = &pv.part;
     let text_rect = field_text_rect(p, part_rect(p, Pos2::ZERO));
-    let galley = painter.layout_job(field_job(p, &pv.text, text_rect.width(), None));
+    let galley = painter.layout_job(field_job(p, &pv.text, &pv.styles, text_rect.width(), None, false));
     field_text_origin(p, text_rect) + galley.pos_from_cursor(egui::text::CCursor::new(at)).left_bottom().to_vec2()
 }
 
@@ -521,7 +577,7 @@ fn draw_field(painter: &Painter, pv: &PartView, rect: Rect, highlight: Option<(u
         return;
     }
     let text_rect = field_text_rect(p, rect);
-    let job = field_job(p, &pv.text, text_rect.width(), highlight);
+    let job = field_job(p, &pv.text, &pv.styles, text_rect.width(), highlight, false);
     let galley = painter.layout_job(job);
     // Clip to the whole field so large text isn't cut by the margins.
     let clip_rect = if p.style == PartStyle::Scrolling { text_rect } else { rect.shrink(1.0) };
@@ -540,12 +596,10 @@ fn draw_field(painter: &Painter, pv: &PartView, rect: Rect, highlight: Option<(u
     }
     let pos = field_text_origin(p, text_rect);
     hilite_lines(&clip, p, &galley, pos, text_rect, highlight);
-    clip.galley(pos, galley.clone(), BLACK);
-    if is_bold(p) {
-        clip.galley(pos + Vec2::new(0.6, 0.0), galley.clone(), BLACK);
-    }
+    let content_h = galley.size().y;
+    paint_field_text(&clip, pv, galley, pos, text_rect.width(), highlight);
     if p.style == PartStyle::Scrolling {
-        draw_scroll_indicator(painter, scroll_view_rect(p, rect), scroll, galley.size().y);
+        draw_scroll_indicator(painter, scroll_view_rect(p, rect), scroll, content_h);
     }
 }
 

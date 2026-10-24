@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 
 use crate::model::{Background, Card, Id, Layer, Part, Picture};
+use crate::model::styles::StyleRun;
 
 use super::world::World;
 
@@ -26,6 +27,7 @@ pub enum UndoEntry {
 pub struct CardPartState {
     card: Id,
     text: HashMap<Id, String>,
+    styles: HashMap<Id, Vec<StyleRun>>,
     hilite: HashMap<Id, bool>,
 }
 
@@ -68,7 +70,12 @@ impl World {
                 .cards
                 .iter()
                 .filter(|c| c.background == owner)
-                .map(|c| CardPartState { card: c.id, text: c.bg_text.clone(), hilite: c.bg_hilite.clone() })
+                .map(|c| CardPartState {
+                    card: c.id,
+                    text: c.bg_text.clone(),
+                    styles: c.bg_styles.clone(),
+                    hilite: c.bg_hilite.clone(),
+                })
                 .collect()
         } else {
             Vec::new()
@@ -132,6 +139,7 @@ impl World {
                 for state in card_state {
                     if let Some(c) = self.stack.card_mut(state.card) {
                         c.bg_text = state.text;
+                        c.bg_styles = state.styles;
                         c.bg_hilite = state.hilite;
                     }
                 }

@@ -5,6 +5,7 @@ use std::time::Duration;
 use crate::hypertalk::ast::*;
 use crate::hypertalk::parser::parse_statements;
 use crate::hypertalk::value::*;
+use crate::model::styles;
 use crate::model::{Background, Card, Id, Layer, Part, PartKind, Picture, Rect};
 
 use super::dates;
@@ -41,9 +42,9 @@ impl Interp {
                 let prop = prop.to_ascii_lowercase();
                 match obj {
                     None => self.set_global_property(&prop, &v),
-                    // Styling chunks of text isn't supported; text is plain. Menus aren't scriptable.
-                    Some(Expr::Chunk(..)) => Ok(()),
+                    // Menus aren't scriptable.
                     Some(e) if is_menu(e) => Ok(()),
+                    Some(e @ (Expr::Chunk(..) | Expr::Selection)) => self.set_chunk_property(e, &prop, &v),
                     Some(e) => {
                         let o = self.resolve_dynamic(e)?;
                         self.set_property(o, &prop, &v)
@@ -931,16 +932,22 @@ impl Interp {
 
     // ----- the selection -----
 
-    /// `select line 2 of field 1`, `select after text of field "Notes"`.
-    fn select_text(&mut self, prep: Prep, e: &Expr) -> R<()> {
+    /// The field and characters a chunk names: `word 2 of field 1`,
+    /// `text of field "Notes"`, or `the selection` and chunks of it.
+    pub(super) fn text_range(&mut self, e: &Expr) -> R<FieldRange> {
         let (chunks, base) = Self::container_parts(e);
-        let obj = self.resolve_dynamic(base)?;
-        let ObjRef::Part { layer, id, card } = obj else { return err("Can only select text in a field") };
-        let (text, lock_text) = {
+        let (card, layer, id, text, offset) = if matches!(base, Expr::Selection) {
+            let w = self.w();
+            let Some(sel) = w.current_selection().cloned() else { return err("Nothing is selected") };
+            let text = w.range_text(&sel);
+            (sel.card, sel.layer, sel.field, text, sel.start)
+        } else {
+            let obj = self.resolve_dynamic(base)?;
+            let ObjRef::Part { layer, id, card } = obj else { return err("Expected text in a field here") };
             let w = self.w();
             match w.stack.part(card, layer, id) {
-                Some(p) if p.kind == PartKind::Field => (w.stack.field_text(card, layer, id), p.lock_text),
-                _ => return err("Can only select text in a field"),
+                Some(p) if p.kind == PartKind::Field => (card, layer, id, w.stack.field_text(card, layer, id), 0),
+                _ => return err("Expected text in a field here"),
             }
         };
         let resolved = self.resolve_chunks(&chunks, &text)?;
@@ -949,7 +956,113 @@ impl Interp {
         } else {
             crate::hypertalk::chunk::locate(&mut text.clone(), &resolved, &self.item_delimiter, false)
         };
-        let (mut start, mut end) = (text[..a].chars().count(), text[..b].chars().count());
+        let (start, end) = (offset + text[..a].chars().count(), offset + text[..b].chars().count());
+        Ok(FieldRange { card, layer, field: id, start, end })
+    }
+
+    /// `the textStyle of word 2 of field 1`: "mixed" if it varies.
+    pub(super) fn chunk_property(&mut self, e: &Expr, prop: &str) -> R<String> {
+        let r = self.text_range(e)?;
+        let w = self.w();
+        let Some(part) = w.stack.part(r.card, r.layer, r.field) else { return Ok(String::new()) };
+        let runs = w.stack.field_styles(r.card, r.layer, r.field);
+        let mut values: Vec<String> = styles::styles_in(&runs, r.start, r.end)
+            .iter()
+            .map(|s| match prop {
+                "textfont" => s.font.clone().unwrap_or_else(|| part.text_font.clone()),
+                "textsize" => s.size.unwrap_or(part.text_size).to_string(),
+                "textstyle" => styles::normalize_style(s.style.as_deref().unwrap_or(&part.text_style)),
+                _ => String::new(),
+            })
+            .collect();
+        values.dedup();
+        Ok(if values.len() == 1 { values.remove(0) } else { "mixed".into() })
+    }
+
+    /// `set the textStyle of word 2 of field 1 to bold`.
+    fn set_chunk_property(&mut self, e: &Expr, prop: &str, v: &str) -> R<()> {
+        let r = self.text_range(e)?;
+        let size = if prop == "textsize" { Some(to_int(v)?.clamp(6, 128) as u32) } else { None };
+        let mut w = self.w();
+        let Some(part) = w.stack.part(r.card, r.layer, r.field).cloned() else { return Ok(()) };
+        let text = w.stack.field_text(r.card, r.layer, r.field);
+        let mut runs = w.stack.field_styles(r.card, r.layer, r.field);
+        let len = text.chars().count();
+        // A setting that matches the field's own is left to the field.
+        match prop {
+            "textfont" => {
+                let font = (!v.eq_ignore_ascii_case(&part.text_font)).then(|| v.to_string());
+                styles::apply(&mut runs, r.start, r.end, len, |s| s.font = font.clone());
+            }
+            "textsize" => {
+                let size = size.filter(|s| *s != part.text_size);
+                styles::apply(&mut runs, r.start, r.end, len, |s| s.size = size);
+            }
+            "textstyle" => {
+                let style = styles::normalize_style(v);
+                let style = (style != styles::normalize_style(&part.text_style)).then_some(style);
+                styles::apply(&mut runs, r.start, r.end, len, |s| s.style = style.clone());
+            }
+            _ => return err(format!("Can't set the {prop} of a chunk")),
+        }
+        w.stack.set_field_content(r.card, r.layer, r.field, text, runs);
+        w.dirty = true;
+        Ok(())
+    }
+
+    /// The Style menu (Plain, Bold, …, sizes) and Font menu, for the
+    /// selected text or, with the text tool, for painted text.
+    fn text_menu(&mut self, key: &str) -> R<()> {
+        let size = key.strip_suffix(" point").unwrap_or(key).parse::<u32>().ok();
+        let font = styles::FONTS.iter().find(|f| f.eq_ignore_ascii_case(key)).map(|f| f.to_string());
+        if self.w().tool == Tool::Text {
+            let mut w = self.w();
+            match (size, font) {
+                (Some(s), _) => w.paint_text_size = s,
+                (_, Some(f)) => w.paint_font = f,
+                _ if key == "plain" => w.paint_text_style = "plain".into(),
+                _ => {
+                    let on = !styles::has_style(&w.paint_text_style, key);
+                    w.paint_text_style = styles::with_style(&w.paint_text_style, key, on);
+                }
+            }
+            return Ok(());
+        }
+        let Some(sel) = self.w().current_selection().cloned().filter(|s| s.start < s.end) else { return Ok(()) };
+        let target = Expr::Selection;
+        match (size, font) {
+            (Some(s), _) => self.set_chunk_property(&target, "textsize", &s.to_string()),
+            (_, Some(f)) => self.set_chunk_property(&target, "textfont", &f),
+            _ if key == "plain" => self.set_chunk_property(&target, "textstyle", "plain"),
+            _ => {
+                // Bold toggles: off if all the selection is bold, else on.
+                let all_on = {
+                    let w = self.w();
+                    let part_style = w.stack.part(sel.card, sel.layer, sel.field).map(|p| p.text_style.clone()).unwrap_or_default();
+                    let runs = w.stack.field_styles(sel.card, sel.layer, sel.field);
+                    styles::styles_in(&runs, sel.start, sel.end)
+                        .iter()
+                        .all(|s| styles::has_style(s.style.as_deref().unwrap_or(&part_style), key))
+                };
+                let mut w = self.w();
+                let text = w.stack.field_text(sel.card, sel.layer, sel.field);
+                let part_style = w.stack.part(sel.card, sel.layer, sel.field).map(|p| p.text_style.clone()).unwrap_or_default();
+                let mut runs = w.stack.field_styles(sel.card, sel.layer, sel.field);
+                styles::apply(&mut runs, sel.start, sel.end, text.chars().count(), |s| {
+                    let style = styles::with_style(s.style.as_deref().unwrap_or(&part_style), key, !all_on);
+                    s.style = (style != styles::normalize_style(&part_style)).then_some(style);
+                });
+                w.stack.set_field_content(sel.card, sel.layer, sel.field, text, runs);
+                w.dirty = true;
+                Ok(())
+            }
+        }
+    }
+
+    /// `select line 2 of field 1`, `select after text of field "Notes"`.
+    fn select_text(&mut self, prep: Prep, e: &Expr) -> R<()> {
+        let FieldRange { card, layer, field: id, mut start, mut end } = self.text_range(e)?;
+        let lock_text = self.w().stack.part(card, layer, id).is_some_and(|p| p.lock_text);
         match prep {
             Prep::Before => end = start,
             Prep::After => start = end,
@@ -1275,6 +1388,7 @@ impl Interp {
                     if w.stack.background(card.background).is_none() {
                         card.background = w.bg_id();
                         card.bg_text.clear();
+                        card.bg_styles.clear();
                     }
                     card.id = w.stack.alloc_id();
                     for p in &mut card.parts {
@@ -1430,6 +1544,7 @@ impl Interp {
                 w.dirty = true;
                 Ok(())
             }
+            _ if is_text_menu_item(&key) => self.text_menu(&key),
             "compact stack" | "about hypercard" | "about randomcard" | "help" => Ok(()),
             _ => {
                 self.result = format!("Can't find menu item \"{item}\"");
@@ -1525,4 +1640,9 @@ pub fn find_in(hay: &str, needle: &str, mode: FindMode, from: usize) -> Option<(
         start = i + hay[i..].chars().next().map(char::len_utf8).unwrap_or(1);
     }
     None
+}
+
+fn is_text_menu_item(key: &str) -> bool {
+    let size = key.strip_suffix(" point").unwrap_or(key).parse::<u32>().is_ok_and(|s| styles::SIZES.contains(&s));
+    key == "plain" || styles::STYLES.contains(&key) || size || styles::FONTS.iter().any(|f| f.eq_ignore_ascii_case(key))
 }

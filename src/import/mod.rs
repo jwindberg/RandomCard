@@ -17,6 +17,7 @@ use std::path::Path;
 use crate::model::{
     Background, Card, Id, Part, PartKind, PartStyle, Picture, Rect, Stack, TextAlign, DEFAULT_HEIGHT, DEFAULT_WIDTH,
 };
+use crate::model::styles::{self, StyleRun, TextStyle};
 use woba::QdRect;
 
 const HEADER: usize = 16;
@@ -405,6 +406,8 @@ struct ContentRec {
     /// Negative for card parts, positive for background parts.
     id: i16,
     text: String,
+    /// Style runs: where each starts, and its id in the style table.
+    runs: Vec<(usize, i32)>,
 }
 
 struct Layer {
@@ -456,7 +459,8 @@ fn read_layer(b: &Block, is_card: bool) -> R<Layer> {
         if !len.is_multiple_of(2) {
             r.pos += 1;
         }
-        contents.push(ContentRec { id, text: content_text(payload) });
+        let (text, runs) = content_text(payload);
+        contents.push(ContentRec { id, text, runs });
     }
     let name = r.cstring();
     let script = r.cstring();
@@ -499,18 +503,76 @@ fn read_part(rec: &[u8]) -> R<PartRec> {
     })
 }
 
-/// Field text, skipping any table of style runs (rich text isn't supported).
-fn content_text(payload: &[u8]) -> String {
+/// Field text and its style runs. Styled text starts with a 2-byte length
+/// (high bit set) covering itself and 4-byte runs: text position, style id.
+fn content_text(payload: &[u8]) -> (String, Vec<(usize, i32)>) {
+    let mut runs = Vec::new();
     let text = match payload.first() {
         None => &[][..],
         Some(b) if b & 0x80 != 0 && payload.len() >= 2 => {
-            let styles = (u16::from_be_bytes([payload[0], payload[1]]) & 0x7fff) as usize;
-            payload.get(styles..).unwrap_or(&[])
+            let len = (u16::from_be_bytes([payload[0], payload[1]]) & 0x7fff) as usize;
+            let table = payload.get(2..len.min(payload.len())).unwrap_or(&[]);
+            for run in table.as_chunks::<4>().0 {
+                let pos = u16::from_be_bytes([run[0], run[1]]) as usize;
+                runs.push((pos, i16::from_be_bytes([run[2], run[3]]) as i32));
+            }
+            payload.get(len..).unwrap_or(&[])
         }
         Some(_) => &payload[1..],
     };
     let end = text.iter().rposition(|b| *b != 0).map(|i| i + 1).unwrap_or(0);
-    mac_roman(&text[..end])
+    // MacRoman has one byte per character, so positions carry over.
+    (mac_roman(&text[..end]), runs)
+}
+
+/// The STBL block: text styles by id. -1 leaves a setting to the field.
+fn read_styles(data: &[u8], fonts: &HashMap<i16, String>) -> R<HashMap<i32, TextStyle>> {
+    let mut r = Reader::new(data);
+    let count = r.u32()?;
+    r.skip(4)?;
+    let mut table = HashMap::new();
+    for _ in 0..count {
+        let id = r.i32()?;
+        r.skip(8)?; // unknown, line height, ascent
+        let font = r.i16()?;
+        let style = r.i16()?;
+        let size = r.i16()?;
+        r.skip(6)?; // color
+        let flags = (style as u16 >> 8) as u8;
+        table.insert(id, TextStyle {
+            font: (font != -1).then(|| fonts.get(&font).cloned().unwrap_or_else(|| "Geneva".into())),
+            size: (size > 0).then_some(size as u32),
+            style: (style != -1).then(|| style_names(flags)),
+        });
+    }
+    Ok(table)
+}
+
+fn style_names(flags: u8) -> String {
+    let names: Vec<&str> = styles::STYLES.iter().enumerate().filter(|(i, _)| flags & (1 << i) != 0).map(|(_, s)| *s).collect();
+    if names.is_empty() { "plain".into() } else { names.join(",") }
+}
+
+/// Style runs for a field's text, leaving out what the field already says.
+fn style_runs(runs: &[(usize, i32)], table: &HashMap<i32, TextStyle>, part: &Part, len: usize) -> Vec<StyleRun> {
+    let mut out: Vec<StyleRun> = runs
+        .iter()
+        .map(|&(start, id)| {
+            let mut style = table.get(&id).cloned().unwrap_or_default();
+            if style.font.as_deref().is_some_and(|f| f.eq_ignore_ascii_case(&part.text_font)) {
+                style.font = None;
+            }
+            if style.size == Some(part.text_size) {
+                style.size = None;
+            }
+            if style.style.as_deref().is_some_and(|s| styles::normalize_style(s) == styles::normalize_style(&part.text_style)) {
+                style.style = None;
+            }
+            StyleRun { start, style }
+        })
+        .collect();
+    styles::normalize(&mut out, len);
+    out
 }
 
 fn read_bitmap(data: &[u8], width: u32, height: u32) -> R<Picture> {
@@ -540,6 +602,10 @@ fn convert(blocks: &[Block], name: &str, password: Option<&str>) -> R<Stack> {
     let info = read_stack_block(blocks[0].data, password)?;
     let fonts = match blocks.iter().find(|b| &b.kind == b"FTBL") {
         Some(b) => read_fonts(b.data)?,
+        None => HashMap::new(),
+    };
+    let style_table = match blocks.iter().find(|b| &b.kind == b"STBL") {
+        Some(b) => read_styles(b.data, &fonts)?,
         None => HashMap::new(),
     };
     let bitmaps: HashMap<i32, &[u8]> =
@@ -595,6 +661,7 @@ fn convert(blocks: &[Block], name: &str, password: Option<&str>) -> R<Stack> {
         for c in layer.contents.iter().filter(|c| c.id > 0) {
             if let Some(p) = parts.iter_mut().find(|p| p.id == c.id as Id) {
                 p.contents = c.text.clone();
+                p.styles = style_runs(&c.runs, &style_table, p, c.text.chars().count());
             }
         }
         max_id = max_id.max(layer.id).max(parts.iter().map(|p| p.id as i32).max().unwrap_or(0));
@@ -615,8 +682,7 @@ fn convert(blocks: &[Block], name: &str, password: Option<&str>) -> R<Stack> {
         let Some(bg) = stack.backgrounds.iter().find(|b| b.id == layer.link as Id) else {
             return corrupt("card without a background");
         };
-        let bg_parts: HashMap<Id, (PartKind, bool)> =
-            bg.parts.iter().map(|p| (p.id, (p.kind, p.shared_text))).collect();
+        let bg_parts: HashMap<Id, Part> = bg.parts.iter().map(|p| (p.id, p.clone())).collect();
         let mut parts: Vec<Part> = layer.parts.iter().map(|p| convert_part(p, &fonts)).collect();
         let mut card = Card {
             id: card_id as Id,
@@ -634,14 +700,19 @@ fn convert(blocks: &[Block], name: &str, password: Option<&str>) -> R<Stack> {
             if c.id < 0 {
                 if let Some(p) = parts.iter_mut().find(|p| p.id == (-(c.id as i32)) as Id) {
                     p.contents = c.text.clone();
+                    p.styles = style_runs(&c.runs, &style_table, p, c.text.chars().count());
                 }
             } else {
                 // This card's text for a background field, or hilite of a background button.
                 match bg_parts.get(&(c.id as Id)) {
-                    Some((PartKind::Field, false)) => {
+                    Some(p) if p.kind == PartKind::Field && !p.shared_text => {
                         card.bg_text.insert(c.id as Id, c.text.clone());
+                        let runs = style_runs(&c.runs, &style_table, p, c.text.chars().count());
+                        if !runs.is_empty() {
+                            card.bg_styles.insert(c.id as Id, runs);
+                        }
                     }
-                    Some((PartKind::Button, _)) => {
+                    Some(p) if p.kind == PartKind::Button => {
                         card.bg_hilite.insert(c.id as Id, c.text == "1");
                     }
                     _ => {}
@@ -730,10 +801,11 @@ mod tests {
 
     #[test]
     fn content_records() {
-        assert_eq!(content_text(b"\0hello\0"), "hello");
+        assert_eq!(content_text(b"\0hello\0").0, "hello");
         // Styled: 2-byte length (with high bit) covering itself and one 4-byte run.
-        assert_eq!(content_text(&[0x80, 0x06, 0, 0, 0, 1, b'h', b'i']), "hi");
-        assert_eq!(content_text(b""), "");
+        assert_eq!(content_text(&[0x80, 0x06, 0, 1, 0, 7, b'h', b'i']), ("hi".into(), vec![(1, 7)]));
+        assert_eq!(content_text(b"").0, "");
+        assert_eq!(style_names(0x03), "bold,italic");
     }
 
     #[test]
@@ -818,6 +890,25 @@ mod tests {
         assert!(s.hilite(card.id, crate::model::Layer::Background, buttons[1].id));
         assert_eq!(card.parts.iter().find(|p| p.kind == PartKind::Field).unwrap().contents, "card content");
         assert!(card.parts.iter().find(|p| p.kind == PartKind::Button).unwrap().hilite);
+
+        // Style runs: Palatino, 18 point, bold extend, then Courier 10 underline.
+        let s = open("TestFormattedContent");
+        let fields: Vec<&Part> = s.cards[0].parts.iter().filter(|p| p.kind == PartKind::Field).collect();
+        assert!(fields[0].styles.is_empty());
+        assert_eq!(fields[1].contents, "formatted content: fontsizestyleall");
+        let run = |start, font: Option<&str>, size, style: Option<&str>| StyleRun {
+            start,
+            style: TextStyle { font: font.map(String::from), size, style: style.map(String::from) },
+        };
+        assert_eq!(
+            fields[1].styles,
+            vec![
+                run(0x13, Some("Palatino"), None, None),
+                run(0x17, None, Some(18), None),
+                run(0x1b, None, None, Some("bold,extend")),
+                run(0x20, Some("Courier"), Some(10), Some("underline")),
+            ]
+        );
 
         assert_eq!(open("TestStackScript").script, "-- script of stack\n-- with two lines");
         assert!(load_any(&dir.join("TestV1.stack"), None).unwrap_err().contains("1.x"));

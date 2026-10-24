@@ -1,6 +1,7 @@
 //! The Edit menu for objects and pictures: cut, copy, paste and clear of
 //! buttons, fields and paint selections, undo and redo, and part order.
 
+use crate::model::styles::StyleRun;
 use crate::model::{Layer, Part, PartKind, Picture};
 use crate::paint::{self, Region};
 use crate::runtime::world::{EditOp, ObjRef, Tool};
@@ -10,7 +11,7 @@ use super::painting::Marquee;
 
 pub enum Clip {
     /// A button or field, with the text and hilite it had on its card.
-    Part { part: Part, text: String, hilite: bool },
+    Part { part: Box<Part>, text: String, styles: Vec<StyleRun>, hilite: bool },
     /// Painted pixels and where they came from.
     Picture { pixels: Picture, rect: (i32, i32, i32, i32) },
 }
@@ -76,9 +77,10 @@ impl App {
             let w = self.world();
             let Some(part) = w.stack.part(card, layer, id).cloned() else { return false };
             let text = w.stack.field_text(card, layer, id);
+            let styles = w.stack.field_styles(card, layer, id);
             let hilite = w.stack.hilite(card, layer, id);
             drop(w);
-            self.clipboard = Some(Clip::Part { part, text, hilite });
+            self.clipboard = Some(Clip::Part { part: Box::new(part), text, styles, hilite });
             return true;
         }
         let Some(region) = self.paint_selection() else { return false };
@@ -104,9 +106,9 @@ impl App {
 
     fn paste(&mut self) {
         match &self.clipboard {
-            Some(Clip::Part { part, text, hilite }) => {
-                let (part, text, hilite) = (part.clone(), text.clone(), *hilite);
-                self.paste_part(part, text, hilite);
+            Some(Clip::Part { part, text, styles, hilite }) => {
+                let (part, text, styles, hilite) = ((**part).clone(), text.clone(), styles.clone(), *hilite);
+                self.paste_part(part, text, styles, hilite);
             }
             Some(Clip::Picture { pixels, rect }) => {
                 let (pixels, rect) = (pixels.clone(), *rect);
@@ -124,7 +126,7 @@ impl App {
     }
 
     /// Paste a part onto the layer being edited, keeping its text and hilite.
-    fn paste_part(&mut self, mut part: Part, text: String, hilite: bool) {
+    fn paste_part(&mut self, mut part: Part, text: String, styles: Vec<StyleRun>, hilite: bool) {
         let kind = part.kind;
         let obj = {
             let mut w = self.world();
@@ -137,6 +139,7 @@ impl App {
                 Layer::Card => {
                     if kind == PartKind::Field {
                         part.contents = text;
+                        part.styles = styles;
                     }
                     part.hilite = hilite;
                     if let Some(c) = w.stack.card_mut(card) {
@@ -149,10 +152,14 @@ impl App {
                     let per_card_hilite = kind == PartKind::Button && !part.shared_hilite;
                     if kind == PartKind::Field {
                         part.contents = if per_card_text { String::new() } else { text.clone() };
+                        part.styles = if per_card_text { Vec::new() } else { styles.clone() };
                     }
                     if let Some(c) = w.stack.card_mut(card) {
                         if per_card_text {
                             c.bg_text.insert(id, text);
+                            if !styles.is_empty() {
+                                c.bg_styles.insert(id, styles);
+                            }
                         }
                         if per_card_hilite {
                             c.bg_hilite.insert(id, hilite);

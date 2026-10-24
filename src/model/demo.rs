@@ -2,6 +2,7 @@
 //! doubles as a set of working HyperTalk examples.
 
 use super::*;
+use styles::TextStyle;
 
 struct Builder {
     stack: Stack,
@@ -64,6 +65,14 @@ impl Builder {
         p.contents = text.into();
         p
     }
+}
+
+/// Give the first `needle` in a field's text a style.
+fn style_text(field: &mut Part, needle: &str, style: &TextStyle) {
+    let Some(at) = field.contents.find(needle) else { return };
+    let start = field.contents[..at].chars().count();
+    let (end, len) = (start + needle.chars().count(), field.contents.chars().count());
+    styles::apply(&mut field.styles, start, end, len, |s| *s = style.clone());
 }
 
 fn hline(p: &mut Picture, x0: i32, x1: i32, y: i32) {
@@ -239,6 +248,21 @@ pub fn build() -> Stack {
     lesson.lock_text = true;
     lesson.text_size = 12;
     lesson.contents = "Scripts are made of handlers that respond to messages. When you click a button, RandomCard sends it \"mouseUp\":\n\non mouseUp\n  put \"Hello\" into field 1\nend mouseUp\n\nIf the button doesn't handle a message it travels on: button → card → background → stack. That is the message path.\n\nEverything is text. Chunk expressions pick text apart:\n\n  put word 2 of line 3 of field \"Notes\" into x\n  put \"!\" after the last char of x\n\nAsk and answer talk to the user:\n\n  ask \"Your name?\"\n  answer \"Hi\" && it\n\nTry the buttons on the right, then open their scripts with the Button tool. Or type into the message box (Ctrl+M), e.g.\n\n  put the number of cards\n  go to card \"Dice\"\n  answer the long date\n\nClick any word in this text: the field's script shows the clickText and clickLine. The list under the buttons is an autoSelect field, and its script goes to the card you pick.".into();
+    // Code in Monaco, key ideas in bold.
+    let code = TextStyle { font: Some("Monaco".into()), size: Some(10), style: None };
+    let bold = TextStyle { style: Some("bold".into()), ..Default::default() };
+    for (needle, style) in [
+        ("handlers", &bold),
+        ("messages", &bold),
+        ("on mouseUp\n  put \"Hello\" into field 1\nend mouseUp", &code),
+        ("message path", &bold),
+        ("Everything is text.", &bold),
+        ("  put word 2 of line 3 of field \"Notes\" into x\n  put \"!\" after the last char of x", &code),
+        ("  ask \"Your name?\"\n  answer \"Hi\" && it", &code),
+        ("  put the number of cards\n  go to card \"Dice\"\n  answer the long date", &code),
+    ] {
+        style_text(&mut lesson, needle, style);
+    }
     lesson.script = "on mouseUp\n  if the clickText is not empty then\n    put \"You clicked\" && quote & the clickText & quote && \"in\" && the clickLine\n  end if\nend mouseUp".into();
     b.card_part(c, lesson);
     let mut places = Part::new_field(b.id(), "Places", Rect::new(360, 246, 492, 296));

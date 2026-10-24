@@ -594,3 +594,43 @@ fn locked_field_selection_and_clicks() {
     assert_eq!(super::world::word_at("one two", 3), (3, 3));
     assert_eq!(super::world::line_at("a\nbc\nd", 3), (2, 4));
 }
+
+#[test]
+fn styled_text() {
+    let mut i = interp_with(stack());
+    let f = "field \"Name\"";
+    run(&mut i, &format!("put \"plain bold italic\" into {f}"));
+    run(&mut i, &format!("set the textStyle of word 2 of {f} to bold"));
+    assert_eq!(run(&mut i, &format!("put the textStyle of word 2 of {f}")), "bold");
+    assert_eq!(run(&mut i, &format!("put the textStyle of word 1 of {f}")), "plain");
+    assert_eq!(run(&mut i, &format!("put the textStyle of line 1 of {f}")), "mixed");
+    run(&mut i, &format!("set the textFont of char 1 to 5 of {f} to \"Times\""));
+    assert_eq!(run(&mut i, &format!("put the textFont of word 1 of {f}")), "Times");
+    assert_eq!(run(&mut i, &format!("put the textFont of word 3 of {f}")), run(&mut i, &format!("put the textFont of {f}")));
+    run(&mut i, &format!("set the textSize of word 3 of {f} to 18"));
+    assert_eq!(run(&mut i, &format!("put the textSize of word 3 of {f}")), "18");
+    // Styles stay with their text as text around them changes.
+    run(&mut i, &format!("put \"Very \" before {f}"));
+    assert_eq!(run(&mut i, &format!("put word 3 of {f} && the textStyle of word 3 of {f}")), "bold bold");
+    assert_eq!(run(&mut i, &format!("put the textFont of word 2 of {f}")), "Times");
+    // The Style menu toggles styles of the selection.
+    run(&mut i, &format!("select word 4 of {f}\ndoMenu \"Italic\""));
+    assert_eq!(run(&mut i, &format!("put the textStyle of word 4 of {f}")), "italic");
+    assert_eq!(run(&mut i, "put the textStyle of the selection"), "italic");
+    run(&mut i, "doMenu \"Italic\"");
+    assert_eq!(run(&mut i, &format!("put the textStyle of word 4 of {f}")), "plain");
+    run(&mut i, &format!("select word 3 of {f}\ndoMenu \"Bold\"\ndoMenu \"Underline\""));
+    assert_eq!(run(&mut i, &format!("put the textStyle of word 3 of {f}")), "underline");
+    run(&mut i, "doMenu \"24 Point\"\ndoMenu \"Courier\"");
+    assert_eq!(run(&mut i, &format!("put the textSize of word 3 of {f} && the textFont of word 3 of {f}")), "24 Courier");
+    run(&mut i, "set the textStyle of the selection to \"Bold, Italic\"");
+    assert_eq!(run(&mut i, "put the textStyle of the selection"), "bold,italic");
+    // Setting the field's own style restyles all its text.
+    run(&mut i, &format!("set the textStyle of {f} to italic"));
+    assert_eq!(run(&mut i, &format!("put the textStyle of line 1 of {f}")), "italic");
+    assert_eq!(run(&mut i, &format!("put the textFont of word 2 of {f}")), "Times");
+    // Background field text is per card, and so are its styles.
+    run(&mut i, &format!("set the textStyle of {f} to plain\nset the textStyle of word 2 of {f} to bold\ngo next card"));
+    assert_eq!(run(&mut i, &format!("put the textStyle of {f}")), "plain");
+    assert_eq!(run(&mut i, &format!("put the textStyle of line 1 of {f}")), "plain");
+}

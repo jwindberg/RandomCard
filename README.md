@@ -55,8 +55,8 @@ or `HyperCard Player` beside the stack, then any resource files you put in
 copy of HyperCard). Only icons the stack's buttons use, and sounds its
 scripts name in quotes, are copied.
 
-What doesn't come across: other resources (XCMDs/XFCNs, color)
-and styled runs within field text, which import as plain text. HyperCard 1.x stacks must first be converted with
+Styled text comes across with its fonts, sizes and styles. What doesn't
+come across: other resources (XCMDs/XFCNs, color). HyperCard 1.x stacks must first be converted with
 HyperCard 2.x. Private-access stacks import, since only the stack header is
 encrypted; they ask for their password. Protection comes across too:
 the user-level limit, password, Can't Modify and the other flags. Scripts
@@ -110,6 +110,14 @@ with lockText, dontWrap, showLines, wideMargins, text font, size, style and
 alignment. Locked fields with autoSelect are list fields: a click selects
 the whole line, and with multipleLines Shift-click extends the selection.
 
+**Styled text.** Text in a field can mix fonts, sizes and styles (bold,
+italic, underline, condense, extend, group). While you edit a field, the
+Font and Style menus restyle the selected text; with the text tool they set
+the style for painted text. Styles stay with their text as you type around
+them. Clicking grouped text in a locked field makes `the clickText` the
+whole group. Only egui's built-in fonts are available, so Courier and Monaco
+show as one monospaced font and the rest as one sans-serif font.
+
 **HyperTalk.** Scripts live on buttons, fields, cards, backgrounds and the
 stack. Messages travel the HyperCard message path (part → card → background
 → stack) and can be passed on with `pass`.
@@ -159,6 +167,10 @@ stack. Messages travel the HyperCard message path (part → card → background
   (`put "x" into the selection`). Clicking a button keeps the text
   selection, so its script can use it. Clicks in locked fields set
   `the clickText`, `clickChunk` and `clickLine`.
+- Text properties of chunks and of the selection:
+  `set the textStyle of word 2 of field 1 to bold`,
+  `the textFont of the selection` ("mixed" when it varies). Setting a
+  field's own textFont, textSize or textStyle restyles all its text.
 - System messages: openStack, openBackground, openCard, closeCard, newCard,
   deleteCard, mouseDown, mouseUp, mouseStillDown, mouseEnter, mouseLeave,
   mouseWithin, mouseDoubleClick, openField, closeField, exitField, idle,
@@ -225,8 +237,7 @@ src/
 
 ## Not (yet) implemented
 
-The main gaps are styled text in fields,
-scriptable menus, multiple open stacks, and XCMDs. [ROADMAP.md](ROADMAP.md) lists the remaining work by area, with
+The main gaps are scriptable menus, multiple open stacks, and XCMDs. [ROADMAP.md](ROADMAP.md) lists the remaining work by area, with
 notes on how to approach each piece and a suggested order.
 
 ## References
