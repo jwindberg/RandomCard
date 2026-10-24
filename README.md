@@ -271,6 +271,8 @@ Watcher lists messages as they're sent (`show message watcher` works too).
 | Ctrl+Space | Hide or show the menu bar |
 | Ctrl+S, Ctrl+O, Ctrl+Q | Save, open, quit |
 | Ctrl+P | Print card |
+| Ctrl+F | Find (in the message box, as HyperCard did) |
+| Ctrl+R | Recent cards |
 
 ## Layout
 

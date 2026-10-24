@@ -219,8 +219,6 @@ loaded to come back to.
 - **Home as HyperCard had it:** its user-level card, search paths and stack
   list. RandomCard keeps the user level in Preferences instead.
 - **Card size** changes (`set the rect of card window`), and **Compact Stack**.
-- **Recent cards** view (the Recent dialog) and a **Find dialog**
-  (Ctrl+F) in the UI; `find` works from scripts and the message box.
 
 ## Editing and the UI
 
@@ -278,9 +276,10 @@ printing and the debugger.
 
 Next, ranked by what people who built HyperCard stacks will need first:
 
-1. **Find and Recent dialogs.** Cmd-F and Cmd-R were muscle memory. `find`
-   works from scripts; the UI needs the Find dialog (Ctrl+F, with Find
-   Again) and the Recent card thumbnails (Ctrl+R).
+1. ~~Find and Recent dialogs.~~ Done: Go ▸ Find… (Ctrl+F) readies `find ""`
+   in the message box, and Go ▸ Recent (Ctrl+R) shows miniatures of the
+   last 42 cards. Recent covers the current stack only, until history
+   spans stacks.
 2. **Popup buttons and the standard button style.** HyperCard 2.2 stacks
    used popups widely and they import as plain rectangles today. Includes
    `the selectedLine` and `selectedText` of a popup, and `titleWidth`.

@@ -53,12 +53,16 @@ pub struct Scene {
 
 impl Scene {
     pub fn capture(w: &World) -> Scene {
+        Self::capture_card(w, w.card_id, w.edit_bg)
+    }
+
+    /// Any card of the stack, as browsing shows it (or just its background).
+    pub fn capture_card(w: &World, card: Id, edit_bg: bool) -> Scene {
         let s = &w.stack;
-        let card = w.card_id;
         let c = s.card(card);
         let bg = c.map(|c| c.background).unwrap_or(0);
         let mut parts = Vec::new();
-        let layers: &[Layer] = if w.edit_bg { &[Layer::Background] } else { &[Layer::Background, Layer::Card] };
+        let layers: &[Layer] = if edit_bg { &[Layer::Background] } else { &[Layer::Background, Layer::Card] };
         for &layer in layers {
             for p in s.parts(card, layer) {
                 let mut part = p.clone();
@@ -78,7 +82,7 @@ impl Scene {
                 });
             }
         }
-        let colors = addcolor::shapes(s, card, w.edit_bg);
+        let colors = addcolor::shapes(s, card, edit_bg);
         if !colors.is_empty() {
             for pv in &mut parts {
                 let (x, y) = pv.part.rect.center();
@@ -96,11 +100,11 @@ impl Scene {
             width: s.width,
             height: s.height,
             show_bg_pict: s.background(bg).is_some_and(|b| b.show_pict),
-            show_card_pict: !w.edit_bg && c.is_some_and(|c| c.show_pict),
-            edit_bg: w.edit_bg,
+            show_card_pict: !edit_bg && c.is_some_and(|c| c.show_pict),
+            edit_bg,
             parts,
-            found: w.found.clone().filter(|f| f.card == card),
-            selection: w.current_selection().cloned(),
+            found: w.found.clone().filter(|f| f.card == card && card == w.card_id),
+            selection: w.current_selection().cloned().filter(|_| card == w.card_id),
             icons,
             color_key: addcolor::key(&colors),
             colors,

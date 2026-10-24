@@ -273,6 +273,10 @@ pub enum UiRequest {
     ProtectStack,
     Preferences,
     ToggleToolPanel,
+    /// Show the Recent dialog.
+    Recent,
+    /// Put the cursor in the message box at this character.
+    FocusMessage(usize),
     /// Show or hide the message or variable watcher.
     MessageWatcher(bool),
     VariableWatcher(bool),
@@ -305,6 +309,8 @@ pub struct World {
     pub msg_visible: bool,
     pub history: Vec<Id>,
     pub history_pos: usize,
+    /// Cards visited, each once, most recent last, for the Recent dialog.
+    pub recent: Vec<Id>,
     pub lock_screen: bool,
     pub menubar_visible: bool,
     /// The menu bar, as scripts have changed it.
@@ -412,6 +418,9 @@ pub struct WatchedMessage {
     pub handled: bool,
 }
 
+/// How many cards the Recent dialog shows.
+pub const RECENT_CARDS: usize = 42;
+
 /// How many messages the message watcher keeps.
 pub const MESSAGE_LOG_LEN: usize = 500;
 
@@ -443,6 +452,7 @@ impl World {
             msg_visible: false,
             history: vec![card_id],
             history_pos: 0,
+            recent: vec![card_id],
             lock_screen: false,
             menubar_visible: true,
             menus: super::menus::standard_menus(),
@@ -516,6 +526,15 @@ impl World {
             self.add_other(old);
         }
         self.load_home();
+    }
+
+    /// Remember a card for the Recent dialog, which holds 42 as HyperCard's did.
+    pub fn note_recent(&mut self, id: Id) {
+        self.recent.retain(|c| *c != id);
+        self.recent.push(id);
+        if self.recent.len() > RECENT_CARDS {
+            self.recent.remove(0);
+        }
     }
 
     pub fn is_home(&self, s: &Stack) -> bool {

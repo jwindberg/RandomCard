@@ -915,6 +915,7 @@ impl Interp {
             let mut w = self.w();
             w.card_id = id;
             w.focus = None;
+            w.note_recent(id);
             if record {
                 let pos = w.history_pos;
                 w.history.truncate(pos + 1);
@@ -1678,13 +1679,18 @@ impl Interp {
             "back" => self.go_history(-1),
             "forth" => self.go_history(1),
             "home" => self.go_home(),
-            "recent" => {
-                let id = self.resolve_card(&CardSpec::Which(Which::Ordinal(Ordinal::Nth(1))))?;
-                self.go_card_id(id, true)
-            }
             "message" | "message box" => {
                 let mut w = self.w();
                 w.msg_visible = !w.msg_visible;
+                Ok(())
+            }
+            "recent" => self.request(UiRequest::Recent),
+            "find" => {
+                // As in HyperCard: the message box, ready to type what to find.
+                let mut w = self.w();
+                w.msg = "find \"\"".into();
+                w.msg_visible = true;
+                w.requests.push(UiRequest::FocusMessage(6));
                 Ok(())
             }
             "save stack" | "save" => self.save_stack(None),

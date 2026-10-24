@@ -6,6 +6,7 @@ mod editing;
 mod menus;
 mod levels;
 mod painting;
+mod recent;
 mod render;
 mod windows;
 
@@ -113,6 +114,9 @@ pub struct App {
     msg_has_focus: bool,
     /// Give the message box keyboard focus (after blind typing).
     focus_msg_box: bool,
+    /// Where to put the cursor when the message box takes focus (else at the end).
+    msg_cursor: Option<usize>,
+    recent_open: bool,
     beeps_seen: u32,
     /// The world's `selection_rev` the field editor has caught up with.
     selection_rev_seen: u64,
@@ -173,6 +177,8 @@ impl App {
             msg_buffer: String::new(),
             msg_has_focus: false,
             focus_msg_box: false,
+            msg_cursor: None,
+            recent_open: false,
             beeps_seen: 0,
             selection_rev_seen: 0,
             stack_seen: 0,
@@ -405,6 +411,13 @@ impl App {
                 UiRequest::Preferences => self.prefs_open = true,
                 UiRequest::MessageWatcher(show) => self.show_message_watcher(show),
                 UiRequest::VariableWatcher(show) => self.variable_watcher = show,
+                UiRequest::Recent => self.recent_open = true,
+                UiRequest::FocusMessage(at) => {
+                    let msg = self.world().msg.clone();
+                    self.msg_buffer = msg;
+                    self.msg_cursor = Some(at);
+                    self.focus_msg_box = true;
+                }
                 UiRequest::ToggleToolPanel => {
                     if self.editing_level() >= 3 {
                         self.toggle_tool_panel();
@@ -514,6 +527,8 @@ impl App {
             (cmd(Key::B), "b", menu("Background"), editing >= 3),
             (cmd(Key::O), "o", menu("Open Stack…"), true),
             (cmd(Key::P), "p", menu("Print Card"), true),
+            (cmd(Key::F), "f", menu("Find…"), true),
+            (cmd(Key::R), "r", menu("Recent"), true),
             (cmd(Key::Q), "q", menu("Quit RandomCard"), true),
             (cmd(Key::S), "s", menu("Save Stack"), editing >= 2),
         ];
@@ -1447,7 +1462,8 @@ impl App {
                 resp.request_focus();
                 let id = resp.id;
                 let mut state = egui::text_edit::TextEditState::load(ui.ctx(), id).unwrap_or_default();
-                let end = egui::text::CCursor::new(self.msg_buffer.chars().count());
+                let len = self.msg_buffer.chars().count();
+                let end = egui::text::CCursor::new(self.msg_cursor.take().map_or(len, |c| c.min(len)));
                 state.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
                 state.store(ui.ctx(), id);
             }
@@ -1667,6 +1683,7 @@ impl eframe::App for App {
         });
 
         self.show_windows(&ctx);
+        self.recent_window(&ctx);
         self.debugger(&ctx);
         self.show_dialog(&ctx);
         self.show_error(&ctx);

@@ -119,7 +119,7 @@ pub fn standard_menus() -> Vec<Menu> {
                 "Clear Picture",
             ],
         ),
-        Menu::builtin("Go", &["Back", "Home", "-", "First", "Prev", "Next", "Last", "-", "Message"]),
+        Menu::builtin("Go", &["Back", "Home", "Recent", "-", "First", "Prev", "Next", "Last", "-", "Find…", "Message"]),
         Menu::builtin("View", &["Tool Panel", "Message Box", "-", "Message Watcher", "Variable Watcher"]),
         Menu::builtin("Font", &fonts),
         Menu::builtin("Style", &style),

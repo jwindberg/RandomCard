@@ -833,3 +833,31 @@ fn printing() {
     i.handle_event(Event::DoMenu("Print Stack…".into()));
     assert_eq!((i.printed.len(), pages(&i)), (8, 2));
 }
+
+#[test]
+fn find_and_recent_menus() {
+    let mut i = interp_with(stack());
+    // Find… readies the message box with the cursor between the quotes.
+    i.handle_event(Event::DoMenu("Find…".into()));
+    {
+        let mut w = lock(&i.world);
+        assert_eq!(w.msg, "find \"\"");
+        assert!(w.msg_visible);
+        assert!(w.requests.drain(..).any(|r| matches!(r, UiRequest::FocusMessage(6))));
+    }
+    // Running it again finds the next match.
+    run(&mut i, "find string \"e\"");
+    let first = run(&mut i, "put the foundChunk");
+    run(&mut i, "find string \"e\"");
+    assert_ne!(run(&mut i, "put the foundChunk"), first);
+
+    // Recent keeps each card once, most recent last.
+    run(&mut i, "go to card 1\ngo to card 3\ngo to card 2\ngo to card 3");
+    let names: Vec<String> = {
+        let w = lock(&i.world);
+        w.recent.iter().map(|id| w.stack.card(*id).unwrap().name.clone()).collect()
+    };
+    assert_eq!(names, vec!["One", "Two", "Three"]);
+    i.handle_event(Event::DoMenu("Recent".into()));
+    assert!(lock(&i.world).requests.iter().any(|r| matches!(r, UiRequest::Recent)));
+}
