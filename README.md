@@ -30,8 +30,8 @@ its button takes you to the built-in Tour. Scripts can `go to stack "X"` or
 without a file stays loaded so you can come back to it.
 
 **Importing HyperCard stacks.** File ▸ Import HyperCard Stack… (or
-Open Stack…, or a path on the command line) reads original HyperCard 2.x
-stack files. MacBinary-wrapped files work too. The import brings in:
+Open Stack…, or a path on the command line) reads original HyperCard 1.x
+and 2.x stack files. MacBinary-wrapped files work too. The import brings in:
 
 - cards in stack order, backgrounds, card and background names, marked
   cards, and the cantDelete, dontSearch and showPict flags;
@@ -41,7 +41,10 @@ stack files. MacBinary-wrapped files work too. The import brings in:
 - shared and per-card field text, and per-card hilites of background
   buttons;
 - every script;
-- button icons and sounds from the stack's resource fork.
+- button icons and sounds from the stack's resource fork;
+- AddColor colors (HyperCard 2.x's color XCMD) for buttons, fields and
+  rectangles. They're drawn as AddColor drew them: the white of the card
+  takes the color, and black stays black.
 
 Text is converted from MacRoman. The result opens as an unsaved stack;
 save it to keep it as a `.rcstack`.
@@ -63,8 +66,8 @@ copy of HyperCard). Only icons the stack's buttons use, and sounds its
 scripts name in quotes, are copied.
 
 Styled text comes across with its fonts, sizes and styles. What doesn't
-come across: other resources (XCMDs/XFCNs, color). HyperCard 1.x stacks must first be converted with
-HyperCard 2.x. Private-access stacks import, since only the stack header is
+come across: XCMDs and XFCNs, and PICT pictures (including AddColor's color
+pictures, which are kept but not drawn). Private-access stacks import, since only the stack header is
 encrypted; they ask for their password. Protection comes across too:
 the user-level limit, password, Can't Modify and the other flags. Scripts
 that use palettes or other windows parse, but those commands do nothing.
@@ -242,7 +245,7 @@ and offer to open the script editor there.
 src/
   model/       Stack, Background, Card, Part, Picture; JSON save/load; Tour and
                Home stacks
-  import/      reader for original HyperCard 2.x stack files, WOBA decoder
+  import/      reader for original HyperCard stack files, WOBA decoder, AddColor
   hypertalk/   lexer, parser, syntax tree, values and chunk expressions
   runtime/     shared World state, interpreter, objects and properties,
                commands, functions, dates; end-to-end tests

@@ -1,13 +1,14 @@
-//! Importing original HyperCard 2.x stack files.
+//! Importing original HyperCard stack files (1.x and 2.x).
 //!
 //! A stack's data fork is a sequence of big-endian blocks, each with a 16-byte
 //! header (size, type, id, filler): STAK (the stack), LIST and PAGE (card
 //! order), BKGD and CARD (layers with their parts and contents), BMAP
 //! (WOBA-compressed pictures), FTBL (font names) and so on. The layouts here
 //! follow WyldCard's stack reader and Pierre Lorenzi's HyperCardPreview.
-//! Button icons and sounds come from the stack's resource fork when one can
-//! be found; other resources (XCMDs, color) aren't used.
+//! Button icons, sounds and AddColor colors come from the stack's resource
+//! fork when one can be found; other resources (XCMDs, PICTs) aren't used.
 
+mod addcolor;
 mod resources;
 mod woba;
 
@@ -74,6 +75,7 @@ pub fn import_bytes(bytes: &[u8], path: &Path, password: Option<&str>) -> Result
     if let Some(fork) = resources::find_resource_fork(path, bytes) {
         stack.icons = resources::icons(&fork);
         stack.sounds = resources::sounds(&fork);
+        addcolor::apply(&mut stack, &resources::parse(&fork));
     }
     add_chain_resources(&mut stack, path);
     stack.imported_from = Some(path.to_path_buf());
@@ -220,10 +222,18 @@ struct Block<'a> {
     kind: [u8; 4],
     id: i32,
     data: &'a [u8],
+    /// From a HyperCard 1.x stack (file format 8 or earlier).
+    v1: bool,
 }
+
+/// HyperCard 1.x blocks have 12-byte headers, without 2.x's alignment
+/// filler; most of their fields then sit 4 bytes earlier. The stack block
+/// keeps 16 (its checksum takes the filler's place).
+const V1_HEADER: usize = 12;
 
 fn read_blocks(data: &[u8]) -> R<Vec<Block<'_>>> {
     let mut blocks = Vec::new();
+    let v1 = matches!(Reader::at(data, HEADER).u32(), Ok(1..=8));
     let mut off = 0;
     while off + HEADER <= data.len() {
         let mut r = Reader::at(data, off);
@@ -237,7 +247,8 @@ fn read_blocks(data: &[u8]) -> R<Vec<Block<'_>>> {
             }
             break;
         }
-        blocks.push(Block { kind, id, data: &data[off + HEADER..off + size] });
+        let header = if v1 && &kind != b"STAK" { V1_HEADER } else { HEADER };
+        blocks.push(Block { kind, id, data: &data[off + header..off + size], v1 });
         if &kind == b"TAIL" {
             break;
         }
@@ -288,14 +299,8 @@ fn decrypt_header(data: &[u8], password: &str) -> R<Vec<u8>> {
 fn read_stack_block(data: &[u8], password: Option<&str>) -> R<StackInfo> {
     let mut r = Reader::new(data);
     let format = r.u32()?;
-    match format {
-        9 | 10 => {}
-        1..=8 => {
-            return Err("This stack was made with HyperCard 1.x. Open it in HyperCard 2.x and use \
-                        \"Convert Stack…\" first, then import the converted stack."
-                .into());
-        }
-        _ => return Err(format!("Unknown HyperCard stack format ({format}).")),
+    if !(1..=10).contains(&format) {
+        return Err(format!("Unknown HyperCard stack format ({format})."));
     }
     // Flags aren't encrypted; private access encrypts the header around them.
     let flags = Reader::at(data, 0x3c).u16()?;
@@ -364,7 +369,8 @@ fn read_card_order(blocks: &[Block]) -> R<Option<Vec<(i32, bool)>>> {
     let page_count = r.u32()?;
     r.skip(8)?; // page size, total entries
     let entry_size = r.u16()? as usize;
-    r.skip(18)?;
+    // The page references are at the same place in both versions.
+    r.skip(if list.v1 { 22 } else { 18 })?;
     if entry_size < 5 {
         return corrupt("bad page entry size");
     }
@@ -375,7 +381,7 @@ fn read_card_order(blocks: &[Block]) -> R<Option<Vec<(i32, bool)>>> {
         let Some(page) = blocks.iter().find(|b| &b.kind == b"PAGE" && b.id == page_id) else {
             return corrupt("missing page");
         };
-        let mut p = Reader::at(page.data, 8);
+        let mut p = Reader::at(page.data, if page.v1 { 12 } else { 8 });
         for _ in 0..entries {
             let card = p.i32()?;
             let flags = p.u8()?;
@@ -454,6 +460,11 @@ fn read_layer(b: &Block, is_card: bool) -> R<Layer> {
     let mut contents = Vec::new();
     for _ in 0..content_count {
         let id = r.i16()?;
+        if b.v1 {
+            // Plain, null-terminated text, not aligned.
+            contents.push(ContentRec { id, text: r.cstring(), runs: Vec::new() });
+            continue;
+        }
         let len = r.u16()? as usize;
         let payload = r.bytes(len)?;
         if !len.is_multiple_of(2) {
@@ -674,6 +685,7 @@ fn convert(blocks: &[Block], name: &str, password: Option<&str>) -> R<Stack> {
             show_pict: layer.flags & (1 << 13) == 0,
             cant_delete: layer.flags & (1 << 14) != 0,
             dont_search: layer.flags & (1 << 11) != 0,
+            colors: Vec::new(),
         });
     }
 
@@ -911,7 +923,21 @@ mod tests {
         );
 
         assert_eq!(open("TestStackScript").script, "-- script of stack\n-- with two lines");
-        assert!(load_any(&dir.join("TestV1.stack"), None).unwrap_err().contains("1.x"));
+        // A HyperCard 1.x stack: shorter block headers and plain text.
+        let s = open("TestV1");
+        assert_eq!((s.cards.len(), s.backgrounds.len()), (9, 3));
+        let count = |parts: &[Part], kind| parts.iter().filter(|p| p.kind == kind).count();
+        let first = &s.cards[0];
+        assert_eq!((count(&first.parts, PartKind::Button), count(&first.parts, PartKind::Field)), (7, 0));
+        let bg = s.backgrounds.iter().find(|b| b.id == first.background).unwrap();
+        assert_eq!((count(&bg.parts, PartKind::Button), count(&bg.parts, PartKind::Field)), (3, 0));
+        let second = &s.cards[1];
+        let bg = s.backgrounds.iter().find(|b| b.id == second.background).unwrap();
+        let field = bg.parts.iter().find(|p| p.kind == PartKind::Field).unwrap();
+        assert_eq!(
+            s.field_text(second.id, crate::model::Layer::Background, field.id),
+            "First, Previous, Next, Last, Return"
+        );
         // Private access needs the password, which decrypts the stack header.
         let private = dir.join("TestPrivateAccess.stack");
         assert_eq!(load_any(&private, None).unwrap_err(), NEEDS_PASSWORD);
@@ -966,7 +992,7 @@ mod tests {
             }
             for src in scripts {
                 if let Err(e) = crate::hypertalk::parser::parse_script(&src) {
-                    panic!("{}: {e}", entry.path().display());
+                    panic!("{}: {e}\n{src}", entry.path().display());
                 }
             }
         }

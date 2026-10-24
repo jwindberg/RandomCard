@@ -1234,6 +1234,11 @@ impl Parser {
         }
         let e = self.expr()?;
         match e {
+            // HyperCard 1.x stacks write `go to card "Index" of "Datebook"`.
+            Expr::Object(ObjSpec::Card(spec)) if self.is("of") && self.starts_term_at(1) => {
+                self.advance();
+                Ok(GoDest::Card(CardSpec::OfStack(Box::new(spec), Box::new(self.term()?))))
+            }
             Expr::Object(ObjSpec::Card(spec)) => Ok(GoDest::Card(spec)),
             Expr::Object(ObjSpec::Stack(Some(name))) => Ok(GoDest::Stack(*name)),
             e => Ok(GoDest::Expr(e)),

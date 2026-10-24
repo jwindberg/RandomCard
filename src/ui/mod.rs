@@ -1,5 +1,6 @@
 //! The RandomCard window: menus, tool palette, the card, and the message box.
 
+mod addcolor;
 mod editing;
 mod menus;
 mod levels;
@@ -1077,7 +1078,7 @@ impl App {
             e.synced = pv.text.clone();
         }
         let rect = render::part_rect(&pv.part, origin);
-        render::draw_field_frame(ui.painter(), &pv.part, rect);
+        render::draw_field_frame(ui.painter(), &pv.part, rect, pv.fill);
         let text_rect = render::field_text_rect(&pv.part, rect);
         let (part, text, runs) = (pv.part.clone(), pv.text.clone(), pv.styles.clone());
         // The runs belong to the text as last synced; follow any typing since.

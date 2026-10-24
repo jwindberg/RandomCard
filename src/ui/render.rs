@@ -12,6 +12,8 @@ use crate::model::styles::{self, StyleRun};
 use crate::model::{Icon, Id, Layer, Part, PartKind, PartStyle, Picture, Pixel, TextAlign};
 use crate::runtime::world::{FieldRange, ObjRef, World};
 
+use super::addcolor::{self, ColorShape};
+
 pub const BLACK: Color32 = Color32::BLACK;
 pub const WHITE: Color32 = Color32::WHITE;
 pub const GRAY: Color32 = Color32::from_gray(150);
@@ -24,6 +26,8 @@ pub struct PartView {
     /// The style runs of a field's text.
     pub styles: Vec<StyleRun>,
     pub hilite: bool,
+    /// What its white is filled with: white, or its AddColor color.
+    pub fill: Color32,
 }
 
 /// Everything needed to draw one card, copied out of the world.
@@ -42,6 +46,9 @@ pub struct Scene {
     pub selection: Option<FieldRange>,
     /// The icons this card's buttons show.
     pub icons: HashMap<i32, Icon>,
+    /// AddColor shapes, and a key for them (0 when there are none).
+    pub colors: Vec<ColorShape>,
+    pub color_key: u64,
 }
 
 impl Scene {
@@ -66,8 +73,16 @@ impl Scene {
                     },
                     styles: if p.kind == PartKind::Field { s.field_styles(card, layer, p.id) } else { Vec::new() },
                     hilite: s.hilite(card, layer, p.id),
+                    fill: WHITE,
                     part,
                 });
+            }
+        }
+        let colors = addcolor::shapes(s, card, w.edit_bg);
+        if !colors.is_empty() {
+            for pv in &mut parts {
+                let (x, y) = pv.part.rect.center();
+                pv.fill = addcolor::color_at(&colors, x, y);
             }
         }
         let icons = parts
@@ -87,6 +102,8 @@ impl Scene {
             found: w.found.clone().filter(|f| f.card == card),
             selection: w.current_selection().cloned(),
             icons,
+            color_key: addcolor::key(&colors),
+            colors,
         }
     }
 
@@ -105,7 +122,10 @@ impl Scene {
 /// GPU textures for picture layers, refreshed when pictures change.
 #[derive(Default)]
 pub struct Textures {
-    map: HashMap<(Layer, Id), (u64, Option<TextureHandle>)>,
+    /// By layer, id and AddColor key, with the picture revision drawn.
+    map: HashMap<(Layer, Id, u64), (u64, Option<TextureHandle>)>,
+    /// AddColor maps, by key, for the card's own white.
+    color_maps: HashMap<u64, TextureHandle>,
     /// Icon textures, normal and inverted (for hilited buttons).
     icons: HashMap<i32, (Icon, TextureHandle, TextureHandle)>,
 }
@@ -127,10 +147,28 @@ impl Textures {
     pub fn refresh(&mut self, ctx: &egui::Context, w: &World, scene: &Scene) {
         self.refresh_icons(ctx, scene);
         let rev = w.picture_rev;
-        for (layer, id) in [(Layer::Background, scene.bg), (Layer::Card, scene.card)] {
-            if self.map.get(&(layer, id)).is_some_and(|(r, _)| *r == rev) {
-                continue;
-            }
+        let ck = scene.color_key;
+        // Each card can have its own colors; keep only a few cards' worth.
+        if self.map.len() > 8 {
+            self.map.retain(|(_, _, k), _| *k == 0 || *k == ck);
+        }
+        if self.color_maps.len() > 4 {
+            self.color_maps.retain(|k, _| *k == ck);
+        }
+        let stale: Vec<(Layer, Id)> = [(Layer::Background, scene.bg), (Layer::Card, scene.card)]
+            .into_iter()
+            .filter(|&(layer, id)| !self.map.get(&(layer, id, ck)).is_some_and(|(r, _)| *r == rev))
+            .collect();
+        // White in the pictures takes the AddColor color under it.
+        let colors = (ck != 0 && (!stale.is_empty() || !self.color_maps.contains_key(&ck)))
+            .then(|| addcolor::color_map(&scene.colors, scene.width, scene.height));
+        if let Some(map) = &colors
+            && !self.color_maps.contains_key(&ck)
+        {
+            let img = egui::ColorImage::new([scene.width as usize, scene.height as usize], map.clone());
+            self.color_maps.insert(ck, ctx.load_texture(format!("addcolor-{ck}"), img, TextureOptions::NEAREST));
+        }
+        for (layer, id) in stale {
             let pic = match layer {
                 Layer::Background => w.stack.background(id).map(|b| &b.picture),
                 Layer::Card => w.stack.card(id).map(|c| &c.picture),
@@ -139,9 +177,18 @@ impl Textures {
             let handle = if pic.is_blank() {
                 None
             } else {
-                let img = picture_image(pic);
-                let name = format!("pict-{layer:?}-{id}");
-                Some(match self.map.remove(&(layer, id)) {
+                let mut img = picture_image(pic);
+                if let Some(map) = &colors
+                    && map.len() == img.pixels.len()
+                {
+                    for (px, c) in img.pixels.iter_mut().zip(map) {
+                        if *px == WHITE {
+                            *px = *c;
+                        }
+                    }
+                }
+                let name = format!("pict-{layer:?}-{id}-{ck}");
+                Some(match self.map.remove(&(layer, id, ck)) {
                     Some((_, Some(mut h))) => {
                         h.set(img, TextureOptions::NEAREST);
                         h
@@ -149,7 +196,7 @@ impl Textures {
                     _ => ctx.load_texture(name, img, TextureOptions::NEAREST),
                 })
             };
-            self.map.insert((layer, id), (rev, handle));
+            self.map.insert((layer, id, ck), (rev, handle));
         }
     }
 
@@ -176,8 +223,8 @@ impl Textures {
         }
     }
 
-    fn get(&self, layer: Layer, id: Id) -> Option<&TextureHandle> {
-        self.map.get(&(layer, id)).and_then(|(_, h)| h.as_ref())
+    fn get(&self, layer: Layer, id: Id, color_key: u64) -> Option<&TextureHandle> {
+        self.map.get(&(layer, id, color_key)).and_then(|(_, h)| h.as_ref())
     }
 }
 
@@ -224,10 +271,13 @@ fn is_bold(part: &Part) -> bool {
 /// Draw a scene. `live` leaves scrolling fields' text to scroll area widgets.
 pub fn draw_scene(painter: &Painter, tex: &Textures, scene: &Scene, origin: Pos2, pressed: Option<ObjRef>, live: bool) {
     let card_rect = Rect::from_min_size(origin, Vec2::new(scene.width as f32, scene.height as f32));
-    painter.rect_filled(card_rect, 0.0, WHITE);
     let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+    match tex.color_maps.get(&scene.color_key) {
+        Some(t) => painter.image(t.id(), card_rect, uv, WHITE),
+        None => painter.rect_filled(card_rect, 0.0, WHITE),
+    };
     if scene.show_bg_pict
-        && let Some(t) = tex.get(Layer::Background, scene.bg)
+        && let Some(t) = tex.get(Layer::Background, scene.bg, scene.color_key)
     {
         painter.image(t.id(), card_rect, uv, WHITE);
     }
@@ -249,7 +299,7 @@ pub fn draw_scene(painter: &Painter, tex: &Textures, scene: &Scene, origin: Pos2
 
 fn draw_card_picture(painter: &Painter, tex: &Textures, scene: &Scene, card_rect: Rect, uv: Rect) {
     if scene.show_card_pict
-        && let Some(t) = tex.get(Layer::Card, scene.card)
+        && let Some(t) = tex.get(Layer::Card, scene.card, scene.color_key)
     {
         painter.image(t.id(), card_rect, uv, WHITE);
     }
@@ -293,7 +343,7 @@ fn draw_button(painter: &Painter, tex: &Textures, pv: &PartView, rect: Rect, pre
     // A hilited transparent icon button inverts only its icon.
     let has_icon = p.icon != 0 && !checkable;
     let only_icon_inverts = has_icon && matches!(p.style, PartStyle::Transparent | PartStyle::Oval);
-    let (fg, bg) = if inverted && !only_icon_inverts { (WHITE, BLACK) } else { (BLACK, WHITE) };
+    let (fg, bg) = if inverted && !only_icon_inverts { (WHITE, BLACK) } else { (BLACK, pv.fill) };
     let fg = if p.enabled { fg } else { GRAY };
     let stroke = Stroke::new(1.0, BLACK);
     match p.style {
@@ -336,14 +386,14 @@ fn draw_button(painter: &Painter, tex: &Textures, pv: &PartView, rect: Rect, pre
         let size = 12.0;
         let boxr = Rect::from_min_size(Pos2::new(rect.left() + 4.0, rect.center().y - size / 2.0), Vec2::splat(size));
         if p.style == PartStyle::CheckBox {
-            painter.rect_filled(boxr, 0.0, if pressed { Color32::from_gray(200) } else { WHITE });
+            painter.rect_filled(boxr, 0.0, if pressed { Color32::from_gray(200) } else { pv.fill });
             painter.rect_stroke(boxr, 0.0, stroke, StrokeKind::Inside);
             if pv.hilite {
                 painter.line_segment([boxr.left_top(), boxr.right_bottom()], stroke);
                 painter.line_segment([boxr.right_top(), boxr.left_bottom()], stroke);
             }
         } else {
-            painter.circle_filled(boxr.center(), size / 2.0, if pressed { Color32::from_gray(200) } else { WHITE });
+            painter.circle_filled(boxr.center(), size / 2.0, if pressed { Color32::from_gray(200) } else { pv.fill });
             painter.circle_stroke(boxr.center(), size / 2.0, stroke);
             if pv.hilite {
                 painter.circle_filled(boxr.center(), size / 4.0, BLACK);
@@ -356,7 +406,7 @@ fn draw_button(painter: &Painter, tex: &Textures, pv: &PartView, rect: Rect, pre
         return;
     }
     if has_icon {
-        draw_icon_and_name(&painter, tex, p, rect, inverted, fg);
+        draw_icon_and_name(&painter, tex, p, rect, inverted, fg, pv.fill);
         return;
     }
     if p.show_name && !p.name.is_empty() {
@@ -373,7 +423,7 @@ pub const ICON_SIZE: f32 = 32.0;
 
 /// HyperCard's icon button layout: the icon and a 9-point name beneath it,
 /// centred together. A missing icon leaves its space empty, as in HyperCard.
-fn draw_icon_and_name(painter: &Painter, tex: &Textures, p: &Part, rect: Rect, inverted: bool, fg: Color32) {
+fn draw_icon_and_name(painter: &Painter, tex: &Textures, p: &Part, rect: Rect, inverted: bool, fg: Color32, fill: Color32) {
     let label_part = Part { text_size: 9, text_style: "plain".into(), text_font: "Geneva".into(), ..p.clone() };
     let label = (p.show_name && !p.name.is_empty()).then(|| {
         painter.layout_job(LayoutJob::single_section(p.name.clone(), text_format(&label_part, fg)))
@@ -397,7 +447,7 @@ fn draw_icon_and_name(painter: &Painter, tex: &Textures, p: &Part, rect: Rect, i
         let pos = Pos2::new(x, icon_rect.bottom() + 1.0);
         if p.style == PartStyle::Transparent {
             // The name gets a white backdrop so it reads over the picture.
-            painter.rect_filled(Rect::from_min_size(pos - Vec2::new(2.0, 0.0), g.size() + Vec2::new(4.0, 0.0)), 0.0, WHITE);
+            painter.rect_filled(Rect::from_min_size(pos - Vec2::new(2.0, 0.0), g.size() + Vec2::new(4.0, 0.0)), 0.0, fill);
         }
         painter.galley(pos, g, fg);
     }
@@ -549,20 +599,21 @@ pub fn aligned_x(p: &Part, r: Rect) -> f32 {
     }
 }
 
-pub fn draw_field_frame(painter: &Painter, p: &Part, rect: Rect) {
+/// A field's frame and background; `fill` is its white (or AddColor color).
+pub fn draw_field_frame(painter: &Painter, p: &Part, rect: Rect, fill: Color32) {
     let stroke = Stroke::new(1.0, BLACK);
     match p.style {
         PartStyle::Transparent => {}
         PartStyle::Opaque => {
-            painter.rect_filled(rect, 0.0, WHITE);
+            painter.rect_filled(rect, 0.0, fill);
         }
         PartStyle::Shadow => {
             shadowed(painter, rect, 0.0, 2.0);
-            painter.rect_filled(rect, 0.0, WHITE);
+            painter.rect_filled(rect, 0.0, fill);
             painter.rect_stroke(rect, 0.0, stroke, StrokeKind::Inside);
         }
         _ => {
-            painter.rect_filled(rect, 0.0, WHITE);
+            painter.rect_filled(rect, 0.0, fill);
             painter.rect_stroke(rect, 0.0, stroke, StrokeKind::Inside);
         }
     }
@@ -572,7 +623,7 @@ pub fn draw_field_frame(painter: &Painter, p: &Part, rect: Rect) {
 /// text is shown in a scroll area widget by the UI.
 fn draw_field(painter: &Painter, pv: &PartView, rect: Rect, highlight: Option<(usize, usize)>, live: bool) {
     let p = &pv.part;
-    draw_field_frame(painter, p, rect);
+    draw_field_frame(painter, p, rect, pv.fill);
     if live && p.style == PartStyle::Scrolling {
         return;
     }

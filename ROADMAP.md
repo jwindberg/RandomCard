@@ -44,7 +44,7 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 | Fields | Styled text, the selection, click functions, list fields |
 | Visual effects | Complete |
 | Sound | `play`, notes, `dial`, `beep`; no MACE |
-| HyperCard 2.x import | Structure, pictures, parts, text, scripts, icons, sounds |
+| HyperCard import | 1.x and 2.x: structure, pictures, parts, text, scripts, icons, sounds, AddColor |
 | User levels and stack protection | Levels, Protect Stack, passwords, private access |
 | Script-modifiable menus | Complete, except submenus |
 | Home, stacks in use, going between stacks | One stack window at a time |
@@ -235,15 +235,19 @@ loaded to come back to.
 
 ## Importing HyperCard stacks
 
-**Today:** HyperCard 2.x stacks, including MacBinary and AppleSingle
-wrappers, private-access stacks, icons and sounds from the resource fork
-and the resource chain.
+**Today:** HyperCard 1.x and 2.x stacks, including MacBinary and
+AppleSingle wrappers, private-access stacks, icons and sounds from the
+resource fork and the resource chain, and AddColor's colors (HCcd and HCbg
+resources) for buttons, fields and rectangles.
 
 **Missing:**
-- **HyperCard 1.x stacks.** Their blocks use 12-byte headers (offsets shift
-  by 4); HyperCardPreview handles both layouts and is the reference.
-- **AddColor** color data (HCcd/HCbg resources).
-- **MACE-compressed sounds** (MACE 3:1 and 6:1).
+- **MACE-compressed sounds** (MACE 3:1 and 6:1). The only decoders around
+  are FFmpeg's (LGPL) and ports of it; using one means taking on its
+  license, or writing a decoder from a description of the format.
+- **AddColor pictures** (PICT resources or files) are imported but not
+  drawn, and bevels show only on transparent parts. AddColor's own XCMD
+  commands (`colorCard`, `addColor colorButton`…) aren't implemented, so
+  scripts can't change colors.
 - **XCMDs and XFCNs.** These are 68k/PowerPC code and can't run directly.
   Common ones could be reimplemented natively by name (for example
   `Palette`, `PictureWindow`, text utilities), or flagged clearly when a
@@ -274,5 +278,5 @@ and the resource chain.
 7. ~~Script-modifiable menus.~~ Done.
 8. ~~Multiple stacks, Home, and `start using`.~~ Done, except stack windows
    and objects in other stacks.
-9. **HyperCard 1.x import, MACE, AddColor.**
+9. ~~HyperCard 1.x import, MACE, AddColor.~~ Done, except MACE.
 10. **Font metrics, printing, the debugger.**

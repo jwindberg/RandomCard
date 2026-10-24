@@ -1,6 +1,7 @@
 //! The stack data model: stacks contain backgrounds and cards; backgrounds and
 //! cards each hold a picture layer plus buttons and fields ("parts").
 
+pub mod color;
 mod demo;
 mod home;
 pub mod password;
@@ -21,7 +22,7 @@ pub type Id = u32;
 pub const DEFAULT_WIDTH: u32 = 512;
 pub const DEFAULT_HEIGHT: u32 = 342;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Rect {
     pub left: i32,
     pub top: i32,
@@ -283,6 +284,9 @@ pub struct Background {
     pub show_pict: bool,
     pub cant_delete: bool,
     pub dont_search: bool,
+    /// AddColor items, drawn in order.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub colors: Vec<color::ColorItem>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -305,6 +309,9 @@ pub struct Card {
     /// Style runs of the per-card text of background fields.
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub bg_styles: HashMap<Id, Vec<StyleRun>>,
+    /// AddColor items, drawn in order after the background's.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub colors: Vec<color::ColorItem>,
 }
 
 /// A 32×32 button icon. Clear pixels are transparent.
