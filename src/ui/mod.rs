@@ -513,6 +513,7 @@ impl App {
             (cmd(Key::H), "h", menu("Home"), true),
             (cmd(Key::B), "b", menu("Background"), editing >= 3),
             (cmd(Key::O), "o", menu("Open Stack…"), true),
+            (cmd(Key::P), "p", menu("Print Card"), true),
             (cmd(Key::Q), "q", menu("Quit RandomCard"), true),
             (cmd(Key::S), "s", menu("Save Stack"), editing >= 2),
         ];

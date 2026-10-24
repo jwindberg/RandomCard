@@ -231,6 +231,16 @@ Scripts run on their own thread, so a runaway `repeat forever` never freezes
 the window. Ctrl+. stops it, like Command-period. Script errors show the line
 and offer to open the script editor there.
 
+**Printing.** File ▸ Print Card (Ctrl+P) and Print Stack…, and from
+scripts `print card`, `print card 3`, `print all cards`, `print marked
+cards`, `print 5 cards`, `print card from 0,0 to 512,300` (part of a card),
+`print "text"` or `print field 1`, and `open printing` … `close printing`
+to gather cards into one document. RandomCard makes a PDF and opens it in
+your PDF viewer to print or save. Cards print at full size, two to a US
+Letter page, pictures as crisp 1-bit images and buttons and fields as
+vector shapes, with text laid out by HyperCard's metrics in the standard
+PDF fonts (Helvetica, Times, Courier).
+
 **The debugger.** As in HyperCard, a script stops at a checkpoint and shows
 where it is in the script editor, with the line highlighted. Set a
 checkpoint by clicking a line number in the editor or with Ctrl+D, or put
@@ -260,6 +270,7 @@ Watcher lists messages as they're sent (`show message watcher` works too).
 | F10 / F11 / F5 / Shift+F5 | Step / step into / go / abort (debugger) |
 | Ctrl+Space | Hide or show the menu bar |
 | Ctrl+S, Ctrl+O, Ctrl+Q | Save, open, quit |
+| Ctrl+P | Print card |
 
 ## Layout
 
@@ -268,6 +279,7 @@ src/
   model/       Stack, Background, Card, Part, Picture; JSON save/load; Tour and
                Home stacks
   import/      reader for original HyperCard stack files, WOBA decoder, AddColor
+  print/       printing cards and text as PDF
   hypertalk/   lexer, parser, syntax tree, values and chunk expressions
   runtime/     shared World state, interpreter, objects and properties,
                commands, functions, dates; end-to-end tests

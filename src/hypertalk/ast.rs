@@ -253,6 +253,18 @@ pub enum ShowHide {
     VariableWatcher,
 }
 
+#[derive(Clone, Debug)]
+pub enum PrintWhat {
+    /// A card (or this card), or the part of it `from` one point `to` another.
+    Card { card: Option<CardSpec>, area: Option<(Expr, Expr)> },
+    AllCards,
+    MarkedCards,
+    /// `print 5 cards`: this card and those after it.
+    Cards(Expr),
+    /// Text, or a field's text.
+    Text(Expr),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SortStyle {
     Text,
@@ -334,6 +346,10 @@ pub enum Cmd {
     ArrowKey(Expr),
     /// `debug checkpoint`: stop in the debugger at the next line.
     DebugCheckpoint,
+    Print(PrintWhat),
+    /// `open printing`: cards printed until `close printing` go in one document.
+    OpenPrinting,
+    ClosePrinting,
     NoOp,
 }
 

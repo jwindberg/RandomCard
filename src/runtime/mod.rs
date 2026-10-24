@@ -8,6 +8,7 @@ pub mod interp;
 mod menu_commands;
 pub mod menus;
 mod objects;
+mod printing;
 pub mod settings;
 pub mod undo;
 pub mod world;
@@ -50,6 +51,7 @@ pub fn start(stack: Stack, open: Option<std::path::PathBuf>, user_level: u8, hom
         .spawn(move || {
             let mut interp = interp::Interp::new(w, Some(dialog_rx), a);
             interp.debug_rx = Some(debug_rx);
+            interp.open_documents = true;
             interp.audio = crate::sound::Player::new();
             interp.run(event_rx)
         })

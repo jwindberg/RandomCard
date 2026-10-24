@@ -48,7 +48,8 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 | User levels and stack protection | Levels, Protect Stack, passwords, private access |
 | Script-modifiable menus | Complete, except submenus |
 | Home, stacks in use, going between stacks | One stack window at a time |
-| Printing, externals | Missing |
+| Printing | Cards and text, as PDF; no report printing |
+| Externals (XCMDs) | Missing |
 
 ## Using and authoring stacks
 
@@ -231,7 +232,9 @@ loaded to come back to.
 - **Script editor:** find and replace, go to line, and syntax colouring,
   using egui's standard text-editing features.
 - **A Home menu** belongs with Home stack support.
-- **Printing** of cards and reports.
+- **Report printing** (`open report printing`, Print Report…) and Page
+  Setup. Printing makes US Letter PDFs; there's no choice of paper size,
+  cards per page or card names yet. AddColor colors aren't printed.
 
 ## Importing HyperCard stacks
 
@@ -279,5 +282,4 @@ resources) for buttons, fields and rectangles.
 8. ~~Multiple stacks, Home, and `start using`.~~ Done, except stack windows
    and objects in other stacks.
 9. ~~HyperCard 1.x import, MACE, AddColor.~~ Done, except MACE.
-10. **Font metrics, printing, the debugger.** Font metrics and the debugger
-    done; printing remains.
+10. ~~Font metrics, printing, the debugger.~~ Done, except report printing.

@@ -498,6 +498,12 @@ impl Interp {
                 Ok(())
             }
             Cmd::NoOp => Ok(()),
+            Cmd::Print(what) => self.print(what),
+            Cmd::OpenPrinting => {
+                self.print_job.get_or_insert_with(Vec::new);
+                Ok(())
+            }
+            Cmd::ClosePrinting => self.close_printing(),
             Cmd::DebugCheckpoint => {
                 self.pause_next = true;
                 Ok(())
@@ -1530,6 +1536,14 @@ impl Interp {
             "protect stack" => self.request(UiRequest::ProtectStack),
             "preferences" => self.request(UiRequest::Preferences),
             "tool panel" => self.request(UiRequest::ToggleToolPanel),
+            "print card" => {
+                let id = self.w().card_id;
+                self.print_cards(vec![id], true)
+            }
+            "print stack" => {
+                let ids = self.w().stack.cards.iter().map(|c| c.id).collect();
+                self.print_cards(ids, false)
+            }
             "message watcher" => self.request(UiRequest::MessageWatcher(true)),
             "variable watcher" => self.request(UiRequest::VariableWatcher(true)),
             "new card" => {

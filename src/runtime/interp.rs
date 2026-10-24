@@ -125,6 +125,12 @@ pub struct Interp {
     /// For tests: debugger commands to answer pauses with, and the lines paused at.
     pub canned_debug: Vec<super::world::DebugCmd>,
     pub paused_lines: Vec<usize>,
+    /// Cards printed since `open printing`.
+    pub print_job: Option<Vec<Id>>,
+    /// Open printed documents in the system's viewer (not in tests).
+    pub open_documents: bool,
+    /// Documents printed, newest last.
+    pub printed: Vec<std::path::PathBuf>,
 }
 
 impl Interp {
@@ -154,6 +160,9 @@ impl Interp {
             pause_next: false,
             canned_debug: Vec::new(),
             paused_lines: Vec::new(),
+            print_job: None,
+            open_documents: false,
+            printed: Vec::new(),
         }
     }
 
@@ -238,6 +247,14 @@ impl Interp {
         };
         self.frames.clear();
         self.end_debugging();
+        // As in HyperCard, printing left open ends with the handler.
+        let outcome = match outcome {
+            Ok(()) => self.close_printing(),
+            e => {
+                self.print_job = None;
+                e
+            }
+        };
         if let Err(Ctl::Error(e)) = outcome {
             self.w().requests.push(UiRequest::ScriptError { msg: e.msg, obj: e.obj, line: e.line });
         }

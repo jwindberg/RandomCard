@@ -2889,6 +2889,7 @@ dependencies = [
  "chrono",
  "eframe",
  "epaint_default_fonts",
+ "miniz_oxide 0.8.9",
  "rand",
  "rfd",
  "rodio",

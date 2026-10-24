@@ -854,6 +854,10 @@ impl Parser {
             "open" => {
                 if self.accept("file") {
                     Cmd::OpenFile(self.expr()?)
+                } else if self.accept("printing") {
+                    // `with dialog` asked for the print dialog; the viewer has one.
+                    self.rest_of_line();
+                    Cmd::OpenPrinting
                 } else {
                     self.rest_of_line();
                     Cmd::NoOp
@@ -862,6 +866,8 @@ impl Parser {
             "close" => {
                 if self.accept("file") {
                     Cmd::CloseFile(self.expr()?)
+                } else if self.accept("printing") {
+                    Cmd::ClosePrinting
                 } else {
                     self.rest_of_line();
                     Cmd::NoOp
@@ -1031,6 +1037,7 @@ impl Parser {
                 Cmd::ResetMenuBar
             }
             "tabkey" | "enterkey" | "returnkey" | "enterinfield" | "returninfield" => Cmd::NoOp,
+            "print" => Cmd::Print(self.print_what()?),
             "debug" if self.is("checkpoint") => {
                 self.advance();
                 Cmd::DebugCheckpoint
@@ -1139,6 +1146,38 @@ impl Parser {
                 Ok(Cmd::SortCards { ascending, style, by, marked, of })
             }
         }
+    }
+
+    fn print_what(&mut self) -> PResult<PrintWhat> {
+        let cards_at = |p: &Self, n: usize| p.word_at(n).is_some_and(is_cards_word);
+        if self.is("all") && cards_at(self, 1) || self.is("marked") && cards_at(self, 1) {
+            let marked = self.is("marked");
+            self.pos += 2;
+            return Ok(if marked { PrintWhat::MarkedCards } else { PrintWhat::AllCards });
+        }
+        if matches!(self.tok(), Tok::Number(_)) && cards_at(self, 1) {
+            let n = self.term()?;
+            self.advance();
+            return Ok(PrintWhat::Cards(n));
+        }
+        let card = if self.word().is_some_and(is_card_word) && (self.at_stmt_end_at(1) || self.is_at(1, "from")) {
+            self.advance();
+            None
+        } else {
+            match self.expr()? {
+                Expr::Object(ObjSpec::Card(spec)) => Some(spec),
+                e => return Ok(PrintWhat::Text(e)),
+            }
+        };
+        // `print card from 0,0 to 512,304` prints part of it.
+        let area = if self.accept("from") {
+            let from = self.list_expr()?;
+            self.expect("to")?;
+            Some((from, self.list_expr()?))
+        } else {
+            None
+        };
+        Ok(PrintWhat::Card { card, area })
     }
 
     fn show_hide(&mut self) -> PResult<ShowHide> {

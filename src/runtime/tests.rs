@@ -798,7 +798,38 @@ fn debugger_steps_and_checkpoints() {
     );
     assert_eq!(run(&mut i, "set the traceDelay to 5\nput the traceDelay"), "5");
     i.handle_event(Event::MsgBox("show message watcher\nhide variable watcher".into()));
-    let reqs: Vec<UiRequest> = lock(&i.world).requests.drain(..).collect();
+    let reqs: Vec<UiRequest> = std::mem::take(&mut lock(&i.world).requests);
     assert!(reqs.iter().any(|r| matches!(r, UiRequest::MessageWatcher(true))));
     assert!(reqs.iter().any(|r| matches!(r, UiRequest::VariableWatcher(false))));
+}
+
+#[test]
+fn printing() {
+    let mut i = interp_with(stack());
+    let pages = |i: &Interp| {
+        let pdf = std::fs::read(i.printed.last().unwrap()).unwrap();
+        let text = String::from_utf8_lossy(&pdf).to_string();
+        let at = text.find("/Count ").unwrap() + 7;
+        text[at..].split_whitespace().next().unwrap().parse::<usize>().unwrap()
+    };
+    run(&mut i, "print card");
+    assert_eq!((i.printed.len(), pages(&i)), (1, 1));
+    // Three cards, two to a page.
+    run(&mut i, "print all cards");
+    assert_eq!(pages(&i), 2);
+    // Cards printed between open and close printing make one document.
+    run(&mut i, "open printing with dialog\nprint card 1\nprint card \"Three\"\nprint next card\nclose printing");
+    assert_eq!((i.printed.len(), pages(&i)), (3, 2));
+    // Printing left open ends with the handler.
+    run(&mut i, "open printing\nprint 2 cards");
+    assert_eq!((i.printed.len(), pages(&i)), (4, 1));
+    run(&mut i, "print \"Hello\" & return & \"world\"");
+    assert!(i.printed.last().unwrap().to_string_lossy().ends_with("text.pdf"));
+    run(&mut i, "print card from 0,0 to 100,50");
+    assert_eq!(i.printed.len(), 6);
+    run(&mut i, "mark card 2\nprint marked cards");
+    assert_eq!((i.printed.len(), pages(&i)), (7, 1));
+    // The File menu prints too.
+    i.handle_event(Event::DoMenu("Print Stack…".into()));
+    assert_eq!((i.printed.len(), pages(&i)), (8, 2));
 }
