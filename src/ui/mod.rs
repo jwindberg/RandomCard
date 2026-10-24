@@ -1660,7 +1660,7 @@ impl eframe::App for App {
         });
         // The tool panel, when shown and the level allows tools.
         if self.settings.show_tools && self.editing_level() >= 3 {
-            egui::Panel::left("palette").resizable(false).exact_size(128.0).show(ui, |ui| self.palette(ui));
+            egui::Panel::left("palette").resizable(false).exact_size(140.0).show(ui, |ui| self.palette(ui));
         }
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(Color32::from_gray(200))).show(ui, |ui| {
             self.canvas(ui);

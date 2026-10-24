@@ -86,6 +86,8 @@ impl App {
                 w.stack.patterns.clone(),
             )
         };
+        // A scroll bar with its own room, so it doesn't cover the patterns.
+        ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.add_space(2.0);
             ui.label(RichText::new("Tools").strong());
