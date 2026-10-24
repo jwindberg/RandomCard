@@ -117,6 +117,14 @@ pub struct Interp {
     /// Names of all message handlers in the stack's scripts, gathered when a
     /// command first needs them during an event.
     handler_names: Option<HashSet<String>>,
+    /// Commands from the debugger UI.
+    pub debug_rx: Option<Receiver<super::world::DebugCmd>>,
+    pub stepping: super::debugger::Stepping,
+    /// Set by `debug checkpoint`: stop at the next line.
+    pub pause_next: bool,
+    /// For tests: debugger commands to answer pauses with, and the lines paused at.
+    pub canned_debug: Vec<super::world::DebugCmd>,
+    pub paused_lines: Vec<usize>,
 }
 
 impl Interp {
@@ -141,6 +149,11 @@ impl Interp {
             canned_answers: Vec::new(),
             audio: crate::sound::Player::silent(),
             handler_names: None,
+            debug_rx: None,
+            stepping: super::debugger::Stepping::Run,
+            pause_next: false,
+            canned_debug: Vec::new(),
+            paused_lines: Vec::new(),
         }
     }
 
@@ -155,7 +168,10 @@ impl Interp {
             match rx.recv_timeout(Duration::from_millis(100)) {
                 Ok(Event::Shutdown) => break,
                 Ok(ev) => self.handle_event(ev),
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => self.idle(),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    self.debug_commands_while_idle();
+                    self.idle()
+                }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             }
         }
@@ -221,6 +237,7 @@ impl Interp {
             Event::Shutdown => Ok(()),
         };
         self.frames.clear();
+        self.end_debugging();
         if let Err(Ctl::Error(e)) = outcome {
             self.w().requests.push(UiRequest::ScriptError { msg: e.msg, obj: e.obj, line: e.line });
         }
@@ -451,19 +468,28 @@ impl Interp {
     /// handler took it (without passing it on).
     pub fn send_message(&mut self, target: ObjRef, name: &str, args: &[String]) -> R<bool> {
         let lname = name.to_ascii_lowercase();
+        let watched = self.watch_message(name);
+        let mut handled = false;
         for obj in self.message_path(target) {
             let Some(script) = self.script_for(obj)? else { continue };
             let Some(handler) = script.handlers.get(&lname) else { continue };
             match self.run_handler(handler, obj, target, name, args) {
                 Ok(v) => {
                     self.result = v.unwrap_or_default();
-                    return Ok(true);
+                    handled = true;
+                    break;
                 }
                 Err(Ctl::Pass) => continue,
-                Err(e) => return Err(e),
+                Err(e) => {
+                    self.message_handled(watched);
+                    return Err(e);
+                }
             }
         }
-        Ok(false)
+        if handled {
+            self.message_handled(watched);
+        }
+        Ok(handled)
     }
 
     fn run_handler(
@@ -556,6 +582,9 @@ impl Interp {
 
     pub fn exec(&mut self, s: &Stmt) -> R<()> {
         self.check_abort()?;
+        if self.frames.last().is_some_and(|f| !f.msgbox) {
+            self.debug_hook(s.line)?;
+        }
         let r = self.exec_kind(&s.kind);
         match r {
             Err(Ctl::Error(mut e)) => {

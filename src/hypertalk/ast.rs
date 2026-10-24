@@ -249,6 +249,8 @@ pub enum ShowHide {
     CardPicture,
     BgPicture,
     PictureOf(Expr),
+    MessageWatcher,
+    VariableWatcher,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -330,6 +332,8 @@ pub enum Cmd {
     Dial(Expr),
     SaveStack(Option<Expr>),
     ArrowKey(Expr),
+    /// `debug checkpoint`: stop in the debugger at the next line.
+    DebugCheckpoint,
     NoOp,
 }
 

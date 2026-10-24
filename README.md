@@ -231,6 +231,16 @@ Scripts run on their own thread, so a runaway `repeat forever` never freezes
 the window. Ctrl+. stops it, like Command-period. Script errors show the line
 and offer to open the script editor there.
 
+**The debugger.** As in HyperCard, a script stops at a checkpoint and shows
+where it is in the script editor, with the line highlighted. Set a
+checkpoint by clicking a line number in the editor or with Ctrl+D, or put
+`debug checkpoint` in a script. While stopped: Step (F10) runs to the next
+line of the handler, Step Into (F11) stops in handlers it calls, Trace runs
+on showing each line at `the traceDelay`'s pace, Go (F5) runs to the next
+checkpoint, and Abort (Shift+F5) stops. View ▸ Variable Watcher shows the
+handler's locals and the globals, and you can change them; View ▸ Message
+Watcher lists messages as they're sent (`show message watcher` works too).
+
 ## Keyboard
 
 | Keys | Action |
@@ -246,6 +256,8 @@ and offer to open the script editor there.
 | Ctrl+T | Show or hide the tool panel |
 | Ctrl+Z, Ctrl+Shift+Z | Undo, redo |
 | Ctrl+. | Abort running script |
+| Ctrl+D | Set or clear a checkpoint (script editor) |
+| F10 / F11 / F5 / Shift+F5 | Step / step into / go / abort (debugger) |
 | Ctrl+Space | Hide or show the menu bar |
 | Ctrl+S, Ctrl+O, Ctrl+Q | Save, open, quit |
 

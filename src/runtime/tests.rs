@@ -755,3 +755,50 @@ fn stacks_home_and_libraries() {
     assert_eq!(run(&mut i, "go to stack \"Nowhere\"\nput the result"), "No such stack.");
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn debugger_steps_and_checkpoints() {
+    use super::world::DebugCmd;
+    let mut i = interp_with(stack());
+    let card_id = lock(&i.world).card_id;
+    let (card, btn) = (ObjRef::Card(card_id), ObjRef::Part { layer: Layer::Card, id: 11, card: card_id });
+    let script = "on mouseUp\n  global g\n  put 1 into x\n  debug checkpoint\n  put x into g\n  helper\n  put g + 1 into g\nend mouseUp\non helper\n  put 9 into y\nend helper";
+    set_script(&i, btn, script);
+    let click = |i: &mut Interp| i.handle_event(Event::Send { target: btn, message: "mouseUp".into(), args: vec![] });
+
+    // `debug checkpoint` stops at the next line. Step runs to the next line of
+    // the same handler, Step Into goes into `helper`, and Step from its last
+    // line comes back out to the line after the call.
+    i.canned_debug = vec![DebugCmd::Step, DebugCmd::StepInto, DebugCmd::Step, DebugCmd::Go];
+    click(&mut i);
+    assert_eq!(i.paused_lines, vec![5, 6, 10, 7]);
+    assert!(lock(&i.world).debug.is_none(), "the debugger lets go when the handler ends");
+
+    // A checkpoint stops there; Go runs on. The variable watcher can change
+    // a local while stopped.
+    i.paused_lines.clear();
+    set_script(&i, btn, &script.replace("debug checkpoint", "get 0"));
+    lock(&i.world).checkpoints.push((btn, 5));
+    i.canned_debug = vec![DebugCmd::SetVar { name: "x".into(), value: "41".into() }, DebugCmd::Go];
+    click(&mut i);
+    assert_eq!(i.paused_lines, vec![5]);
+    assert_eq!(run(&mut i, "global g\nput g"), "42");
+
+    // The message watcher logs messages in the order sent, and whether a
+    // handler took them.
+    lock(&i.world).checkpoints.clear();
+    lock(&i.world).watch_messages = true;
+    click(&mut i);
+    i.handle_event(Event::Send { target: card, message: "nobodyHome".into(), args: vec![] });
+    let log: Vec<(String, usize, bool)> =
+        lock(&i.world).message_log.iter().map(|m| (m.name.clone(), m.depth, m.handled)).collect();
+    assert_eq!(
+        log,
+        vec![("mouseUp".into(), 0, true), ("helper".into(), 1, true), ("nobodyHome".into(), 0, false)]
+    );
+    assert_eq!(run(&mut i, "set the traceDelay to 5\nput the traceDelay"), "5");
+    i.handle_event(Event::MsgBox("show message watcher\nhide variable watcher".into()));
+    let reqs: Vec<UiRequest> = lock(&i.world).requests.drain(..).collect();
+    assert!(reqs.iter().any(|r| matches!(r, UiRequest::MessageWatcher(true))));
+    assert!(reqs.iter().any(|r| matches!(r, UiRequest::VariableWatcher(false))));
+}

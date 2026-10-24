@@ -425,6 +425,7 @@ impl Interp {
                 "false".into()
             }
             "language" => "English".into(),
+            "tracedelay" => w.trace_delay.to_string(),
             "version" => "2.41".into(),
             "name" => "RandomCard".into(),
             _ => {
@@ -458,6 +459,7 @@ impl Interp {
                 let limit = w.level_limit();
                 w.user_level = (to_int(v)?.clamp(1, 5) as u8).min(limit);
             }
+            "tracedelay" => self.w().trace_delay = to_int(v)?.clamp(0, 600) as u32,
             "cursor" | "dragspeed" | "textarrows" | "blindtyping" | "powerkeys" | "usermodify"
             | "lockrecent" | "grid" | "centered" | "multiple" | "language" | "messagewatcher"
             | "variablewatcher" | "textalign" | "textheight" | "scripttextfont" | "scripttextsize" | "debugger"

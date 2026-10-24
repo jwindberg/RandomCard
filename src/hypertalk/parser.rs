@@ -1031,6 +1031,10 @@ impl Parser {
                 Cmd::ResetMenuBar
             }
             "tabkey" | "enterkey" | "returnkey" | "enterinfield" | "returninfield" => Cmd::NoOp,
+            "debug" if self.is("checkpoint") => {
+                self.advance();
+                Cmd::DebugCheckpoint
+            }
             _ => {
                 // create menu, reset menubar, start using, debug, flash, print, drag, help ...
                 self.rest_of_line();
@@ -1158,6 +1162,12 @@ impl Parser {
         if self.accept_any(&["picture", "pict"]).is_some() {
             self.expect("of")?;
             return Ok(ShowHide::PictureOf(self.expr()?));
+        }
+        for (word, which) in [("message", ShowHide::MessageWatcher), ("variable", ShowHide::VariableWatcher)] {
+            if self.is(word) && self.is_at(1, "watcher") {
+                self.pos += 2;
+                return Ok(which);
+            }
         }
         let e = self.expr()?;
         if matches!(e, Expr::Object(ObjSpec::MsgBox)) {

@@ -2,6 +2,7 @@
 
 mod builtins;
 mod commands;
+pub mod debugger;
 pub mod dates;
 pub mod interp;
 mod menu_commands;
@@ -19,13 +20,14 @@ use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 
 use crate::model::Stack;
-use world::{DialogReply, Event, Shared, World};
+use world::{DebugCmd, DialogReply, Event, Shared, World};
 
 /// Handles the UI keeps for talking to the script thread.
 pub struct Runtime {
     pub world: Shared,
     pub events: Sender<Event>,
     pub dialog_replies: Sender<DialogReply>,
+    pub debug: Sender<DebugCmd>,
     pub abort: Arc<AtomicBool>,
 }
 
@@ -39,6 +41,7 @@ pub fn start(stack: Stack, open: Option<std::path::PathBuf>, user_level: u8, hom
     let world = Arc::new(Mutex::new(world));
     let (events, event_rx) = channel();
     let (dialog_replies, dialog_rx) = channel();
+    let (debug, debug_rx) = channel();
     let abort = Arc::new(AtomicBool::new(false));
     let (w, a) = (world.clone(), abort.clone());
     std::thread::Builder::new()
@@ -46,6 +49,7 @@ pub fn start(stack: Stack, open: Option<std::path::PathBuf>, user_level: u8, hom
         .stack_size(256 * 1024 * 1024)
         .spawn(move || {
             let mut interp = interp::Interp::new(w, Some(dialog_rx), a);
+            interp.debug_rx = Some(debug_rx);
             interp.audio = crate::sound::Player::new();
             interp.run(event_rx)
         })
@@ -54,5 +58,5 @@ pub fn start(stack: Stack, open: Option<std::path::PathBuf>, user_level: u8, hom
         Some(path) => Event::OpenFile(path),
         None => Event::Startup,
     });
-    Runtime { world, events, dialog_replies, abort }
+    Runtime { world, events, dialog_replies, debug, abort }
 }

@@ -4,7 +4,7 @@
 use eframe::egui::{self, Color32, RichText};
 
 use crate::model::{Id, PartKind, PartStyle, TextAlign};
-use crate::runtime::world::{Dialog, DialogReply, Event, ObjRef, World, lock};
+use crate::runtime::world::{Dialog, DialogReply, Event, ObjRef, World, lock, same_script};
 
 use super::App;
 
@@ -29,6 +29,25 @@ pub struct ScriptEditor {
     pub error: Option<String>,
     /// Line to select when the editor is next drawn.
     pub goto_line: Option<usize>,
+}
+
+/// Room at the left of the script editor for line numbers and checkpoints.
+const GUTTER: f32 = 40.0;
+
+/// Where each line of a laid-out script is, relative to the galley; a line
+/// that wraps covers several rows.
+fn line_rows(galley: &egui::Galley) -> Vec<egui::Rect> {
+    let mut lines: Vec<egui::Rect> = Vec::new();
+    let mut new_line = true;
+    for row in &galley.rows {
+        let r = row.rect();
+        match lines.last_mut() {
+            Some(last) if !new_line => *last = last.union(r),
+            _ => lines.push(r),
+        }
+        new_line = row.ends_with_newline;
+    }
+    lines
 }
 
 pub struct ErrorAlert {
@@ -431,8 +450,9 @@ impl App {
                         self.save_script(ed);
                         close = true;
                     }
-                    ui.label(RichText::new("Ctrl+S saves · Tab indents").weak());
+                    ui.label(RichText::new("Ctrl+S saves · Ctrl+D sets a checkpoint").weak());
                 });
+                let stopped_at = self.debug_bar(ui, ed.obj);
                 if let Some(err) = &ed.error {
                     ui.colored_label(Color32::from_rgb(170, 0, 0), err);
                 }
@@ -449,17 +469,68 @@ impl App {
                         state.store(ctx, edit_id);
                         ctx.memory_mut(|m| m.request_focus(edit_id));
                     }
-                    let resp = ui.add(
-                        egui::TextEdit::multiline(&mut ed.text)
-                            .id(edit_id)
-                            .code_editor()
-                            .lock_focus(true)
-                            .desired_width(f32::INFINITY)
-                            .desired_rows(18),
-                    );
+                    let out = egui::TextEdit::multiline(&mut ed.text)
+                        .id(edit_id)
+                        .code_editor()
+                        .lock_focus(true)
+                        .margin(egui::Margin { left: GUTTER as i8, right: 4, top: 2, bottom: 2 })
+                        .desired_width(f32::INFINITY)
+                        .desired_rows(18)
+                        .show(ui);
+                    let resp = &out.response;
                     if resp.has_focus() && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::S)) {
                         self.save_script(ed);
                     }
+                    let lines = line_rows(&out.galley);
+                    let row_rect = |line: usize| {
+                        lines.get(line.wrapping_sub(1)).map(|r| r.translate(out.galley_pos.to_vec2()))
+                    };
+                    // Ctrl+D, or a click in the gutter, sets or clears a checkpoint.
+                    let mut toggle = None;
+                    if resp.has_focus() && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::D)) {
+                        toggle = out.cursor_range.map(|c| ed.text.chars().take(c.primary.index.0).filter(|c| *c == '\n').count() + 1);
+                    }
+                    if resp.clicked()
+                        && let Some(p) = resp.interact_pointer_pos().filter(|p| p.x < resp.rect.left() + GUTTER)
+                    {
+                        toggle = (1..=lines.len()).find(|&l| row_rect(l).is_some_and(|r| p.y >= r.top() && p.y < r.bottom()));
+                    }
+                    let checkpoints: Vec<usize> = {
+                        let mut w = lock(&self.rt.world);
+                        if let Some(line) = toggle {
+                            match w.checkpoints.iter().position(|(o, l)| same_script(*o, ed.obj) && *l == line) {
+                                Some(i) => {
+                                    w.checkpoints.remove(i);
+                                }
+                                None => w.checkpoints.push((ed.obj, line)),
+                            }
+                        }
+                        w.checkpoints.iter().filter(|(o, _)| same_script(*o, ed.obj)).map(|(_, l)| *l).collect()
+                    };
+                    let mut shapes = Vec::new();
+                    let left = resp.rect.left();
+                    if let Some(r) = stopped_at.and_then(row_rect) {
+                        let row = egui::Rect::from_x_y_ranges(left..=resp.rect.right(), r.y_range());
+                        shapes.push(egui::Shape::rect_filled(row, 0.0, Color32::from_rgba_unmultiplied(255, 200, 0, 70)));
+                    }
+                    let gutter = egui::Rect::from_x_y_ranges(left..=left + GUTTER - 6.0, resp.rect.y_range());
+                    shapes.push(egui::Shape::rect_filled(gutter, 0.0, ui.visuals().faint_bg_color));
+                    let font = egui::FontId::monospace(10.0);
+                    let number_color = ui.visuals().weak_text_color();
+                    for line in 1..=lines.len() {
+                        let Some(r) = row_rect(line) else { continue };
+                        if checkpoints.contains(&line) {
+                            let c = egui::pos2(left + 7.0, r.center().y);
+                            shapes.push(egui::Shape::circle_filled(c, 4.5, Color32::from_rgb(200, 30, 30)));
+                        }
+                        let pos = egui::pos2(left + GUTTER - 9.0, r.center().y);
+                        ui.fonts_mut(|f| {
+                            shapes.push(egui::Shape::text(f, pos, egui::Align2::RIGHT_CENTER, line, font.clone(), number_color));
+                        });
+                    }
+                    // Over the editor's background: the gutter, and the line the
+                    // debugger is stopped at.
+                    ui.painter().extend(shapes);
                 });
             });
         if close {

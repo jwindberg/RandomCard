@@ -273,6 +273,9 @@ pub enum UiRequest {
     ProtectStack,
     Preferences,
     ToggleToolPanel,
+    /// Show or hide the message or variable watcher.
+    MessageWatcher(bool),
+    VariableWatcher(bool),
     /// A key's message wasn't handled: do what the key does by default.
     Key(ObjRef, KeyAction),
 }
@@ -359,6 +362,66 @@ pub struct World {
     pub home_path: Option<PathBuf>,
     /// Counts stack changes, so the UI can drop windows of the old stack.
     pub stack_serial: u64,
+    /// Where a script is stopped in the debugger.
+    pub debug: Option<DebugPause>,
+    /// Checkpoints: a script's owner and a line in it, from 1.
+    pub checkpoints: Vec<(ObjRef, usize)>,
+    /// Global variables as of the last pause or handler, for the variable watcher.
+    pub globals_view: Vec<(String, String)>,
+    /// Messages sent, while the message watcher is open.
+    pub watch_messages: bool,
+    pub message_log: std::collections::VecDeque<WatchedMessage>,
+    /// Ticks (60ths of a second) to wait between lines while tracing.
+    pub trace_delay: u32,
+}
+
+/// A script stopped in the debugger.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DebugPause {
+    pub obj: ObjRef,
+    pub handler: String,
+    pub line: usize,
+    /// The handler's local variables, by name.
+    pub locals: Vec<(String, String)>,
+    /// The handlers running, outermost first.
+    pub calls: Vec<String>,
+    /// False while the debugger runs on to the next stop (stepping, tracing).
+    pub paused: bool,
+}
+
+/// What the debugger is told to do next.
+#[derive(Clone, Debug, PartialEq)]
+pub enum DebugCmd {
+    /// Run to the next line of this handler, or of a handler it returns to.
+    Step,
+    /// Stop at the next line run, even inside a handler this one calls.
+    StepInto,
+    /// Run, showing each line as it goes.
+    Trace,
+    Go,
+    SetVar { name: String, value: String },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct WatchedMessage {
+    /// Counts messages, to find this one again when it's been handled.
+    pub seq: u64,
+    pub name: String,
+    /// How many handlers deep it was sent.
+    pub depth: usize,
+    pub handled: bool,
+}
+
+/// How many messages the message watcher keeps.
+pub const MESSAGE_LOG_LEN: usize = 500;
+
+/// Whether two references name the same script. A background part is the
+/// same part on every card.
+pub fn same_script(a: ObjRef, b: ObjRef) -> bool {
+    match (a, b) {
+        (ObjRef::Part { layer: Layer::Background, id: x, .. }, ObjRef::Part { layer: Layer::Background, id: y, .. }) => x == y,
+        _ => a == b,
+    }
 }
 
 pub struct LoadedStack {
@@ -416,6 +479,12 @@ impl World {
             in_use: Vec::new(),
             home_path: None,
             stack_serial: 0,
+            debug: None,
+            checkpoints: Vec::new(),
+            globals_view: Vec::new(),
+            watch_messages: false,
+            message_log: Default::default(),
+            trace_delay: 0,
         }
     }
 
@@ -431,6 +500,10 @@ impl World {
         fresh.in_use = std::mem::take(&mut self.in_use);
         fresh.home_path = self.home_path.take();
         fresh.stack_serial = self.stack_serial + 1;
+        fresh.globals_view = std::mem::take(&mut self.globals_view);
+        fresh.watch_messages = self.watch_messages;
+        fresh.message_log = std::mem::take(&mut self.message_log);
+        fresh.trace_delay = self.trace_delay;
         fresh.picture_rev = rand::random();
         let dirty = self.dirty && !self.stack.cant_modify;
         let old = std::mem::replace(self, fresh).stack;

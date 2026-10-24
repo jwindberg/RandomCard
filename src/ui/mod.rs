@@ -1,6 +1,7 @@
 //! The RandomCard window: menus, tool palette, the card, and the message box.
 
 mod addcolor;
+mod debugger;
 mod editing;
 mod menus;
 mod levels;
@@ -122,6 +123,15 @@ pub struct App {
     quit_prompt: bool,
     quitting: bool,
     title: String,
+    message_watcher: bool,
+    /// Leave out idle, mouseWithin and mouseStillDown.
+    hide_frequent_messages: bool,
+    hide_unhandled_messages: bool,
+    variable_watcher: bool,
+    /// Variable watcher entries being edited: (name, text).
+    var_edit: Option<(String, String)>,
+    /// The pause the script editor was last brought up for.
+    debug_seen: Option<(ObjRef, usize)>,
 }
 
 impl App {
@@ -171,6 +181,12 @@ impl App {
             quit_prompt: false,
             quitting: false,
             title: String::new(),
+            message_watcher: false,
+            hide_frequent_messages: true,
+            hide_unhandled_messages: false,
+            variable_watcher: false,
+            var_edit: None,
+            debug_seen: None,
         }
     }
 
@@ -200,6 +216,8 @@ impl App {
                 can_undo: !w.undo.is_empty(),
                 can_redo: !w.redo.is_empty(),
                 tools_shown: self.settings.show_tools,
+                message_watcher: self.message_watcher,
+                variable_watcher: self.variable_watcher,
                 target: None,
                 paste: None,
                 text_style: None,
@@ -385,6 +403,8 @@ impl App {
                 UiRequest::SelectAll => self.select_all(),
                 UiRequest::ProtectStack => self.open_protect_stack(),
                 UiRequest::Preferences => self.prefs_open = true,
+                UiRequest::MessageWatcher(show) => self.show_message_watcher(show),
+                UiRequest::VariableWatcher(show) => self.variable_watcher = show,
                 UiRequest::ToggleToolPanel => {
                     if self.editing_level() >= 3 {
                         self.toggle_tool_panel();
@@ -419,6 +439,8 @@ impl App {
         self.text_entry = None;
         self.infos.clear();
         self.editors.clear();
+        // Bring the script editor back if a script is stopped in the new stack.
+        self.debug_seen = None;
     }
 
     fn request_quit(&mut self, ctx: &egui::Context) {
@@ -1644,6 +1666,7 @@ impl eframe::App for App {
         });
 
         self.show_windows(&ctx);
+        self.debugger(&ctx);
         self.show_dialog(&ctx);
         self.show_error(&ctx);
         self.show_preferences(&ctx);

@@ -498,6 +498,10 @@ impl Interp {
                 Ok(())
             }
             Cmd::NoOp => Ok(()),
+            Cmd::DebugCheckpoint => {
+                self.pause_next = true;
+                Ok(())
+            }
         }
     }
 
@@ -544,6 +548,8 @@ impl Interp {
     fn show_hide(&mut self, what: &ShowHide, show: bool, at: Option<String>) -> R<()> {
         match what {
             ShowHide::MsgBox => self.w().msg_visible = show,
+            ShowHide::MessageWatcher => self.w().requests.push(UiRequest::MessageWatcher(show)),
+            ShowHide::VariableWatcher => self.w().requests.push(UiRequest::VariableWatcher(show)),
             ShowHide::MenuBar => self.w().menubar_visible = show,
             ShowHide::TitleBar => {}
             ShowHide::CardPicture => {
@@ -1524,6 +1530,8 @@ impl Interp {
             "protect stack" => self.request(UiRequest::ProtectStack),
             "preferences" => self.request(UiRequest::Preferences),
             "tool panel" => self.request(UiRequest::ToggleToolPanel),
+            "message watcher" => self.request(UiRequest::MessageWatcher(true)),
+            "variable watcher" => self.request(UiRequest::VariableWatcher(true)),
             "new card" => {
                 let id = {
                     let mut w = self.w();

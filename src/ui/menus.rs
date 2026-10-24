@@ -17,6 +17,8 @@ pub struct MenuState {
     pub can_undo: bool,
     pub can_redo: bool,
     pub tools_shown: bool,
+    pub message_watcher: bool,
+    pub variable_watcher: bool,
     /// What Cut, Copy and Clear act on ("Button", "Picture"…).
     pub target: Option<&'static str>,
     /// What Paste would paste.
@@ -40,6 +42,7 @@ impl MenuState {
             ("Edit", "new card" | "delete card" | "cut card" | "copy card" | "paste card") => self.editing >= 2,
             ("Edit", "background" | "clear picture") => self.editing >= 3,
             ("Objects", "card script" | "bkgnd script" | "stack script") => self.level >= 5,
+            ("View", "message watcher" | "variable watcher") => self.level >= 5,
             _ => true,
         }
     }
@@ -72,6 +75,8 @@ impl MenuState {
             "background" => self.edit_bg,
             "message" | "message box" => self.msg_visible,
             "tool panel" => self.tools_shown,
+            "message watcher" => self.message_watcher,
+            "variable watcher" => self.variable_watcher,
             _ => match &self.text_style {
                 Some((font, size, style)) => {
                     font.eq_ignore_ascii_case(&key)

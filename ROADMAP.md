@@ -189,8 +189,10 @@ sample stacks parse.
   (HyperCard 2.2's popup-style items) aren't supported.
 - **Windows and palettes:** `palette`, `picture`, `close window`, and
   `the visible of window`.
-- **`edit script` with a line**, and the **debugger**: `debug checkpoint`,
-  breakpoints, stepping, and the message and variable watchers.
+- **`edit script` with a line.** The debugger is done; it lacks
+  evaluating expressions in the message box while stopped (HyperCard ran
+  them in the stopped handler's context), and checkpoints don't move when
+  lines are added above them.
 - **Other stacks:** see below.
 - **Speech:** `speak` shells out to `spd-say`/`espeak`/`say`; `the voices`
   and `the speech` aren't real.
@@ -277,4 +279,5 @@ resources) for buttons, fields and rectangles.
 8. ~~Multiple stacks, Home, and `start using`.~~ Done, except stack windows
    and objects in other stacks.
 9. ~~HyperCard 1.x import, MACE, AddColor.~~ Done, except MACE.
-10. **Font metrics, printing, the debugger.** Font metrics done.
+10. **Font metrics, printing, the debugger.** Font metrics and the debugger
+    done; printing remains.
