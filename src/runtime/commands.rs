@@ -10,15 +10,23 @@ use crate::model::{Background, Card, Id, Layer, Part, PartKind, Picture, Rect};
 
 use super::dates;
 use super::interp::{Ctl, Interp, OpenFile, R, err, to_int, to_number};
+use super::menus;
 use super::undo::UndoEntry;
 use super::world::{Dialog, DialogReply, EditOp, FieldRange, ObjRef, Tool, Transition, UiRequest};
 
 impl Interp {
     pub fn command(&mut self, c: &Cmd) -> R<()> {
         match c {
-            Cmd::Put { value, prep, dest } => {
+            Cmd::Put { value, prep, dest, messages } => {
                 let v = self.eval(value)?;
                 match dest {
+                    Some(Expr::Menu(r)) => {
+                        let messages = match messages {
+                            Some(m) => Some(self.eval(m)?),
+                            None => None,
+                        };
+                        self.put_into_menu(r, *prep, &v, messages.as_deref())
+                    }
                     Some(d) => self.put_into(d, *prep, &v),
                     None => {
                         let mut w = self.w();
@@ -42,8 +50,9 @@ impl Interp {
                 let prop = prop.to_ascii_lowercase();
                 match obj {
                     None => self.set_global_property(&prop, &v),
-                    // Menus aren't scriptable.
+                    // Windows and palettes aren't supported.
                     Some(e) if is_menu(e) => Ok(()),
+                    Some(Expr::Menu(r)) => self.set_menu_property(r, &prop, &v),
                     Some(e @ (Expr::Chunk(..) | Expr::Selection)) => self.set_chunk_property(e, &prop, &v),
                     Some(e) => {
                         let o = self.resolve_dynamic(e)?;
@@ -325,6 +334,16 @@ impl Interp {
                 Ok(())
             }
             Cmd::Enable(e) | Cmd::Disable(e) if is_menu(e) => Ok(()),
+            Cmd::Enable(Expr::Menu(r)) => self.enable_menu(r, true),
+            Cmd::Disable(Expr::Menu(r)) => self.enable_menu(r, false),
+            Cmd::CreateMenu(e) => {
+                let name = self.eval(e)?;
+                self.create_menu(&name)
+            }
+            Cmd::ResetMenuBar => {
+                self.reset_menu_bar();
+                Ok(())
+            }
             Cmd::Enable(e) | Cmd::Disable(e) => {
                 let o = self.resolve_dynamic(e)?;
                 self.set_property(o, "enabled", if matches!(c, Cmd::Enable(_)) { "true" } else { "false" })
@@ -1265,6 +1284,9 @@ impl Interp {
         if is_menu(e) {
             return Ok(());
         }
+        if let Expr::Menu(r) = e {
+            return self.delete_menu(r);
+        }
         if matches!(e, Expr::Chunk(..)) {
             return self.delete_chunk(e);
         }
@@ -1349,8 +1371,24 @@ impl Interp {
     // ----- menus -----
 
     pub fn perform_menu(&mut self, item: &str) -> R<()> {
-        let key = item.trim().trim_end_matches('…').trim_end_matches("...").trim().to_ascii_lowercase();
+        // A script's own items: their menuMessage, or nothing to do.
+        let custom = {
+            let w = self.w();
+            menus::find_item(&w.menus, item).map(|i| (i.message.clone(), i.builtin))
+        };
+        match custom {
+            Some((msg, _)) if !msg.is_empty() => {
+                let card = self.current_card_ref();
+                return self.send_text(&msg, card);
+            }
+            Some((_, false)) => return Ok(()),
+            _ => {}
+        }
+        let key = menus::item_key(item);
         match key.as_str() {
+            "protect stack" => self.request(UiRequest::ProtectStack),
+            "preferences" => self.request(UiRequest::Preferences),
+            "tool panel" => self.request(UiRequest::ToggleToolPanel),
             "new card" => {
                 let id = {
                     let mut w = self.w();
@@ -1486,7 +1524,7 @@ impl Interp {
                 let id = self.resolve_card(&CardSpec::Which(Which::Ordinal(Ordinal::Nth(1))))?;
                 self.go_card_id(id, true)
             }
-            "message" => {
+            "message" | "message box" => {
                 let mut w = self.w();
                 w.msg_visible = !w.msg_visible;
                 Ok(())

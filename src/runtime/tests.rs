@@ -301,6 +301,11 @@ fn demo_stack_runs() {
         let w = lock(&i.world);
         w.stack.card(w.card_id).unwrap().name.clone()
     };
+    // The stack's own Tour menu.
+    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "7");
+    i.handle_event(Event::DoMenu("Dice".into()));
+    assert_eq!(current(&i), "Dice");
+    i.handle_event(Event::DoMenu("First".into()));
     assert_eq!(click(&mut i, "Home", "Take the Tour"), None);
     assert_eq!(current(&i), "Basics");
     for b in ["Count Words", "Chunks", "Do Some Math", "What Time Is It?"] {
@@ -633,4 +638,49 @@ fn styled_text() {
     run(&mut i, &format!("set the textStyle of {f} to plain\nset the textStyle of word 2 of {f} to bold\ngo next card"));
     assert_eq!(run(&mut i, &format!("put the textStyle of {f}")), "plain");
     assert_eq!(run(&mut i, &format!("put the textStyle of line 1 of {f}")), "plain");
+}
+
+#[test]
+fn scripted_menus() {
+    let mut i = interp_with(stack());
+    assert!(run(&mut i, "put the menus").starts_with("File\nEdit\nGo"));
+    run(&mut i, "create menu \"Game\"");
+    assert!(run(&mut i, "put there is a menu \"Game\"") == "true");
+    assert!(run(&mut i, "put there is no menu \"Toys\"") == "true");
+    assert!(run(&mut i, "create menu \"Game\"").starts_with("ERROR"));
+    run(&mut i, "put \"New Game,-,High Scores\" into menu \"Game\" with menuMessages \"newGame,,showScores\"");
+    assert_eq!(run(&mut i, "put menu \"Game\""), "New Game\n-\nHigh Scores");
+    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Game\""), "3");
+    assert_eq!(run(&mut i, "put last menuItem of menu \"Game\""), "High Scores");
+    assert_eq!(run(&mut i, "put the menuMessage of menuItem 1 of menu \"Game\""), "newGame");
+    run(&mut i, "put \"Pause\" after menuItem \"New Game\" of menu \"Game\"");
+    assert_eq!(run(&mut i, "put menuItem 2 of menu \"Game\""), "Pause");
+    // Choosing an item sends its menuMessage instead of doMenu.
+    let card = ObjRef::Card(lock(&i.world).card_id);
+    set_script(&i, card, "on newGame\n  put \"started\" into field \"Name\"\nend newGame\non doMenu what\n  put what into field \"Name\"\nend doMenu");
+    i.handle_event(Event::DoMenu("New Game".into()));
+    assert_eq!(run(&mut i, "put field \"Name\""), "started");
+    i.handle_event(Event::DoMenu("Pause".into()));
+    assert_eq!(run(&mut i, "put field \"Name\""), "Pause");
+    set_script(&i, card, "on newGame\n  put \"again\" into field \"Name\"\nend newGame");
+    // Script doMenu runs an item's menuMessage too; items of its own do nothing.
+    assert_eq!(run(&mut i, "doMenu \"New Game\"\nput field \"Name\""), "again");
+    assert_eq!(run(&mut i, "doMenu \"Pause\"\nput the result"), "");
+    // Properties.
+    run(&mut i, "disable menuItem \"Delete Card\" of menu \"Edit\"\nset the checkMark of menuItem 2 of menu \"Game\" to true");
+    assert_eq!(run(&mut i, "put the enabled of menuItem \"Delete Card\" of menu \"Edit\""), "false");
+    assert_eq!(run(&mut i, "put the checkMark of menuItem \"Pause\" of menu \"Game\""), "true");
+    run(&mut i, "set the commandChar of menuItem 1 of menu \"Game\" to \"G\"\ndisable menu \"Game\"");
+    assert_eq!(run(&mut i, "put the commandChar of menuItem 1 of menu \"Game\" && the enabled of menu \"Game\""), "G false");
+    run(&mut i, "set the name of menuItem 2 of menu \"Game\" to \"Resume\"");
+    assert_eq!(run(&mut i, "put menuItem 2 of menu \"Game\""), "Resume");
+    run(&mut i, "delete menuItem \"Resume\" of menu \"Game\"");
+    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Game\""), "3");
+    let n = run(&mut i, "put the number of menus");
+    run(&mut i, "delete menu \"Game\"");
+    assert_eq!(run(&mut i, "put the number of menus + 1"), n);
+    assert!(run(&mut i, "put menu \"Game\"").starts_with("ERROR"));
+    // Reset brings back the standard menus.
+    run(&mut i, "delete menu \"Go\"\nreset menuBar");
+    assert_eq!(run(&mut i, "put there is a menu \"Go\" && the enabled of menuItem \"Delete Card\" of menu \"Edit\""), "true true");
 }

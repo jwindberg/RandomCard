@@ -146,7 +146,25 @@ fn house(p: &mut Picture) {
     }
 }
 
-const STACK_SCRIPT: &str = r#"on openCard
+const STACK_SCRIPT: &str = r#"-- A menu of the stack's own. Its items arrive as doMenu messages.
+on openStack
+  if there is no menu "Tour" then create menu "Tour"
+  put "Home,Basics,Dice,Drawing,Animation,-,Address Book" into menu "Tour"
+end openStack
+
+on doMenu what
+  if what is "Address Book" then
+    visual effect zoom open
+    go to first card of background "Address"
+  else if "," & what & "," is in ",Home,Basics,Dice,Drawing,Animation," then
+    visual effect dissolve
+    go to card what
+  else
+    pass doMenu
+  end if
+end doMenu
+
+on openCard
   if there is a background field "Page" then
     put "Card" && the number of this card && "of" && the number of cards into background field "Page"
   end if

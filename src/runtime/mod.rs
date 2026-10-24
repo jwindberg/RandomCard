@@ -4,6 +4,8 @@ mod builtins;
 mod commands;
 pub mod dates;
 pub mod interp;
+mod menu_commands;
+pub mod menus;
 mod objects;
 pub mod settings;
 pub mod undo;

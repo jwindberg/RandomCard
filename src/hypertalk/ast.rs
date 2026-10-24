@@ -146,6 +146,15 @@ pub enum Countable {
     Backgrounds,
     Parts { kind: Option<PartKind>, layer: Layer, of: Option<Box<ObjSpec>> },
     Chunks(ChunkKind, Box<Expr>),
+    Menus,
+    MenuItems(Box<ChunkIndex>),
+}
+
+/// `menu "Edit"`, `menuItem 2 of menu "Go"`, `last menuItem of menu 3`.
+#[derive(Clone, Debug)]
+pub enum MenuRef {
+    Menu(ChunkIndex),
+    Item(ChunkIndex, ChunkIndex),
 }
 
 #[derive(Clone, Debug)]
@@ -166,6 +175,9 @@ pub enum Expr {
     ThereIs(bool, ObjSpec),
     IsType(bool, Box<Expr>, String),
     Selection,
+    Menu(Box<MenuRef>),
+    /// `there is a menu "Game"`.
+    MenuExists(Box<MenuRef>),
 }
 
 /// What `select` selects.
@@ -250,9 +262,12 @@ pub enum MarkWhat {
 
 #[derive(Clone, Debug)]
 pub enum Cmd {
-    Put { value: Expr, prep: Prep, dest: Option<Expr> },
+    /// `messages` is for `put items into menu "X" with menuMessages msgs`.
+    Put { value: Expr, prep: Prep, dest: Option<Expr>, messages: Option<Expr> },
     Get(Expr),
     Set { prop: String, obj: Option<Expr>, value: Expr },
+    CreateMenu(Expr),
+    ResetMenuBar,
     Add { value: Expr, dest: Expr },
     Subtract { value: Expr, dest: Expr },
     Multiply { dest: Expr, value: Expr },

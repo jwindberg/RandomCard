@@ -101,10 +101,6 @@ pub fn parse_object(src: &str) -> Option<ObjSpec> {
     p.at_eof().then_some(spec)
 }
 
-fn bool_lit(b: bool) -> &'static str {
-    if b { "true" } else { "false" }
-}
-
 fn is_ordinal(w: &str) -> bool {
     matches!(
         w,
@@ -633,16 +629,18 @@ impl Parser {
         Ok(match name {
             "put" => {
                 let value = self.list_expr()?;
-                let cmd = match self.prep() {
-                    Some(prep) => Cmd::Put { value, prep, dest: Some(self.expr()?) },
-                    None => Cmd::Put { value, prep: Prep::Into, dest: None },
+                let (prep, dest) = match self.prep() {
+                    Some(prep) => (prep, Some(self.expr()?)),
+                    None => (Prep::Into, None),
                 };
                 // `put items into menu "X" with menuMessages msgs`
-                if self.accept("with") {
+                let messages = if self.accept("with") {
                     self.accept_any(&["menumessages", "menumessage", "menumsgs", "menumsg"]);
-                    self.list_expr()?;
-                }
-                cmd
+                    Some(self.list_expr()?)
+                } else {
+                    None
+                };
+                Cmd::Put { value, prep, dest, messages }
             }
             "get" => Cmd::Get(self.list_expr()?),
             "set" => {
@@ -1014,6 +1012,14 @@ impl Parser {
                 }
             }
             "arrowkey" => Cmd::ArrowKey(self.expr()?),
+            "create" if self.is("menu") => {
+                self.advance();
+                Cmd::CreateMenu(self.expr()?)
+            }
+            "reset" if self.is("menubar") => {
+                self.advance();
+                Cmd::ResetMenuBar
+            }
             "tabkey" | "enterkey" | "returnkey" | "enterinfield" | "returninfield" => Cmd::NoOp,
             _ => {
                 // create menu, reset menubar, start using, debug, flash, print, drag, help ...
@@ -1402,14 +1408,11 @@ impl Parser {
             } else {
                 return Err(self.err_here("Expected \"there is a\" or \"there is no\""));
             };
-            if self.accept_any(&["menu", "menuitem"]).is_some() {
-                // Menus aren't scriptable here: no menu or menu item exists.
-                self.term()?;
-                if self.accept("of") {
-                    self.expect("menu")?;
-                    self.term()?;
-                }
-                return Ok(Expr::Lit(bool_lit(!positive).into()));
+            if let Some(w) = self.word().filter(|w| matches!(*w, "menu" | "menuitem")).map(str::to_string) {
+                self.advance();
+                let r = self.menu_ref(&w, None)?;
+                let test = Expr::MenuExists(Box::new(r));
+                return Ok(if positive { test } else { Expr::Unary(UnOp::Not, Box::new(test)) });
             }
             if self.accept("file") {
                 let path = self.term()?;
@@ -1495,15 +1498,11 @@ impl Parser {
         }
         if is_ordinal(w) && matches!(self.word_at(1), Some("menu" | "menuitem")) {
             // `last menuItem of menu "File"`
+            let ord = ordinal_of(w);
             self.advance();
             let w = self.word().unwrap_or_default().to_string();
             self.advance();
-            let mut args = Vec::new();
-            if w == "menuitem" && self.accept("of") {
-                self.expect("menu")?;
-                args.push(self.term()?);
-            }
-            return Ok(Expr::Call("__menu".into(), args));
+            return Ok(Expr::Menu(Box::new(self.menu_ref(&w, ord)?)));
         }
         if w == "window" && self.starts_term_at(1) {
             // Palettes and other windows aren't supported either.
@@ -1511,14 +1510,9 @@ impl Parser {
             return Ok(Expr::Call("__menu".into(), vec![self.term()?]));
         }
         if matches!(w, "menu" | "menuitem") && self.starts_term_at(1) {
-            // Menus can't be scripted here; references to them do nothing.
+            let w = w.to_string();
             self.advance();
-            let mut args = vec![self.term()?];
-            if w == "menuitem" && self.accept("of") {
-                self.expect("menu")?;
-                args.push(self.term()?);
-            }
-            return Ok(Expr::Call("__menu".into(), args));
+            return Ok(Expr::Menu(Box::new(self.menu_ref(&w, None)?)));
         }
         if let Some(c) = constant(w) {
             self.advance();
@@ -1623,7 +1617,52 @@ impl Parser {
         Ok(Expr::Property { name, length, obj: None })
     }
 
+    /// The rest of a menu reference, after "menu" or "menuItem": its name or
+    /// number (unless an ordinal came first), then "of menu …" for items.
+    fn menu_ref(&mut self, kind: &str, ord: Option<Ordinal>) -> PResult<MenuRef> {
+        let which = match ord {
+            Some(o) => ChunkIndex::Ordinal(o),
+            None => ChunkIndex::Expr(Box::new(self.term()?)),
+        };
+        if kind != "menuitem" {
+            return Ok(MenuRef::Menu(which));
+        }
+        if !(self.accept("of") || self.accept("in")) {
+            return Err(self.err_here("Expected \"of menu\""));
+        }
+        let menu = match self.word().and_then(ordinal_of) {
+            Some(o) if self.is_at(1, "menu") => {
+                self.pos += 2;
+                ChunkIndex::Ordinal(o)
+            }
+            _ => {
+                self.expect("menu")?;
+                ChunkIndex::Expr(Box::new(self.term()?))
+            }
+        };
+        Ok(MenuRef::Item(which, menu))
+    }
+
     fn countable(&mut self) -> PResult<Option<Countable>> {
+        if self.accept("menus") {
+            return Ok(Some(Countable::Menus));
+        }
+        if self.accept_any(&["menuitems", "menuitem"]).is_some() {
+            if !(self.accept("of") || self.accept("in")) {
+                return Err(self.err_here("Expected \"of\""));
+            }
+            let menu = match self.word().and_then(ordinal_of) {
+                Some(o) if self.is_at(1, "menu") => {
+                    self.pos += 2;
+                    ChunkIndex::Ordinal(o)
+                }
+                _ => {
+                    self.expect("menu")?;
+                    ChunkIndex::Expr(Box::new(self.term()?))
+                }
+            };
+            return Ok(Some(Countable::MenuItems(Box::new(menu))));
+        }
         if let Some(k) = self.word().and_then(chunk_kind) {
             self.advance();
             if !(self.accept("of") || self.accept("in")) {

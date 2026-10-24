@@ -205,7 +205,12 @@ impl Interp {
             Event::MsgBox(text) => self.run_msgbox(&text),
             Event::DoMenu(item) => {
                 let card = ObjRef::Card(self.w().card_id);
-                self.dispatch_top(card, "doMenu", vec![item])
+                // An item with a menuMessage sends it instead of doMenu.
+                let message = super::menus::find_item(&self.w().menus, &item).map(|i| i.message.clone());
+                match message.filter(|m| !m.is_empty()) {
+                    Some(m) => self.send_text(&m, card),
+                    None => self.dispatch_top(card, "doMenu", vec![item]),
+                }
             }
             Event::Key { target, message, args, default } => self.key_message(target, &message, args, default),
             Event::Shutdown => Ok(()),
@@ -778,6 +783,9 @@ impl Interp {
                 if matches!(&args[2], Expr::Call(n, _) if n == "__menu") {
                     return Ok(String::new());
                 }
+                if let Expr::Menu(r) = &args[2] {
+                    return self.menu_property(r, &prop.to_ascii_lowercase());
+                }
                 if matches!(args[2], Expr::Chunk(..) | Expr::Selection) {
                     return self.chunk_property(&args[2], &prop.to_ascii_lowercase());
                 }
@@ -837,6 +845,8 @@ impl Interp {
                 Ok(bool_str(is == *positive))
             }
             Expr::Selection => Ok(self.selected_text()),
+            Expr::Menu(r) => self.menu_value(r),
+            Expr::MenuExists(r) => self.menu_exists(r),
         }
     }
 
@@ -920,7 +930,7 @@ impl Interp {
         })
     }
 
-    fn ordinal_index(&self, o: Ordinal, count: usize) -> i64 {
+    pub(super) fn ordinal_index(&self, o: Ordinal, count: usize) -> i64 {
         match o {
             Ordinal::Nth(n) => n,
             Ordinal::Last => count as i64,
@@ -970,6 +980,7 @@ impl Interp {
                 self.object_value(o)
             }
             Expr::Selection => Ok(self.selected_text()),
+            Expr::Menu(r) => self.menu_value(r),
             _ => err("Expected a container (a variable, field or the message box) here"),
         }
     }

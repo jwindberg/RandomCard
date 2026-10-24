@@ -178,7 +178,7 @@ impl Interp {
                     _ => String::new(),
                 }
             }
-            "menus" => "File\nEdit\nGo\nTools\nObjects".into(),
+            "menus" => self.w().menus.iter().map(|m| m.name.as_str()).collect::<Vec<_>>().join("\n"),
             "stacks" => {
                 let w = self.w();
                 w.stack.path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| w.stack.name.clone())

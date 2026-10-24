@@ -46,7 +46,8 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 | Sound | `play`, notes, `dial`, `beep`; no MACE |
 | HyperCard 2.x import | Structure, pictures, parts, text, scripts, icons, sounds |
 | User levels and stack protection | Levels, Protect Stack, passwords, private access |
-| Multiple stacks, menus, printing, externals | Missing |
+| Script-modifiable menus | Complete, except submenus |
+| Multiple stacks, printing, externals | Missing |
 
 ## Using and authoring stacks
 
@@ -114,7 +115,6 @@ menu bar or replace HyperCard's menus with their own.
 **Still to do:**
 - Options and Patterns as menus.
 - Delete Stack, which should respect `cantDelete`.
-- Stacks hiding the menu bar or adding their own menus (item 7 below).
 
 **What protection can and can't do.** It keeps a stack's users from
 changing it by accident or casually. It isn't security: a `.rcstack` file
@@ -181,13 +181,11 @@ sample stacks parse.
   such as Backspace and the arrows inside a field; a separate Enter key
   (keypad Enter arrives as Return, so Shift+Return stands in for it); and
   keyboard messages with tools other than Browse.
-- **Menus:** `create menu`, `put … into menu`, `delete menu`, `enable` and
-  `disable menuItem`, `the checkMark`, `the menuMessage` and `reset menuBar`
-  are accepted and do nothing. Needs a script-modifiable menu model that the
-  UI renders.
+- **Menus:** the `textStyle` of menu items and `the markChar` beyond a
+  check mark are accepted but not shown. Submenus and hierarchical menus
+  (HyperCard 2.2's popup-style items) aren't supported.
 - **Windows and palettes:** `palette`, `picture`, `close window`, and
   `the visible of window`.
-- **`select`** of parts (as with the Button tool) and of chunks.
 - **`edit script` with a line**, and the **debugger**: `debug checkpoint`,
   breakpoints, stepping, and the message and variable watchers.
 - **Other stacks:** see below.
@@ -262,8 +260,7 @@ and the resource chain.
 4. ~~Using and authoring stacks.~~ Done.
 5. ~~Selection and click functions.~~ Done.
 6. ~~Styled text.~~ Done.
-7. **Script-modifiable menus.** Many stacks add their own menus; builds on
-   the menus from item 4.
+7. ~~Script-modifiable menus.~~ Done.
 8. **Multiple stacks, Home, and `start using`.** Larger architectural
    change to `World` and the message path.
 9. **HyperCard 1.x import, MACE, AddColor.**

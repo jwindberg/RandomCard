@@ -60,8 +60,7 @@ come across: other resources (XCMDs/XFCNs, color). HyperCard 1.x stacks must fir
 HyperCard 2.x. Private-access stacks import, since only the stack header is
 encrypted; they ask for their password. Protection comes across too:
 the user-level limit, password, Can't Modify and the other flags. Scripts
-that use menus, palettes or other windows parse, but
-those commands do nothing.
+that use palettes or other windows parse, but those commands do nothing.
 
 **User levels.** As in HyperCard, five levels decide what you can do:
 Browsing, Typing (edit field text), Painting (paint tools and the Paint
@@ -176,6 +175,13 @@ stack. Messages travel the HyperCard message path (part → card → background
   mouseWithin, mouseDoubleClick, openField, closeField, exitField, idle,
   arrowKey and doMenu. Menu commands go through `doMenu`, so scripts can
   intercept them.
+- Menus: `create menu`, `put "A,-,B" into menu "X" with menuMessages …`,
+  `put … after menuItem 2 of menu "Edit"`, `delete menu`/`menuItem`,
+  `enable`/`disable` of menus and items, `the checkMark`, `the commandChar`
+  (which also works as a shortcut), `the menuMessage` (sent instead of
+  `doMenu` when the item is chosen), `the name` and `enabled`, `the menus`,
+  `the number of menuItems of menu`, `there is a menu`, and
+  `reset menuBar`. The demo stack adds a Tour menu this way.
 - Keyboard messages: keyDown, returnInField, enterInField and tabKey go to
   the field being typed in; keyDown, returnKey, enterKey, tabKey,
   functionKey and commandKeyDown go to the card when no field is active.
@@ -237,7 +243,7 @@ src/
 
 ## Not (yet) implemented
 
-The main gaps are scriptable menus, multiple open stacks, and XCMDs. [ROADMAP.md](ROADMAP.md) lists the remaining work by area, with
+The main gaps are multiple open stacks and XCMDs. [ROADMAP.md](ROADMAP.md) lists the remaining work by area, with
 notes on how to approach each piece and a suggested order.
 
 ## References

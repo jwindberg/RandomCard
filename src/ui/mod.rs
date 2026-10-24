@@ -1,6 +1,7 @@
 //! The RandomCard window: menus, tool palette, the card, and the message box.
 
 mod editing;
+mod menus;
 mod levels;
 mod painting;
 mod render;
@@ -63,6 +64,8 @@ struct PartDrag {
 
 use crate::runtime::settings::{Settings, level_name};
 use editing::{Clip, Order};
+use menus::MenuState;
+use crate::runtime::menus::MenuItem;
 use levels::PasswordPrompt;
 use painting::{Marquee, PaintStroke, TextEntry};
 
@@ -177,179 +180,74 @@ impl App {
 
     // ----- menus and palette -----
 
-    /// The menus, as the user level allows (HyperCard showed only what each
-    /// level unlocks).
+    /// The menu bar, drawn from the world's menus (which scripts can
+    /// change). Built-in menus and items appear only when the user level and
+    /// tool allow them, as HyperCard showed only what each level unlocks.
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
-        let (edit_bg, tool, msg_visible, level, editing, cant_modify, can_undo, can_redo) = {
+        let (menus, state) = {
             let w = self.world();
-            (
-                w.edit_bg,
-                w.tool,
-                w.msg_visible,
-                w.level(),
-                w.editing_level(),
-                w.stack.cant_modify,
-                !w.undo.is_empty(),
-                !w.redo.is_empty(),
-            )
+            let state = MenuState {
+                edit_bg: w.edit_bg,
+                tool: w.tool,
+                msg_visible: w.msg_visible,
+                level: w.level(),
+                editing: w.editing_level(),
+                cant_modify: w.stack.cant_modify,
+                can_undo: !w.undo.is_empty(),
+                can_redo: !w.redo.is_empty(),
+                tools_shown: self.settings.show_tools,
+                target: None,
+                paste: None,
+                text_style: None,
+            };
+            (w.menus.clone(), state)
         };
-        let text_style = self.current_text_style();
-        let item = |ui: &mut egui::Ui, enabled: bool, label: &str| ui.add_enabled(enabled, egui::Button::new(label)).clicked();
+        let editing = state.editing;
+        let state = MenuState {
+            target: self.edit_target_name(),
+            paste: self.paste_name().filter(|t| editing >= if *t == "Picture" { 3 } else { 4 }),
+            text_style: self.current_text_style(),
+            ..state
+        };
         egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button("File", |ui| {
-                for label in ["New Stack…", "Open Stack…", "Import HyperCard Stack…"] {
-                    if item(ui, true, label) {
-                        self.do_menu(label);
-                    }
-                }
-                if item(ui, !cant_modify, "Save Stack") {
-                    self.do_menu("Save Stack");
-                }
-                if item(ui, true, "Save a Copy…") {
-                    self.do_menu("Save a Copy…");
-                }
-                ui.separator();
-                if item(ui, true, "Protect Stack…") {
-                    self.open_protect_stack();
-                }
-                if item(ui, true, "Preferences…") {
-                    self.prefs_open = true;
-                }
-                ui.separator();
-                if item(ui, true, "Quit RandomCard") {
-                    self.do_menu("Quit RandomCard");
-                }
-            });
-            ui.menu_button("Edit", |ui| {
-                if item(ui, can_undo && editing >= 2, "Undo") {
-                    self.undo();
-                }
-                if item(ui, can_redo && editing >= 2, "Redo") {
-                    self.redo();
-                }
-                ui.separator();
-                // Cut, Copy and Clear name what they act on, as in HyperCard.
-                let target = self.edit_target_name();
-                for verb in ["Cut", "Copy", "Clear"] {
-                    let label = match target {
-                        Some(t) if !(verb == "Clear" && t == "Picture") => format!("{verb} {t}"),
-                        _ => verb.to_string(),
-                    };
-                    if item(ui, target.is_some(), &label) {
-                        self.do_menu(&label);
-                    }
-                }
-                let paste = self.paste_name().filter(|t| editing >= if *t == "Picture" { 3 } else { 4 });
-                let label = paste.map(|t| format!("Paste {t}")).unwrap_or_else(|| "Paste".into());
-                if item(ui, paste.is_some(), &label) {
-                    self.do_menu(&label);
-                }
-                if editing >= 2 {
-                    ui.separator();
-                    for label in ["New Card", "Delete Card", "Cut Card", "Copy Card", "Paste Card"] {
-                        if item(ui, true, label) {
-                            self.do_menu(label);
-                        }
-                    }
-                }
-                if editing >= 3 {
-                    ui.separator();
-                    if item(ui, true, if edit_bg { "✔ Background" } else { "Background" }) {
-                        self.do_menu("Background");
-                    }
-                    if item(ui, true, "Clear Picture") {
-                        self.do_menu("Clear Picture");
-                    }
-                }
-            });
-            ui.menu_button("Go", |ui| {
-                for label in ["Back", "First", "Prev", "Next", "Last"] {
-                    if item(ui, true, label) {
-                        self.do_menu(label);
-                    }
-                }
-                ui.separator();
-                if item(ui, true, if msg_visible { "✔ Message" } else { "Message" }) {
-                    self.do_menu("Message");
-                }
-            });
-            ui.menu_button("View", |ui| {
-                let shown = self.settings.show_tools;
-                if item(ui, editing >= 3, if shown { "✔ Tool Panel" } else { "Tool Panel" }) {
-                    self.toggle_tool_panel();
-                }
-                if item(ui, true, if msg_visible { "✔ Message Box" } else { "Message Box" }) {
-                    self.do_menu("Message");
-                }
-            });
-            if tool.is_paint() {
-                ui.menu_button("Paint", |ui| {
-                    if item(ui, true, "Select All") {
-                        self.do_menu("Select All");
-                    }
-                    ui.separator();
-                    for op in crate::paint::PaintOp::ALL {
-                        if item(ui, true, op.name()) {
-                            self.do_menu(op.name());
-                        }
-                    }
-                });
-            }
-            if let Some((font, size, style)) = &text_style {
-                ui.menu_button("Font", |ui| {
-                    for f in styles::FONTS {
-                        let label = if font.eq_ignore_ascii_case(f) { format!("✔ {f}") } else { f.to_string() };
-                        if item(ui, true, &label) {
-                            self.do_menu(f);
-                        }
-                    }
-                });
-                ui.menu_button("Style", |ui| {
-                    let check = |on: bool, name: &str| if on { format!("✔ {name}") } else { name.to_string() };
-                    if item(ui, true, &check(style == "plain", "Plain")) {
-                        self.do_menu("Plain");
-                    }
-                    for s in styles::STYLES {
-                        let name = format!("{}{}", s[..1].to_ascii_uppercase(), &s[1..]);
-                        if item(ui, true, &check(styles::has_style(style, s), &name)) {
-                            self.do_menu(&name);
-                        }
-                    }
-                    ui.separator();
-                    for s in styles::SIZES {
-                        if item(ui, true, &check(size == s, &format!("{s} Point"))) {
-                            self.do_menu(&format!("{s} Point"));
-                        }
-                    }
-                });
-            }
-            if editing >= 4 {
-                ui.menu_button("Objects", |ui| {
-                    for label in ["Button Info…", "Field Info…", "Card Info…", "Bkgnd Info…", "Stack Info…"] {
-                        if item(ui, true, label) {
-                            self.do_menu(label);
-                        }
-                    }
-                    ui.separator();
-                    for label in ["Bring Closer", "Send Farther", "Bring to Front", "Send to Back"] {
-                        if item(ui, true, label) {
-                            self.do_menu(label);
-                        }
-                    }
-                    ui.separator();
-                    for label in ["New Button", "New Field", "New Background"] {
-                        if item(ui, true, label) {
-                            self.do_menu(label);
-                        }
-                    }
-                    if level >= 5 {
-                        ui.separator();
-                        for label in ["Card Script", "Bkgnd Script", "Stack Script"] {
-                            if item(ui, true, label) {
-                                self.do_menu(label);
+            for menu in menus.iter().filter(|m| !m.builtin || state.menu_shown(&m.name)) {
+                let items: Vec<(String, bool, &MenuItem)> = menu
+                    .items
+                    .iter()
+                    .filter(|i| !i.builtin || i.is_separator() || state.item_shown(&menu.name, &i.name))
+                    .map(|i| {
+                        let (label, enabled, checked) = if i.builtin {
+                            state.item_look(&i.name)
+                        } else {
+                            (i.name.clone(), true, false)
+                        };
+                        let label = if checked || i.checked { format!("✔ {label}") } else { label };
+                        (label, enabled && i.enabled, i)
+                    })
+                    .collect();
+                ui.add_enabled_ui(menu.enabled, |ui| {
+                    ui.menu_button(&menu.name, |ui| {
+                        let mut separated = true;
+                        for (k, (label, enabled, i)) in items.iter().enumerate() {
+                            if i.is_separator() {
+                                // No separators at the ends or two in a row.
+                                let more = items[k + 1..].iter().any(|(_, _, j)| !j.is_separator());
+                                if !separated && more {
+                                    ui.separator();
+                                    separated = true;
+                                }
+                                continue;
+                            }
+                            separated = false;
+                            let mut button = egui::Button::new(label.as_str());
+                            if !i.command_char.is_empty() {
+                                button = button.shortcut_text(format!("Ctrl+{}", i.command_char.to_uppercase()));
+                            }
+                            if ui.add_enabled(*enabled, button).clicked() {
+                                self.do_menu(label.trim_start_matches("✔ "));
                             }
                         }
-                    }
+                    });
                 });
             }
         });
@@ -481,6 +379,13 @@ impl App {
                 UiRequest::Key(target, action) => self.key_action(ctx, target, action),
                 UiRequest::PaintOp(op) => self.apply_paint_op(op),
                 UiRequest::SelectAll => self.select_all(),
+                UiRequest::ProtectStack => self.open_protect_stack(),
+                UiRequest::Preferences => self.prefs_open = true,
+                UiRequest::ToggleToolPanel => {
+                    if self.editing_level() >= 3 {
+                        self.toggle_tool_panel();
+                    }
+                }
             }
         }
     }
@@ -578,6 +483,25 @@ impl App {
             (cmd(Key::Q), "q", menu("Quit RandomCard"), true),
             (cmd(Key::S), "s", menu("Save Stack"), editing >= 2),
         ];
+        // Command keys that scripts gave menu items (`the commandChar`) come
+        // first, so a stack can claim keys.
+        let scripted: Vec<(String, String)> = {
+            let w = self.world();
+            w.menus
+                .iter()
+                .filter(|m| m.enabled)
+                .flat_map(|m| &m.items)
+                .filter(|i| i.enabled && !i.command_char.is_empty())
+                .map(|i| (i.command_char.to_lowercase(), i.name.clone()))
+                .collect()
+        };
+        for (ch, name) in scripted {
+            if let Some(key) = Key::from_name(&ch.to_uppercase())
+                && ctx.input_mut(|i| i.consume_shortcut(&cmd(key)))
+            {
+                self.command_key(ctx, &ch, menu(&name));
+            }
+        }
         if editing >= 3 && ctx.input_mut(|i| i.consume_shortcut(&cmd(Key::T))) {
             self.toggle_tool_panel();
         }

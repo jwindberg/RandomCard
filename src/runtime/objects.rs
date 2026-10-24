@@ -360,6 +360,8 @@ impl Interp {
                 }
             }
             Countable::MarkedCards => self.w().stack.cards.iter().filter(|c| c.marked).count(),
+            Countable::Menus => self.w().menus.len(),
+            Countable::MenuItems(m) => self.count_menu_items(m)?,
             Countable::Backgrounds => self.w().stack.backgrounds.len(),
             Countable::Parts { kind, layer, of } => {
                 let card = match of.as_deref() {

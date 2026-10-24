@@ -266,6 +266,9 @@ pub enum UiRequest {
     /// A Paint menu command, applied to the selection (or the whole picture).
     PaintOp(crate::paint::PaintOp),
     SelectAll,
+    ProtectStack,
+    Preferences,
+    ToggleToolPanel,
     /// A key's message wasn't handled: do what the key does by default.
     Key(ObjRef, KeyAction),
 }
@@ -297,6 +300,8 @@ pub struct World {
     pub history_pos: usize,
     pub lock_screen: bool,
     pub menubar_visible: bool,
+    /// The menu bar, as scripts have changed it.
+    pub menus: Vec<super::menus::Menu>,
     pub mouse: MouseState,
     pub transition: Option<Transition>,
     pub transition_seq: u64,
@@ -358,6 +363,7 @@ impl World {
             history_pos: 0,
             lock_screen: false,
             menubar_visible: true,
+            menus: super::menus::standard_menus(),
             mouse: MouseState::default(),
             transition: None,
             transition_seq: 0,
