@@ -252,9 +252,8 @@ resources) for buttons, fields and rectangles.
   commands (`colorCard`, `addColor colorButton`…) aren't implemented, so
   scripts can't change colors.
 - **XCMDs and XFCNs.** These are 68k/PowerPC code and can't run directly.
-  Common ones could be reimplemented natively by name (for example
-  `Palette`, `PictureWindow`, text utilities), or flagged clearly when a
-  script calls one.
+  See item 4 of the suggested order: a framework for externals written in
+  Rust, starting with versions of the common ones.
 - **PICT resources** and `picture`/`palette` windows.
 - **Checksum validation** of LIST and PAGE blocks, for clearer errors on
   damaged stacks.
@@ -272,17 +271,68 @@ resources) for buttons, fields and rectangles.
 
 ## Suggested order
 
-1. ~~Keyboard messages and interceptable commands.~~ Done.
-2. ~~Paint patterns and the remaining paint tools.~~ Done, except FatBits.
-3. ~~Cut, Copy and Paste of parts, and undo for object edits.~~ Done.
-4. ~~Using and authoring stacks.~~ Done.
-5. ~~Selection and click functions.~~ Done.
-6. ~~Styled text.~~ Done.
-7. ~~Script-modifiable menus.~~ Done.
-8. ~~Multiple stacks, Home, and `start using`.~~ Done, except stack windows
-   and objects in other stacks.
-9. ~~HyperCard 1.x import, MACE, AddColor.~~ Done, except MACE.
-10. ~~Font metrics, printing, the debugger.~~ Done, except report printing.
+Done so far: keyboard messages, paint tools and patterns, clipboard and undo,
+using and authoring stacks, the selection, styled text, scriptable menus,
+Home and stacks in use, HyperCard 1.x import and AddColor, font metrics,
+printing and the debugger.
+
+Next, ranked by what people who built HyperCard stacks will need first:
+
+1. **Find and Recent dialogs.** Cmd-F and Cmd-R were muscle memory. `find`
+   works from scripts; the UI needs the Find dialog (Ctrl+F, with Find
+   Again) and the Recent card thumbnails (Ctrl+R).
+2. **Popup buttons and the standard button style.** HyperCard 2.2 stacks
+   used popups widely and they import as plain rectangles today. Includes
+   `the selectedLine` and `selectedText` of a popup, and `titleWidth`.
+3. **Real stacks as tests.** A harness that opens each stack in a folder,
+   sends `openStack`, clicks every button, and reports script errors and
+   unknown commands. Run against a collection of real stacks, it shows
+   which commands, styles and XCMDs matter most, and picks the first
+   built-in externals below.
+4. **Externals: XCMDs and XFCNs in Rust.** A framework where anyone can add
+   commands and functions in Rust, as HyperCard developers once did in
+   Pascal, C or assembly:
+   - **One interface.** An external is a Rust type with a name, saying
+     whether it's a command or a function. It gets its arguments as text,
+     and a context for calling back into RandomCard: evaluating an
+     expression, sending a message, reading and setting globals and field
+     text, and setting `the result`. These are the services HyperCard's
+     XCMD callbacks offered.
+   - **The same place in the message path.** As in HyperCard, externals are
+     tried after the last handler (stack, stacks in use, Home), so a script
+     handler with the same name always wins.
+   - **Built in.** One Rust file each in `src/externals/`, registered by
+     name. First come the ones HyperCard shipped or stacks commonly used:
+     `FontExists`, `Palette` (the Navigator palette), `PictureWindow` (with
+     a PICT decoder) and AddColor's commands. More come from the test
+     results.
+   - **Your own.** Written in Rust against a small SDK crate with the same
+     interface, then either compiled into RandomCard (add a file, rebuild),
+     or compiled to WebAssembly and installed in a stack, in Home, or in
+     `~/.config/randomcard/externals/`. They'd be found along the same
+     chain HyperCard searched for XCMD resources. A WebAssembly external
+     needs no rebuild, runs on every platform, is sandboxed, and travels
+     inside the stack as a real XCMD did. *To decide:* WebAssembly needs a
+     runtime library (wasmi or wasmtime). Native dynamic libraries are the
+     alternative, but they're specific to each platform and can't be
+     sandboxed.
+   - **Imported stacks.** The importer lists the XCMDs and XFCNs in a
+     stack's resource fork. A call to one that has no Rust version says
+     "This stack uses the XCMD 'X', which RandomCard doesn't have", and
+     Stack Info shows the list.
+5. **The script editor.** Find and replace, going to a line (`edit script
+   of … at line`), and syntax colouring.
+6. **FatBits and an icon editor.** Drawing custom icons and touching up
+   pictures pixel by pixel.
+7. **The rest of painting.** The Options and Patterns menus, editing
+   patterns, Shift for straight lines and perfect shapes, and Pickup, Scale
+   and Revert.
+8. **Multiple stack windows.** `go to stack … in a new window`, and
+   `the stacks`.
+9. **Report printing, MACE sound, Compact Stack and Delete Stack.**
+10. **Objects in other stacks.** First check what HyperCard allowed. Its
+    scripts usually reached other stacks with `lock screen`, `go`, `get`
+    and `go back`, and that idiom has to work across stacks either way.
 
 ## Future
 
