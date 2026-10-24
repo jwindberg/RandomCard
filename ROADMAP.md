@@ -283,3 +283,58 @@ resources) for buttons, fields and rectangles.
    and objects in other stacks.
 9. ~~HyperCard 1.x import, MACE, AddColor.~~ Done, except MACE.
 10. ~~Font metrics, printing, the debugger.~~ Done, except report printing.
+
+## Future
+
+Ideas, not commitments: what HyperCard might have grown into. Each should
+feel like HyperTalk (plain words, everything is text) rather than a
+bolted-on API, and none should change how existing stacks behave. The
+first three are favourites.
+
+- **JSON and REST.** Fetching and sending data from scripts, in
+  HyperTalk's style:
+  - `put url "https://api.example.com/items" into field "Data"`, and
+    `post field "Form" to url "…"`, with `the result` holding the HTTP
+    status and `the httpHeaders` for setting headers (tokens, content
+    type).
+  - JSON as chunk expressions, since everything is text:
+    `put key "name" of item 3 of json field "Data" into field "Name"`,
+    `the keys of json x`, `the number of items of json x`, and
+    `set key "done" of json x to true`, which rewrites the text.
+  - Requests that don't freeze a handler: `load url "…" with message
+    "gotData"`, sending the message with the reply when it arrives.
+  - Filling cards from data: one card per record, as HyperCard
+    address books did by hand.
+- **Databases.** SQLite from HyperTalk: `query "select …" from database
+  "Addresses.db"`, with results as lines and items, and cards bound to
+  rows.
+- **Unicode and system fonts.** Text beyond MacRoman, emoji, and real
+  fonts chosen from the system, for new stacks that don't need to look
+  like 1990.
+- **A web player.** egui runs in the browser (WebAssembly), so a stack
+  could be published as a web page anyone can click through, the way
+  HyperCard stacks were once passed around on floppies.
+- **Stacks as web services.** A server mode where a stack answers
+  requests: `on httpRequest path, params` returning a page or JSON, so a
+  stack can be a small web app, built and tested in RandomCard.
+- **Running stacks without a window.** `randomcard --run stack --send
+  message` for scripting from the command line, cron jobs, and automated
+  tests of stacks.
+- **A shell and file system.** `do shell "…"` (opt-in, with permission
+  per stack), listing folders, reading and writing files beyond
+  `open file`, as replacements for the XCMDs stacks used for this.
+- **Color and modern images.** A color paint layer alongside the 1-bit
+  one, PNG and JPEG pictures on cards (pasted or dropped), resizable cards
+  and high-resolution pictures.
+- **Media.** Video playback in a card region, recording sound
+  (`record sound`), and playing common audio files.
+- **Plugins.** A safe stand-in for XCMDs: externals written as
+  WebAssembly modules, sandboxed and cross-platform, called like
+  commands and functions.
+- **A scripting assistant.** Ask Claude to explain a handler, write one
+  from a description, or find why a script fails, from the script editor.
+- **Accessibility.** Screen readers announcing cards, buttons and
+  fields (egui supports AccessKit), and keyboard navigation of buttons.
+- **Collaboration.** A stack format that diffs well in git (a folder of
+  cards and scripts), and stacks shared and edited by several people at
+  once.
