@@ -706,6 +706,7 @@ fn convert_part(p: &PartRec, fonts: &HashMap<i16, String>) -> Part {
         part.auto_select = p.ext & 0x80 != 0;
         part.show_lines = p.ext & 0x40 != 0;
         part.wide_margins = p.ext & 0x20 != 0;
+        part.multiple_lines = p.ext & 0x10 != 0;
     } else {
         part.enabled = p.flags & 0x01 == 0;
         part.show_name = p.ext & 0x80 != 0;

@@ -9,7 +9,7 @@ use eframe::egui::{
 };
 
 use crate::model::{Icon, Id, Layer, Part, PartKind, PartStyle, Picture, Pixel, TextAlign};
-use crate::runtime::world::{Found, ObjRef, World};
+use crate::runtime::world::{FieldRange, ObjRef, World};
 
 pub const BLACK: Color32 = Color32::BLACK;
 pub const WHITE: Color32 = Color32::WHITE;
@@ -35,7 +35,8 @@ pub struct Scene {
     pub edit_bg: bool,
     /// Background parts first, then card parts, each in z-order.
     pub parts: Vec<PartView>,
-    pub found: Option<Found>,
+    pub found: Option<FieldRange>,
+    pub selection: Option<FieldRange>,
     /// The icons this card's buttons show.
     pub icons: HashMap<i32, Icon>,
 }
@@ -80,8 +81,16 @@ impl Scene {
             edit_bg: w.edit_bg,
             parts,
             found: w.found.clone().filter(|f| f.card == card),
+            selection: w.current_selection().cloned(),
             icons,
         }
+    }
+
+    /// The characters hilited in a field: its selection, or found text.
+    pub fn highlight(&self, obj: ObjRef) -> Option<(usize, usize)> {
+        let in_field = |r: &&FieldRange| obj == (ObjRef::Part { layer: r.layer, id: r.field, card: r.card });
+        let selected = self.selection.as_ref().filter(in_field).filter(|r| r.start < r.end);
+        selected.or(self.found.as_ref().filter(in_field)).map(|r| (r.start, r.end))
     }
 
     pub fn part_at(&self, x: i32, y: i32) -> Option<&PartView> {
@@ -214,7 +223,7 @@ pub fn draw_scene(painter: &Painter, tex: &Textures, scene: &Scene, origin: Pos2
             draw_card_picture(painter, tex, scene, card_rect, uv);
         }
         if pv.part.visible {
-            draw_part(painter, tex, pv, origin, pressed == Some(pv.obj), scene.found.as_ref(), live);
+            draw_part(painter, tex, pv, origin, pressed == Some(pv.obj), scene.highlight(pv.obj), live);
         }
     }
     if !card_pict_drawn {
@@ -244,13 +253,13 @@ pub fn draw_part(
     pv: &PartView,
     origin: Pos2,
     pressed: bool,
-    found: Option<&Found>,
+    highlight: Option<(usize, usize)>,
     live: bool,
 ) {
     let rect = part_rect(&pv.part, origin);
     match pv.part.kind {
         PartKind::Button => draw_button(painter, tex, pv, rect, pressed),
-        PartKind::Field => draw_field(painter, pv, rect, found, live),
+        PartKind::Field => draw_field(painter, pv, rect, highlight, live),
     }
 }
 
@@ -408,7 +417,7 @@ pub fn field_text_rect(p: &Part, rect: Rect) -> Rect {
     r
 }
 
-/// Lay out field text, optionally highlighting a found range of characters.
+/// Lay out field text, optionally hiliting a range of characters.
 pub fn field_job(p: &Part, text: &str, width: f32, found: Option<(usize, usize)>) -> LayoutJob {
     let mut job = LayoutJob::default();
     let fmt = text_format(p, BLACK);
@@ -432,6 +441,46 @@ pub fn field_job(p: &Part, text: &str, width: f32, found: Option<(usize, usize)>
         TextAlign::Right => egui::Align::RIGHT,
     };
     job
+}
+
+/// List fields (autoSelect) hilite whole lines, across the field.
+pub fn hilite_lines(painter: &Painter, p: &Part, galley: &egui::Galley, pos: Pos2, text_rect: Rect, hl: Option<(usize, usize)>) {
+    let Some((start, end)) = hl.filter(|_| p.auto_select) else { return };
+    let top = galley.pos_from_cursor(egui::text::CCursor::new(start)).top();
+    let bottom = galley.pos_from_cursor(egui::text::CCursor::new(end)).bottom();
+    let rows = Rect::from_x_y_ranges(text_rect.x_range(), pos.y + top..=pos.y + bottom);
+    painter.rect_filled(rows, 0.0, BLACK);
+}
+
+/// Where a field's text starts on screen, allowing for its scroll.
+fn field_text_origin(p: &Part, text_rect: Rect) -> Pos2 {
+    let scroll = if p.style == PartStyle::Scrolling { p.scroll as f32 } else { 0.0 };
+    Pos2::new(aligned_x(p, text_rect), text_rect.top() - scroll)
+}
+
+/// The character under a point in a field, as `draw_field` lays it out, or
+/// None below the last line.
+pub fn field_char_at(painter: &Painter, pv: &PartView, origin: Pos2, pos: Pos2) -> Option<usize> {
+    let p = &pv.part;
+    let text_rect = field_text_rect(p, part_rect(p, origin));
+    let galley = painter.layout_job(field_job(p, &pv.text, text_rect.width(), None));
+    let rel = pos - field_text_origin(p, text_rect);
+    if rel.y > galley.size().y {
+        return None;
+    }
+    // The nearest cursor may sit after the character the pointer is over.
+    let cursor = galley.cursor_from_pos(rel);
+    let at = galley.pos_from_cursor(cursor).left();
+    let i = cursor.index.0;
+    Some(if rel.x < at && i > 0 { i - 1 } else { i })
+}
+
+/// The bottom left of a character in a field, on the card.
+pub fn field_char_point(painter: &Painter, pv: &PartView, at: usize) -> Pos2 {
+    let p = &pv.part;
+    let text_rect = field_text_rect(p, part_rect(p, Pos2::ZERO));
+    let galley = painter.layout_job(field_job(p, &pv.text, text_rect.width(), None));
+    field_text_origin(p, text_rect) + galley.pos_from_cursor(egui::text::CCursor::new(at)).left_bottom().to_vec2()
 }
 
 /// Where to place a galley laid out with the part's alignment: egui lays out
@@ -465,15 +514,14 @@ pub fn draw_field_frame(painter: &Painter, p: &Part, rect: Rect) {
 
 /// Draw a field. With `live` set, a scrolling field gets only its frame: its
 /// text is shown in a scroll area widget by the UI.
-fn draw_field(painter: &Painter, pv: &PartView, rect: Rect, found: Option<&Found>, live: bool) {
+fn draw_field(painter: &Painter, pv: &PartView, rect: Rect, highlight: Option<(usize, usize)>, live: bool) {
     let p = &pv.part;
     draw_field_frame(painter, p, rect);
     if live && p.style == PartStyle::Scrolling {
         return;
     }
     let text_rect = field_text_rect(p, rect);
-    let hl = found.filter(|f| pv.obj == (ObjRef::Part { layer: f.layer, id: f.field, card: f.card }));
-    let job = field_job(p, &pv.text, text_rect.width(), hl.map(|f| (f.start, f.end)));
+    let job = field_job(p, &pv.text, text_rect.width(), highlight);
     let galley = painter.layout_job(job);
     // Clip to the whole field so large text isn't cut by the margins.
     let clip_rect = if p.style == PartStyle::Scrolling { text_rect } else { rect.shrink(1.0) };
@@ -490,7 +538,8 @@ fn draw_field(painter: &Painter, pv: &PartView, rect: Rect, found: Option<&Found
             y += line_h;
         }
     }
-    let pos = Pos2::new(aligned_x(p, text_rect), text_rect.top() - scroll);
+    let pos = field_text_origin(p, text_rect);
+    hilite_lines(&clip, p, &galley, pos, text_rect, highlight);
     clip.galley(pos, galley.clone(), BLACK);
     if is_bold(p) {
         clip.galley(pos + Vec2::new(0.6, 0.0), galley.clone(), BLACK);

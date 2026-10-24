@@ -41,7 +41,7 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 | System messages | Mouse, navigation, keyboard, `idle`, `doMenu`; all commands interceptable |
 | Browse, Button and Field tools | Working, with clipboard and undo |
 | Paint tools | All 18 tools, patterns, Paint menu; no FatBits |
-| Fields | Plain text; no styled runs or text selection queries |
+| Fields | Plain text, the selection, click functions, list fields; no styled runs |
 | Visual effects | Complete |
 | Sound | `play`, notes, `dial`, `beep`; no MACE |
 | HyperCard 2.x import | Structure, pictures, parts, text, scripts, icons, sounds |
@@ -143,7 +143,9 @@ text, multi-level undo and redo, and script-driven painting with `drag`,
 
 **Today:** plain text per field (shared or per card for background fields),
 font, size, style and alignment for the whole field, `lockText`, `dontWrap`,
-`showLines`, `wideMargins`, scrolling fields, and `find` highlighting.
+`showLines`, `wideMargins`, scrolling fields, `find` highlighting, the text
+selection (`select`, `the selectedText` and friends, `the selection` as a
+container), click functions in locked fields, and autoSelect list fields.
 
 **Missing:**
 - **Styled text runs.** Per-character font, size and style
@@ -152,17 +154,12 @@ font, size, style and alignment for the whole field, `lockText`, `dontWrap`,
   that preserves runs. The importer already skips HyperCard's style runs
   (`content_text` in `src/import/mod.rs`) and could convert them with the
   STBL block.
-- **Selection functions:** `the selectedText`, `selectedChunk`,
-  `selectedLine`, `selectedField`, `selectedLoc`, and `the selection` as a
-  container. These return empty today (`src/runtime/builtins.rs`). The UI
-  would publish the focused field's selection into `World`.
-- **Click functions:** `the clickText`, `clickChunk` and `clickLine` for
-  clicks in locked fields.
-- **List fields:** `autoSelect` with `multipleLines` (whole-line selection
-  and hiliting).
+- **List fields:** Command-click to select lines that aren't next to each
+  other in a multipleLines field (Shift-click runs work), and
+  `the selectedLine` reporting such selections.
+- **The selection in the message box:** `the selection` and
+  `the selectedText` only see fields.
 - **`autoTab`, `fixedLineHeight`, `textHeight`** behaviour.
-- **`select` with chunks:** `select line 3 of field 1` focuses the field
-  but doesn't place the selection.
 
 ## Buttons
 
@@ -267,8 +264,7 @@ and the resource chain.
 2. ~~Paint patterns and the remaining paint tools.~~ Done, except FatBits.
 3. ~~Cut, Copy and Paste of parts, and undo for object edits.~~ Done.
 4. ~~Using and authoring stacks.~~ Done, except Font and Style menus.
-5. **Selection and click functions.** Common in scripts that react to
-   clicks in fields.
+5. ~~Selection and click functions.~~ Done.
 6. **Styled text.** Needed for faithful imports and chunk properties.
 7. **Script-modifiable menus.** Many stacks add their own menus; builds on
    the menus from item 4.

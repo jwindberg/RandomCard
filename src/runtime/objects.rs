@@ -525,6 +525,7 @@ impl Interp {
                     "sharedtext" => bool_str(p.shared_text),
                     "dontsearch" => bool_str(p.dont_search),
                     "autoselect" => bool_str(p.auto_select),
+                    "multiplelines" => bool_str(p.multiple_lines),
                     "scroll" => p.scroll.to_string(),
                     "contents" | "text" => s.field_text(card, layer, id),
                     "owner" => {
@@ -690,6 +691,7 @@ impl Interp {
                     "sharedtext" => p.shared_text = to_bool(v)?,
                     "dontsearch" => p.dont_search = to_bool(v)?,
                     "autoselect" => p.auto_select = to_bool(v)?,
+                    "multiplelines" => p.multiple_lines = to_bool(v)?,
                     "scroll" => p.scroll = to_int(v)?.max(0) as i32,
                     "id" | "number" | "owner" => return err(format!("Can't set the {name}")),
                     _ => return err(format!("No such property \"{name}\"")),

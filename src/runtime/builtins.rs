@@ -4,6 +4,7 @@ use crate::hypertalk::ast::NameLength;
 use crate::hypertalk::value::*;
 
 use super::dates;
+use super::world::{FieldRange, World, line_number};
 use super::interp::{Interp, R, err, to_int, to_number};
 
 /// Arguments to list functions may be given separately or as one comma list.
@@ -152,9 +153,31 @@ impl Interp {
                 NameLength::Long => "02418000".into(),
                 _ => "2.41".into(),
             },
-            "foundtext" | "foundchunk" | "foundline" | "foundfield" => self.found_info(name),
-            "selectedtext" | "selectedchunk" | "selectedline" | "selectedfield" | "selectedloc" | "clickchunk"
-            | "clickline" | "clicktext" => String::new(),
+            "foundtext" | "foundchunk" | "foundline" | "foundfield" => {
+                let w = self.w();
+                let found = w.found.as_ref().filter(|f| f.card == w.card_id);
+                found.map(|f| range_info(&w, f, &name[5..])).unwrap_or_default()
+            }
+            "selectedtext" | "selectedchunk" | "selectedline" | "selectedfield" => {
+                let w = self.w();
+                w.current_selection().map(|r| range_info(&w, r, &name[8..])).unwrap_or_default()
+            }
+            "selectedloc" => {
+                let w = self.w();
+                match (w.current_selection(), w.selection_loc) {
+                    (Some(_), Some((x, y))) => format!("{x},{y}"),
+                    _ => String::new(),
+                }
+            }
+            "clicktext" | "clickchunk" | "clickline" => {
+                let w = self.w();
+                let click = w.click.as_ref().filter(|c| c.card == w.card_id);
+                match click {
+                    // Clicking a space or past the text has no word, but still a line.
+                    Some(c) if c.start < c.end || name == "clickline" => range_info(&w, c, &name[5..]),
+                    _ => String::new(),
+                }
+            }
             "menus" => "File\nEdit\nGo\nTools\nObjects".into(),
             "stacks" => {
                 let w = self.w();
@@ -172,21 +195,21 @@ impl Interp {
             _ => return err(format!("No such function \"{name}\"")),
         })
     }
+}
 
-    fn found_info(&self, which: &str) -> String {
-        let w = self.w();
-        let Some(f) = &w.found else { return String::new() };
-        let text = w.stack.field_text(f.card, f.layer, f.field);
-        let fields = w.stack.parts(f.card, f.layer).iter().filter(|q| q.kind == crate::model::PartKind::Field);
-        let field_name = format!("{} field {}", f.layer.name(), fields.take_while(|q| q.id != f.field).count() + 1);
-        match which {
-            "foundtext" => text.chars().skip(f.start).take(f.end - f.start).collect(),
-            "foundfield" => field_name,
-            "foundchunk" => format!("char {} to {} of {}", f.start + 1, f.end, field_name),
-            _ => {
-                let line = text.chars().take(f.start).filter(|c| *c == '\n').count() + 1;
-                format!("line {line} of {field_name}")
-            }
+/// `the foundText`, `selectedChunk`, `clickLine` and friends: the text of a
+/// range, or where it is ("char 3 to 7 of card field 1", "line 2 of …").
+fn range_info(w: &World, r: &FieldRange, which: &str) -> String {
+    let field = w.range_field_name(r);
+    match which {
+        "text" => w.range_text(r),
+        "field" => field,
+        "chunk" => format!("char {} to {} of {field}", r.start + 1, r.end),
+        _ => {
+            let text = w.stack.field_text(r.card, r.layer, r.field);
+            let first = line_number(&text, r.start);
+            let last = line_number(&text, r.end.max(r.start + 1) - 1).max(first);
+            if last > first { format!("line {first} to {last} of {field}") } else { format!("line {first} of {field}") }
         }
     }
 }

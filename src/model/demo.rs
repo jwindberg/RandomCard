@@ -238,8 +238,16 @@ pub fn build() -> Stack {
     lesson.style = PartStyle::Scrolling;
     lesson.lock_text = true;
     lesson.text_size = 12;
-    lesson.contents = "Scripts are made of handlers that respond to messages. When you click a button, RandomCard sends it \"mouseUp\":\n\non mouseUp\n  put \"Hello\" into field 1\nend mouseUp\n\nIf the button doesn't handle a message it travels on: button → card → background → stack. That is the message path.\n\nEverything is text. Chunk expressions pick text apart:\n\n  put word 2 of line 3 of field \"Notes\" into x\n  put \"!\" after the last char of x\n\nAsk and answer talk to the user:\n\n  ask \"Your name?\"\n  answer \"Hi\" && it\n\nTry the buttons on the right, then open their scripts with the Button tool. Or type into the message box (Ctrl+M), e.g.\n\n  put the number of cards\n  go to card \"Dice\"\n  answer the long date".into();
+    lesson.contents = "Scripts are made of handlers that respond to messages. When you click a button, RandomCard sends it \"mouseUp\":\n\non mouseUp\n  put \"Hello\" into field 1\nend mouseUp\n\nIf the button doesn't handle a message it travels on: button → card → background → stack. That is the message path.\n\nEverything is text. Chunk expressions pick text apart:\n\n  put word 2 of line 3 of field \"Notes\" into x\n  put \"!\" after the last char of x\n\nAsk and answer talk to the user:\n\n  ask \"Your name?\"\n  answer \"Hi\" && it\n\nTry the buttons on the right, then open their scripts with the Button tool. Or type into the message box (Ctrl+M), e.g.\n\n  put the number of cards\n  go to card \"Dice\"\n  answer the long date\n\nClick any word in this text: the field's script shows the clickText and clickLine. The list under the buttons is an autoSelect field, and its script goes to the card you pick.".into();
+    lesson.script = "on mouseUp\n  if the clickText is not empty then\n    put \"You clicked\" && quote & the clickText & quote && \"in\" && the clickLine\n  end if\nend mouseUp".into();
     b.card_part(c, lesson);
+    let mut places = Part::new_field(b.id(), "Places", Rect::new(360, 246, 492, 296));
+    places.lock_text = true;
+    places.auto_select = true;
+    places.text_size = 12;
+    places.contents = "Dice\nDrawing\nAnimation".into();
+    places.script = "on mouseUp\n  if the selectedText is empty then exit mouseUp\n  visual effect dissolve\n  go to card (the selectedText)\nend mouseUp".into();
+    b.card_part(c, places);
     let basics = [
         ("Say Hello", "on mouseUp\n  ask \"What is your name?\" with \"Dan Winkler\"\n  if the result is \"Cancel\" then exit mouseUp\n  answer \"Hello,\" && it & \"!\"\nend mouseUp"),
         ("Count Words", "on mouseUp\n  put the number of words in field \"Lesson\" into n\n  answer \"The lesson has\" && plural(n, \"word\") && \"in\" && plural(the number of lines in field \"Lesson\", \"line\") & \".\"\nend mouseUp"),

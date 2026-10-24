@@ -10,7 +10,7 @@ use crate::model::{Background, Card, Id, Layer, Part, PartKind, Picture, Rect};
 use super::dates;
 use super::interp::{Ctl, Interp, OpenFile, R, err, to_int, to_number};
 use super::undo::UndoEntry;
-use super::world::{Dialog, DialogReply, EditOp, Found, ObjRef, Tool, Transition, UiRequest};
+use super::world::{Dialog, DialogReply, EditOp, FieldRange, ObjRef, Tool, Transition, UiRequest};
 
 impl Interp {
     pub fn command(&mut self, c: &Cmd) -> R<()> {
@@ -333,26 +333,23 @@ impl Interp {
                 self.w().requests.push(UiRequest::EditScript(o));
                 Ok(())
             }
-            Cmd::Select(target) => {
-                let focus = match target {
-                    None => None,
-                    Some(e) => {
-                        let (_, base) = {
-                            let mut e = e;
-                            while let Expr::Chunk(_, inner) = e {
-                                e = inner;
-                            }
-                            ((), e)
-                        };
-                        match self.resolve_dynamic(base)? {
-                            ObjRef::Part { layer, id, .. } => Some((layer, id)),
-                            _ => None,
-                        }
-                    }
-                };
-                self.w().focus = focus;
+            Cmd::Select(Select::Empty) => {
+                let mut w = self.w();
+                w.focus = None;
+                w.set_selection(None);
                 Ok(())
             }
+            Cmd::Select(Select::Part(e)) => {
+                let obj = self.resolve_dynamic(e)?;
+                let ObjRef::Part { layer, id, card } = obj else { return err("Can only select a button or field") };
+                let mut w = self.w();
+                let Some(kind) = w.stack.part(card, layer, id).map(|p| p.kind) else { return err("No such part") };
+                w.tool = if kind == PartKind::Button { Tool::Button } else { Tool::Field };
+                w.focus = None;
+                w.requests.push(UiRequest::SelectPart(obj));
+                Ok(())
+            }
+            Cmd::Select(Select::Text(prep, e)) => self.select_text(*prep, e),
             Cmd::ClickAt(e) => {
                 let v = self.eval(e)?;
                 let Some((x, y)) = parse_point(&v) else { return err(format!("Expected a point, not \"{v}\"")) };
@@ -921,7 +918,7 @@ impl Interp {
                 if card != self.w().card_id {
                     self.go_card_id(card, true)?;
                 }
-                self.w().found = Some(Found { card, layer, field: id, start, end });
+                self.w().found = Some(FieldRange { card, layer, field: id, start, end });
                 self.result.clear();
                 return Ok(());
             }
@@ -930,6 +927,61 @@ impl Interp {
         self.result = "not found".into();
         self.w().beeps += 1;
         Ok(())
+    }
+
+    // ----- the selection -----
+
+    /// `select line 2 of field 1`, `select after text of field "Notes"`.
+    fn select_text(&mut self, prep: Prep, e: &Expr) -> R<()> {
+        let (chunks, base) = Self::container_parts(e);
+        let obj = self.resolve_dynamic(base)?;
+        let ObjRef::Part { layer, id, card } = obj else { return err("Can only select text in a field") };
+        let (text, lock_text) = {
+            let w = self.w();
+            match w.stack.part(card, layer, id) {
+                Some(p) if p.kind == PartKind::Field => (w.stack.field_text(card, layer, id), p.lock_text),
+                _ => return err("Can only select text in a field"),
+            }
+        };
+        let resolved = self.resolve_chunks(&chunks, &text)?;
+        let (a, b) = if resolved.is_empty() {
+            (0, text.len())
+        } else {
+            crate::hypertalk::chunk::locate(&mut text.clone(), &resolved, &self.item_delimiter, false)
+        };
+        let (mut start, mut end) = (text[..a].chars().count(), text[..b].chars().count());
+        match prep {
+            Prep::Before => end = start,
+            Prep::After => start = end,
+            Prep::Into => {}
+        }
+        let mut w = self.w();
+        w.tool = Tool::Browse;
+        // An unlocked field opens for typing; a locked one shows the
+        // selection hilited, as list fields do.
+        w.focus = (!lock_text).then_some((layer, id));
+        w.set_selection(Some(FieldRange { card, layer, field: id, start, end }));
+        Ok(())
+    }
+
+    /// `the selection` as a container: the selected text.
+    pub(super) fn selected_text(&self) -> String {
+        let w = self.w();
+        w.current_selection().map(|r| w.range_text(r)).unwrap_or_default()
+    }
+
+    /// Replace the selected text, leaving the insertion point after it.
+    pub(super) fn replace_selection(&mut self, value: &str) {
+        let mut w = self.w();
+        let Some(r) = w.current_selection().cloned() else { return };
+        let text = w.stack.field_text(r.card, r.layer, r.field);
+        let byte = |i: usize| text.char_indices().nth(i).map(|(b, _)| b).unwrap_or(text.len());
+        let mut new = text.clone();
+        new.replace_range(byte(r.start)..byte(r.end.max(r.start)), value);
+        w.stack.set_field_text(r.card, r.layer, r.field, new);
+        w.dirty = true;
+        let at = r.start + value.chars().count();
+        w.set_selection(Some(FieldRange { start: at, end: at, ..r }));
     }
 
     // ----- sorting and marking -----

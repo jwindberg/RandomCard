@@ -188,8 +188,10 @@ pub struct Transition {
     pub seq: u64,
 }
 
-#[derive(Clone, Debug)]
-pub struct Found {
+/// A run of characters in a field on a card: found text, the text
+/// selection, or the word clicked in a locked field.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FieldRange {
     pub card: Id,
     pub layer: Layer,
     pub field: Id,
@@ -306,7 +308,15 @@ pub struct World {
     pub dialog: Option<Dialog>,
     /// A script is running.
     pub busy: bool,
-    pub found: Option<Found>,
+    pub found: Option<FieldRange>,
+    /// The selected text, or the insertion point (an empty range), in a field.
+    pub selection: Option<FieldRange>,
+    /// Bumped when a script changes the selection, so the UI shows it.
+    pub selection_rev: u64,
+    /// Where the selection starts on the card, published by the UI.
+    pub selection_loc: Option<(i32, i32)>,
+    /// The word last clicked in a locked field.
+    pub click: Option<FieldRange>,
     /// The field being edited, if any.
     pub focus: Option<(Layer, Id)>,
     pub beeps: u32,
@@ -357,6 +367,10 @@ impl World {
             dialog: None,
             busy: false,
             found: None,
+            selection: None,
+            selection_rev: 0,
+            selection_loc: None,
+            click: None,
             focus: None,
             beeps: 0,
             fill_shapes: false,
@@ -402,6 +416,28 @@ impl World {
         if self.stack.cant_modify { 1 } else { self.level() }
     }
 
+    /// The selection, if it's in a field on the current card.
+    pub fn current_selection(&self) -> Option<&FieldRange> {
+        self.selection.as_ref().filter(|r| r.card == self.card_id)
+    }
+
+    /// Select text in a field, for scripts: the UI follows.
+    pub fn set_selection(&mut self, range: Option<FieldRange>) {
+        self.selection = range;
+        self.selection_rev += 1;
+    }
+
+    pub fn range_text(&self, r: &FieldRange) -> String {
+        let text = self.stack.field_text(r.card, r.layer, r.field);
+        text.chars().skip(r.start).take(r.end.saturating_sub(r.start)).collect()
+    }
+
+    /// How HyperCard names a range's field: "card field 2", "bkgnd field 1".
+    pub fn range_field_name(&self, r: &FieldRange) -> String {
+        let fields = self.stack.parts(r.card, r.layer).iter().filter(|p| p.kind == crate::model::PartKind::Field);
+        format!("{} field {}", r.layer.name(), fields.take_while(|p| p.id != r.field).count() + 1)
+    }
+
     pub fn bg_id(&self) -> Id {
         self.stack.card(self.card_id).map(|c| c.background).unwrap_or(0)
     }
@@ -433,4 +469,30 @@ impl World {
             poly_sides: self.poly_sides,
         }
     }
+}
+
+/// The whitespace-delimited word around character `at`, as character offsets
+/// (an empty range if `at` is on a space or past the end).
+pub fn word_at(text: &str, at: usize) -> (usize, usize) {
+    let chars: Vec<char> = text.chars().collect();
+    if at >= chars.len() || chars[at].is_whitespace() {
+        return (at, at);
+    }
+    let start = (0..at).rev().take_while(|&i| !chars[i].is_whitespace()).last().unwrap_or(at);
+    let end = (at..chars.len()).find(|&i| chars[i].is_whitespace()).unwrap_or(chars.len());
+    (start, end)
+}
+
+/// The line holding character `at`, without its return, as character offsets.
+pub fn line_at(text: &str, at: usize) -> (usize, usize) {
+    let chars: Vec<char> = text.chars().collect();
+    let at = at.min(chars.len());
+    let start = (0..at).rev().find(|&i| chars[i] == '\n').map(|i| i + 1).unwrap_or(0);
+    let end = (at..chars.len()).find(|&i| chars[i] == '\n').unwrap_or(chars.len());
+    (start, end)
+}
+
+/// The 1-based line number of character `at`.
+pub fn line_number(text: &str, at: usize) -> usize {
+    text.chars().take(at).filter(|c| *c == '\n').count() + 1
 }

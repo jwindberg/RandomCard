@@ -34,7 +34,7 @@ const PROPERTIES: &[&str] = &[
     "height", "topleft", "botright", "bottomright", "visible", "style", "textfont", "textsize", "textstyle",
     "textalign", "textheight", "hilite", "highlight", "hilight", "highlite", "autohilite", "autohighlight",
     "showname", "enabled", "family", "sharedhilite", "icon", "locktext", "dontwrap", "autotab", "widemargins",
-    "showlines", "sharedtext", "dontsearch", "autoselect", "scroll", "script", "contents", "text", "marked",
+    "showlines", "sharedtext", "dontsearch", "autoselect", "multiplelines", "scroll", "script", "contents", "text", "marked",
     "showpict", "cantdelete", "cantmodify", "owner", "partnumber", "checkmark", "commandchar", "menumessage",
 ];
 
@@ -907,13 +907,25 @@ impl Parser {
             }
             "select" => {
                 if self.accept("empty") {
-                    return Ok(Cmd::Select(None));
+                    return Ok(Cmd::Select(Select::Empty));
                 }
-                self.accept_any(&["before", "after"]);
+                let prep = if self.accept("before") {
+                    Prep::Before
+                } else if self.accept("after") {
+                    Prep::After
+                } else {
+                    Prep::Into
+                };
                 if self.accept("text") {
                     self.expect("of")?;
+                    return Ok(Cmd::Select(Select::Text(prep, self.expr()?)));
                 }
-                Cmd::Select(Some(self.expr()?))
+                let e = self.expr()?;
+                if prep != Prep::Into || matches!(e, Expr::Chunk(..)) {
+                    Cmd::Select(Select::Text(prep, e))
+                } else {
+                    Cmd::Select(Select::Part(e))
+                }
             }
             "click" => {
                 self.expect("at")?;

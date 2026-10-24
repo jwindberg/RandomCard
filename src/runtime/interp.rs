@@ -840,7 +840,7 @@ impl Interp {
                 };
                 Ok(bool_str(is == *positive))
             }
-            Expr::Selection => Ok(String::new()),
+            Expr::Selection => Ok(self.selected_text()),
         }
     }
 
@@ -956,7 +956,7 @@ impl Interp {
     // ----- containers -----
 
     /// Split `dest` into its chunks (outermost first) and the base container.
-    fn container_parts(dest: &Expr) -> (Vec<&Chunk>, &Expr) {
+    pub(super) fn container_parts(dest: &Expr) -> (Vec<&Chunk>, &Expr) {
         let mut chunks = Vec::new();
         let mut e = dest;
         while let Expr::Chunk(c, inner) = e {
@@ -973,7 +973,7 @@ impl Interp {
                 let o = self.resolve(spec)?;
                 self.object_value(o)
             }
-            Expr::Selection => Ok(String::new()),
+            Expr::Selection => Ok(self.selected_text()),
             _ => err("Expected a container (a variable, field or the message box) here"),
         }
     }
@@ -988,7 +988,10 @@ impl Interp {
                 let o = self.resolve(spec)?;
                 self.set_object_value(o, value)
             }
-            Expr::Selection => Ok(()),
+            Expr::Selection => {
+                self.replace_selection(&value);
+                Ok(())
+            }
             _ => err("Expected a container (a variable, field or the message box) here"),
         }
     }
@@ -1024,7 +1027,7 @@ impl Interp {
         self.write_container(base, text)
     }
 
-    fn resolve_chunks(&mut self, chunks: &[&Chunk], base: &str) -> R<Vec<Resolved>> {
+    pub(super) fn resolve_chunks(&mut self, chunks: &[&Chunk], base: &str) -> R<Vec<Resolved>> {
         // Innermost (rightmost) first, so ordinals see the text they apply to.
         let mut inner_first: Vec<Resolved> = Vec::new();
         for c in chunks.iter().rev() {

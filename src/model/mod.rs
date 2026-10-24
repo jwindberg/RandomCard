@@ -203,6 +203,8 @@ pub struct Part {
     pub shared_text: bool,
     pub dont_search: bool,
     pub auto_select: bool,
+    /// With autoSelect, Shift-click selects a run of lines.
+    pub multiple_lines: bool,
     pub scroll: i32,
 }
 
@@ -236,6 +238,7 @@ impl Default for Part {
             shared_text: false,
             dont_search: false,
             auto_select: false,
+            multiple_lines: false,
             scroll: 0,
         }
     }

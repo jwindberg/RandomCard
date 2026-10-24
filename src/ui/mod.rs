@@ -15,7 +15,7 @@ use eframe::egui::{
 };
 
 use crate::model::{Layer, Part, PartKind, PartStyle, Rect as CardRect, Stack};
-use crate::runtime::world::{Event, KeyAction, ObjRef, Tool, UiRequest, World, lock};
+use crate::runtime::world::{Event, FieldRange, KeyAction, ObjRef, Tool, UiRequest, World, line_at, lock, word_at};
 use crate::runtime::{self, Runtime};
 use render::{Scene, Textures};
 use windows::{ErrorAlert, InfoTarget, InfoWindow, ScriptEditor};
@@ -37,8 +37,10 @@ struct Editing {
     synced: String,
     changed: bool,
     focus_requested: bool,
-    /// Select all the text once focused (when tabbing into a field).
-    select_all: bool,
+    /// A selection to show in the editor (from Tab, or a script's `select`).
+    select: Option<(usize, usize)>,
+    /// The editor's selection as last published to the world.
+    published: Option<(usize, usize)>,
 }
 
 fn field_edit_id(obj: ObjRef) -> egui::Id {
@@ -106,6 +108,8 @@ pub struct App {
     /// Give the message box keyboard focus (after blind typing).
     focus_msg_box: bool,
     beeps_seen: u32,
+    /// The world's `selection_rev` the field editor has caught up with.
+    selection_rev_seen: u64,
     flash_until: Option<Instant>,
     last_autosave: Instant,
     quit_prompt: bool,
@@ -153,6 +157,7 @@ impl App {
             msg_has_focus: false,
             focus_msg_box: false,
             beeps_seen: 0,
+            selection_rev_seen: 0,
             flash_until: None,
             last_autosave: Instant::now(),
             quit_prompt: false,
@@ -824,7 +829,7 @@ impl App {
         let (obj, text) = fields[current.map(|i| (i + 1) % fields.len()).unwrap_or(0)].clone();
         self.start_editing(obj, &text);
         if let Some(e) = &mut self.editing {
-            e.select_all = true;
+            e.select = Some((0, text.chars().count()));
         }
     }
 
@@ -997,7 +1002,19 @@ impl App {
                 Some(pv) if pv.part.kind == PartKind::Button && !pv.part.enabled => return,
                 _ => {}
             }
+            // Clicking a button keeps the text selection, so its script can
+            // use it; clicking anywhere else deselects.
+            let on_button = target.is_some_and(|pv| pv.part.kind == PartKind::Button);
+            let selection = self.world().selection.clone();
             self.end_editing();
+            if on_button {
+                self.world().selection = selection;
+            } else if let (Some(pv), Some(p)) = (target.filter(|pv| pv.part.kind == PartKind::Field), pos) {
+                self.world().selection = selection;
+                self.click_locked_field(ctx, pv, origin, p);
+            } else {
+                self.world().selection = None;
+            }
             let t = target.map(|pv| pv.obj).unwrap_or(card);
             self.pressed = Some(t);
             self.pressed_inside = true;
@@ -1052,14 +1069,19 @@ impl App {
                 synced: text.to_string(),
                 changed: false,
                 focus_requested: false,
-                select_all: false,
+                select: None,
+                published: None,
             });
         self.send(Event::Send { target: obj, message: "openField".into(), args: vec![] });
     }
 
     fn end_editing(&mut self) {
         let Some(e) = self.editing.take() else { return };
-        self.world().focus = None;
+        {
+            let mut w = self.world();
+            w.focus = None;
+            w.selection = None;
+        }
         let msg = if e.changed { "closeField" } else { "exitField" };
         self.send(Event::Send { target: e.obj, message: msg.into(), args: vec![] });
     }
@@ -1105,17 +1127,9 @@ impl App {
         if !e.focus_requested {
             resp.request_focus();
             e.focus_requested = true;
-            if e.select_all {
-                let id = field_edit_id(e.obj);
-                let mut state = egui::text_edit::TextEditState::load(ui.ctx(), id).unwrap_or_default();
-                let all = egui::text::CCursorRange::two(
-                    egui::text::CCursor::new(0),
-                    egui::text::CCursor::new(e.buffer.chars().count()),
-                );
-                state.cursor.set_char_range(Some(all));
-                state.store(ui.ctx(), id);
-            }
         }
+        self.sync_selection(ui.ctx());
+        let Some(e) = &mut self.editing else { return };
         if resp.changed()
             && let ObjRef::Part { layer, id, card } = e.obj
         {
@@ -1129,6 +1143,71 @@ impl App {
             && ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| !rect.contains(p));
         if (resp.lost_focus() && !resp.has_focus()) || clicked_elsewhere {
             self.end_editing();
+        }
+    }
+
+    /// Keep the editor's selection and the world's in step: a script's
+    /// `select` shows in the editor, and the user's selection is published
+    /// for `the selectedText` and friends.
+    fn sync_selection(&mut self, ctx: &egui::Context) {
+        let Some(e) = &mut self.editing else { return };
+        let ObjRef::Part { layer, id: field, card } = e.obj else { return };
+        let mut w = lock(&self.rt.world);
+        if w.selection_rev != self.selection_rev_seen {
+            self.selection_rev_seen = w.selection_rev;
+            if let Some(r) = w.selection.as_ref().filter(|r| (r.card, r.layer, r.field) == (card, layer, field)) {
+                e.select = Some((r.start, r.end));
+            }
+        }
+        let id = field_edit_id(e.obj);
+        let mut state = egui::text_edit::TextEditState::load(ctx, id).unwrap_or_default();
+        let range = match e.select.take() {
+            Some((a, b)) => {
+                let range = egui::text::CCursorRange::two(egui::text::CCursor::new(a), egui::text::CCursor::new(b));
+                state.cursor.set_char_range(Some(range));
+                state.store(ctx, id);
+                (a, b)
+            }
+            None => match state.cursor.char_range() {
+                Some(r) => {
+                    let (p, q) = (r.primary.index.0, r.secondary.index.0);
+                    (p.min(q), p.max(q))
+                }
+                None => return,
+            },
+        };
+        if e.published != Some(range) {
+            e.published = Some(range);
+            w.selection = Some(FieldRange { card, layer, field, start: range.0, end: range.1 });
+        }
+    }
+
+    /// A click in a locked field: remember the word for `the clickText`,
+    /// and in an autoSelect field select the line (Shift-click extends it in
+    /// a multipleLines field).
+    fn click_locked_field(&mut self, ctx: &egui::Context, pv: &render::PartView, origin: Pos2, pos: Pos2) {
+        let ObjRef::Part { layer, id: field, card } = pv.obj else { return };
+        let previous = self.world().selection.clone();
+        let painter = ctx.layer_painter(egui::LayerId::background());
+        let at = render::field_char_at(&painter, pv, origin, pos);
+        let shift = ctx.input(|i| i.modifiers.shift);
+        let mut w = self.world();
+        let range = |(start, end)| FieldRange { card, layer, field, start, end };
+        w.click = at.map(|at| range(word_at(&pv.text, at)));
+        if pv.part.auto_select && pv.part.lock_text {
+            w.selection = at.map(|at| {
+                let (mut start, mut end) = line_at(&pv.text, at);
+                if pv.part.multiple_lines
+                    && shift
+                    && let Some(p) = previous.filter(|p| (p.card, p.layer, p.field) == (card, layer, field))
+                {
+                    start = start.min(p.start);
+                    end = end.max(p.end);
+                }
+                range((start, end))
+            });
+        } else {
+            w.selection = None;
         }
     }
 
@@ -1213,8 +1292,7 @@ impl App {
                     && pv.part.style == PartStyle::Scrolling
                     && Some(pv.obj) != editing
             }) {
-                let found = shown.found.as_ref().filter(|f| pv.obj == (ObjRef::Part { layer: f.layer, id: f.field, card: f.card }));
-                let found = found.map(|f| (f.start, f.end));
+                let found = shown.highlight(pv.obj);
                 field_scroll_area(ui, pv, origin, &self.rt.world, &mut self.synced_scroll, &mut self.scroll_bar_zones, |ui| {
                     show_field_text(ui, pv, origin, found)
                 });
@@ -1235,11 +1313,21 @@ impl App {
             w.mouse.command = mods.command;
         }
 
+        // Where the selection starts, for `the selectedLoc`.
+        let loc = live.selection.as_ref().and_then(|r| {
+            let obj = ObjRef::Part { layer: r.layer, id: r.field, card: r.card };
+            let pv = live.parts.iter().find(|pv| pv.obj == obj)?;
+            let p = render::field_char_point(&painter, pv, r.start);
+            Some((p.x.round() as i32, p.y.round() as i32))
+        });
+        self.world().selection_loc = loc;
+
         // Script-driven focus changes (`select text of field 1`).
         let focus = self.world().focus;
         if tool == Tool::Browse {
+            let editing = self.editing.as_ref().map(|e| e.obj);
             match (focus, &self.editing) {
-                (Some((layer, id)), None) => {
+                (Some((layer, id)), _) if editing.is_none_or(|o| !matches!(o, ObjRef::Part { layer: l, id: i, .. } if l == layer && i == id)) => {
                     let obj = ObjRef::Part { layer, id, card: live.card };
                     if let Some(pv) = live.parts.iter().find(|p| p.obj == obj) {
                         let text = pv.text.clone();
@@ -1450,6 +1538,7 @@ fn show_field_text(ui: &mut egui::Ui, pv: &render::PartView, origin: Pos2, found
     let galley = ui.painter().layout_job(render::field_job(&pv.part, &pv.text, text_rect.width(), found));
     let (r, _) = ui.allocate_exact_size(Vec2::new(text_rect.width(), galley.size().y), Sense::hover());
     let pos = Pos2::new(render::aligned_x(&pv.part, r), r.top());
+    render::hilite_lines(ui.painter(), &pv.part, &galley, pos, r, found);
     ui.painter().galley(pos, galley.clone(), Color32::BLACK);
     if pv.part.text_style.to_ascii_lowercase().contains("bold") {
         ui.painter().galley(pos + Vec2::new(0.6, 0.0), galley, Color32::BLACK);

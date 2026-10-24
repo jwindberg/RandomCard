@@ -533,3 +533,64 @@ fn private_access_stacks_ask_for_their_password() {
     assert!(i.canned_answers.is_empty());
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn selection_and_select() {
+    let mut i = interp_with(stack());
+    run(&mut i, "put \"one two three\" & return & \"four five\" into field \"Name\"");
+    assert_eq!(run(&mut i, "put the selectedText"), "");
+    run(&mut i, "select word 2 of line 1 of field \"Name\"");
+    assert_eq!(lock(&i.world).focus, Some((Layer::Background, 10)));
+    assert_eq!(run(&mut i, "put the selectedText"), "two");
+    assert_eq!(run(&mut i, "put the selection"), "two");
+    assert_eq!(run(&mut i, "put the selectedChunk"), "char 5 to 7 of bkgnd field 1");
+    assert_eq!(run(&mut i, "put the selectedLine"), "line 1 of bkgnd field 1");
+    assert_eq!(run(&mut i, "put the selectedField"), "bkgnd field 1");
+    run(&mut i, "put \"2\" into the selection");
+    assert_eq!(run(&mut i, "put line 1 of field \"Name\""), "one 2 three");
+    // The insertion point follows what was put.
+    assert_eq!(run(&mut i, "put the selectedChunk"), "char 6 to 5 of bkgnd field 1");
+    run(&mut i, "put \"!\" into the selection");
+    assert_eq!(run(&mut i, "put line 1 of field \"Name\""), "one 2! three");
+    run(&mut i, "select text of field \"Name\"");
+    assert_eq!(run(&mut i, "put the selectedLine"), "line 1 to 2 of bkgnd field 1");
+    run(&mut i, "select after line 2 of field \"Name\"");
+    assert_eq!(run(&mut i, "put the selectedChunk"), "char 23 to 22 of bkgnd field 1");
+    run(&mut i, "select before word 1 of field \"Name\"");
+    assert_eq!(run(&mut i, "put the selectedChunk"), "char 1 to 0 of bkgnd field 1");
+    run(&mut i, "select empty");
+    assert_eq!(run(&mut i, "put the selectedChunk"), "");
+    assert_eq!(lock(&i.world).focus, None);
+    // The selection belongs to its card.
+    run(&mut i, "select word 1 of field \"Name\"");
+    run(&mut i, "go next card");
+    assert_eq!(run(&mut i, "put the selectedText"), "");
+    // Selecting a part picks its tool.
+    run(&mut i, "go card 1\nselect button \"Go\"");
+    assert_eq!(run(&mut i, "put the tool"), "button tool");
+    assert!(run(&mut i, "select text of button \"Go\"").starts_with("ERROR"));
+}
+
+#[test]
+fn locked_field_selection_and_clicks() {
+    let mut i = interp_with(stack());
+    run(&mut i, "set the lockText of field 1 to true\nput \"alpha\" & return & \"beta gamma\" into field 1");
+    run(&mut i, "select line 2 of field 1");
+    // A locked field shows its selection without opening for typing.
+    assert_eq!(lock(&i.world).focus, None);
+    assert_eq!(run(&mut i, "put the selectedText"), "beta gamma");
+    // The UI records clicks in locked fields.
+    {
+        let mut w = lock(&i.world);
+        let card = w.card_id;
+        w.click = Some(super::world::FieldRange { card, layer: Layer::Background, field: 10, start: 11, end: 16 });
+    }
+    assert_eq!(run(&mut i, "put the clickText"), "gamma");
+    assert_eq!(run(&mut i, "put the clickChunk"), "char 12 to 16 of bkgnd field 1");
+    assert_eq!(run(&mut i, "put the clickLine"), "line 2 of bkgnd field 1");
+    run(&mut i, "set the multipleLines of field 1 to true");
+    assert_eq!(run(&mut i, "put the multipleLines of field 1"), "true");
+    assert_eq!(super::world::word_at("one two", 5), (4, 7));
+    assert_eq!(super::world::word_at("one two", 3), (3, 3));
+    assert_eq!(super::world::line_at("a\nbc\nd", 3), (2, 4));
+}

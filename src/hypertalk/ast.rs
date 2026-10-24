@@ -168,6 +168,17 @@ pub enum Expr {
     Selection,
 }
 
+/// What `select` selects.
+#[derive(Clone, Debug)]
+pub enum Select {
+    /// `select empty`: no selection.
+    Empty,
+    /// `select button 1`: the part, with the Button or Field tool.
+    Part(Expr),
+    /// `select [before|after] [text of] <chunk of a field>`.
+    Text(Prep, Expr),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Prep {
     Into,
@@ -282,7 +293,7 @@ pub enum Cmd {
     Enable(Expr),
     Disable(Expr),
     EditScript(Expr),
-    Select(Option<Expr>),
+    Select(Select),
     ClickAt(Expr),
     /// `drag from 10,10 to 100,100`: paints with the current paint tool.
     Drag { from: Expr, to: Expr },

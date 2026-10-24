@@ -107,7 +107,8 @@ Edit ▸ Background (Ctrl+B) switches to the background layer.
 checkBox, radioButton, default and oval, with families, autoHilite and
 enabled. Field styles: transparent, opaque, rectangle, shadow and scrolling,
 with lockText, dontWrap, showLines, wideMargins, text font, size, style and
-alignment.
+alignment. Locked fields with autoSelect are list fields: a click selects
+the whole line, and with multipleLines Shift-click extends the selection.
 
 **HyperTalk.** Scripts live on buttons, fields, cards, backgrounds and the
 stack. Messages travel the HyperCard message path (part → card → background
@@ -141,7 +142,9 @@ stack. Messages travel the HyperCard message path (part → card → background
   find (normal, whole, word, chars and string), sort (lines, items or cards,
   numeric, text or dateTime, `by` an expression using `each`), mark and
   unmark, send, do, wait, visual effect, lock and unlock screen or messages,
-  push and pop card, hide and show, delete, doMenu, choose tool, select,
+  push and pop card, hide and show, delete, doMenu, choose tool, select
+  (a part, `empty`, or text: `select line 2 of field 1`,
+  `select after text of field "Notes"`),
   click at, type, convert, open/read/write/close file, beep, speak, and
   save stack.
 - Functions: math (`abs`, `round`, `trunc`, `sqrt`, trig, `ln`, `exp`,
@@ -151,6 +154,11 @@ stack. Messages travel the HyperCard message path (part → card → background
   `the dateItems`), mouse and keys (`the mouse`, `the mouseLoc`,
   `the clickLoc`, `the mouseClick`, `the shiftKey`), and `the result`,
   `the params`, `param(n)`, `the foundText`, and others.
+- The selection: `the selectedText`, `selectedChunk`, `selectedLine`,
+  `selectedField` and `selectedLoc`, and `the selection` as a container
+  (`put "x" into the selection`). Clicking a button keeps the text
+  selection, so its script can use it. Clicks in locked fields set
+  `the clickText`, `clickChunk` and `clickLine`.
 - System messages: openStack, openBackground, openCard, closeCard, newCard,
   deleteCard, mouseDown, mouseUp, mouseStillDown, mouseEnter, mouseLeave,
   mouseWithin, mouseDoubleClick, openField, closeField, exitField, idle,
@@ -217,7 +225,7 @@ src/
 
 ## Not (yet) implemented
 
-The main gaps are styled text in fields, selection and click functions,
+The main gaps are styled text in fields,
 scriptable menus, multiple open stacks, and XCMDs. [ROADMAP.md](ROADMAP.md) lists the remaining work by area, with
 notes on how to approach each piece and a suggested order.
 
