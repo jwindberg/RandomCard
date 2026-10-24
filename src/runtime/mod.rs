@@ -23,6 +23,10 @@ use std::sync::{Arc, Mutex};
 use crate::model::Stack;
 use world::{DebugCmd, DialogReply, Event, Shared, World};
 
+/// The script thread's stack: room for the deepest recursion scripts are
+/// allowed. Haiku won't give a thread more than 64 MB.
+pub const SCRIPT_STACK: usize = 64 * 1024 * 1024;
+
 /// Handles the UI keeps for talking to the script thread.
 pub struct Runtime {
     pub world: Shared,
@@ -47,7 +51,7 @@ pub fn start(stack: Stack, open: Option<std::path::PathBuf>, user_level: u8, hom
     let (w, a) = (world.clone(), abort.clone());
     std::thread::Builder::new()
         .name("hypertalk".into())
-        .stack_size(256 * 1024 * 1024)
+        .stack_size(SCRIPT_STACK)
         .spawn(move || {
             let mut interp = interp::Interp::new(w, Some(dialog_rx), a);
             interp.debug_rx = Some(debug_rx);

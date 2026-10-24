@@ -861,3 +861,26 @@ fn find_and_recent_menus() {
     i.handle_event(Event::DoMenu("Recent".into()));
     assert!(lock(&i.world).requests.iter().any(|r| matches!(r, UiRequest::Recent)));
 }
+
+#[test]
+fn deep_recursion_fits_the_script_stack() {
+    // The script thread's stack must hold the deepest recursion allowed,
+    // with expressions nested at each level, even in a debug build.
+    let t = std::thread::Builder::new()
+        .stack_size(super::SCRIPT_STACK)
+        .spawn(|| {
+            let mut i = interp_with(stack());
+            set_script(
+                &i,
+                ObjRef::Stack,
+                "on dive n\n  put ((n + 1) * 2 - 2) / 2 into m\n  if m < 100000 then dive m\nend dive\nfunction f n\n  return f(n + 1)\nend f",
+            );
+            let a = run(&mut i, "dive 0");
+            let b = run(&mut i, "put f(0)");
+            (a, b)
+        })
+        .unwrap();
+    let (a, b) = t.join().expect("the script thread overflowed its stack");
+    assert!(a.contains("Too much recursion"), "{a}");
+    assert!(b.contains("Too much recursion"), "{b}");
+}
