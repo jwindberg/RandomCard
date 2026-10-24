@@ -11,16 +11,10 @@ mod ui;
 use model::Stack;
 
 fn main() -> eframe::Result {
-    let stack = match std::env::args().nth(1) {
-        Some(path) => match import::load_any(std::path::Path::new(&path)) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("{e}");
-                std::process::exit(1);
-            }
-        },
-        None => Stack::demo(),
-    };
+    // A stack given on the command line is opened once running, since it may
+    // ask for a password.
+    let open = std::env::args().nth(1).map(std::path::PathBuf::from);
+    let stack = if open.is_some() { Stack::new("Untitled") } else { Stack::demo() };
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("RandomCard")
@@ -28,5 +22,5 @@ fn main() -> eframe::Result {
             .with_min_inner_size([480.0, 360.0]),
         ..Default::default()
     };
-    eframe::run_native("RandomCard", options, Box::new(|cc| Ok(Box::new(ui::App::new(cc, stack)))))
+    eframe::run_native("RandomCard", options, Box::new(|cc| Ok(Box::new(ui::App::new(cc, stack, open)))))
 }

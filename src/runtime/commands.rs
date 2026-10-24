@@ -634,8 +634,60 @@ impl Interp {
         candidates.into_iter().find(|p| p.is_file())
     }
 
+    /// Load a stack file, asking for the password of private-access stacks.
+    /// Returns None if the user cancels.
+    pub fn load_stack_file(&mut self, path: &std::path::Path) -> R<Option<crate::model::Stack>> {
+        use crate::import::{NEEDS_PASSWORD, WRONG_PASSWORD, load_any};
+        let name = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        let mut password: Option<String> = None;
+        let mut prompt = format!("\"{name}\" is password protected. Password:");
+        loop {
+            let stack = match load_any(path, password.as_deref()) {
+                Ok(s) => s,
+                Err(e) if e == NEEDS_PASSWORD || e == WRONG_PASSWORD => {
+                    if e == WRONG_PASSWORD {
+                        prompt = "That isn't the password. Try again:".into();
+                    }
+                    match self.ask_password(&prompt)? {
+                        Some(p) => {
+                            password = Some(p);
+                            continue;
+                        }
+                        None => return Ok(None),
+                    }
+                }
+                Err(e) => return err(e),
+            };
+            // RandomCard's own private-access stacks check the password here.
+            let p = &stack.protection;
+            if p.private_access
+                && let Some(hash) = p.password_hash
+                && !password.as_deref().is_some_and(|pw| crate::model::password::check(pw, hash))
+            {
+                match self.ask_password(&prompt)? {
+                    Some(pw) if crate::model::password::check(&pw, hash) => return Ok(Some(stack)),
+                    Some(_) => {
+                        prompt = "That isn't the password. Try again:".into();
+                        password = None;
+                        continue;
+                    }
+                    None => return Ok(None),
+                }
+            }
+            return Ok(Some(stack));
+        }
+    }
+
+    fn ask_password(&mut self, prompt: &str) -> R<Option<String>> {
+        let reply = self.dialog(Dialog::Ask { prompt: prompt.into(), default: String::new(), password: true })?;
+        Ok(match reply {
+            DialogReply::Text(Some(t)) | DialogReply::Button(t) => Some(t),
+            DialogReply::Text(None) => None,
+        })
+    }
+
     fn open_stack_file(&mut self, path: &std::path::Path) -> R<()> {
-        let stack = crate::import::load_any(path).or_else(err)?;
+        let Some(stack) = self.load_stack_file(path)? else { return Ok(()) };
         let card = self.current_card_ref();
         for m in ["closeCard", "closeBackground", "closeStack"] {
             self.send_system(card, m)?;
@@ -1349,6 +1401,9 @@ impl Interp {
                     Some(d) if p.is_relative() => d.join(p),
                     _ => p,
                 }
+            }
+            None if self.w().stack.cant_modify => {
+                return err("This stack can't be modified, so it can't be saved. Use Save a Copy instead.");
             }
             None => match self.w().stack.path.clone() {
                 Some(p) => p,

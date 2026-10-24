@@ -164,6 +164,8 @@ impl App {
 
     /// Returns an object whose script should be opened.
     fn info_contents(&mut self, ui: &mut egui::Ui, target: InfoTarget) -> Option<ObjRef> {
+        // Scripts belong to the Scripting level.
+        let scripting = self.level() >= 5;
         let mut w = lock(&self.rt.world);
         let mut changed = false;
         let mut script = None;
@@ -302,7 +304,7 @@ impl App {
                 ui.separator();
                 let r = p.rect;
                 ui.label(RichText::new(format!("rect: {},{},{},{}", r.left, r.top, r.right, r.bottom)).weak());
-                if ui.button("Script…").clicked() {
+                if scripting && ui.button("Script…").clicked() {
                     script = Some(obj);
                 }
             }
@@ -332,7 +334,7 @@ impl App {
                 changed |= ui.checkbox(&mut c.dont_search, "Don't Search Card").changed();
                 changed |= ui.checkbox(&mut c.cant_delete, "Can't Delete Card").changed();
                 changed |= ui.checkbox(&mut c.show_pict, "Show Picture").changed();
-                if ui.button("Script…").clicked() {
+                if scripting && ui.button("Script…").clicked() {
                     script = Some(ObjRef::Card(id));
                 }
             }
@@ -357,7 +359,7 @@ impl App {
                 changed |= ui.checkbox(&mut b.dont_search, "Don't Search Background").changed();
                 changed |= ui.checkbox(&mut b.cant_delete, "Can't Delete Background").changed();
                 changed |= ui.checkbox(&mut b.show_pict, "Show Picture").changed();
-                if ui.button("Script…").clicked() {
+                if scripting && ui.button("Script…").clicked() {
                     script = Some(ObjRef::Background(id));
                 }
             }
@@ -380,7 +382,7 @@ impl App {
                     ui.end_row();
                 });
                 changed |= ui.checkbox(&mut w.stack.cant_modify, "Can't Modify Stack").changed();
-                if ui.button("Script…").clicked() {
+                if scripting && ui.button("Script…").clicked() {
                     script = Some(ObjRef::Stack);
                 }
             }
@@ -534,6 +536,7 @@ impl App {
     }
 
     pub fn show_error(&mut self, ctx: &egui::Context) {
+        let scripting = self.level() >= 5;
         let Some(alert) = &self.error else { return };
         let (msg, obj, line) = (alert.msg.clone(), alert.obj, alert.line);
         let mut action = None;
@@ -550,7 +553,7 @@ impl App {
                 if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                     action = Some(false);
                 }
-                if obj.is_some() && ui.button(RichText::new("Script").strong()).clicked() {
+                if obj.is_some() && scripting && ui.button(RichText::new("Script").strong()).clicked() {
                     action = Some(true);
                 }
             });

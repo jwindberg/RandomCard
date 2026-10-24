@@ -45,17 +45,15 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 | Visual effects | Complete |
 | Sound | `play`, notes, `dial`, `beep`; no MACE |
 | HyperCard 2.x import | Structure, pictures, parts, text, scripts, icons, sounds |
-| User levels and stack protection | Missing: always behaves as level 5 |
+| User levels and stack protection | Levels, Protect Stack, passwords, private access |
 | Multiple stacks, menus, printing, externals | Missing |
 
 ## Using and authoring stacks
 
 HyperCard separated using a stack from building one, and stacks depended on
 it. An address book let people add, edit and delete addresses without being
-able to move a field, add a button or read a script. RandomCard has no such
-separation yet: it always behaves as at the highest user level, the tool
-palette is always on screen, and protection settings in imported stacks are
-kept but ignored.
+able to move a field, add a button or read a script. RandomCard now does the
+same.
 
 **HyperCard's model.** Five user levels, each unlocking more:
 
@@ -76,48 +74,53 @@ scripts or button outlines), `cantAbort` (no Command-period) and private
 access (a password to open the stack at all). Stacks could also hide the
 menu bar or replace HyperCard's menus with their own.
 
-**Goals:**
-- **Opening a stack behaves as in HyperCard.** Its `openStack` handler runs
-  and the user level it sets takes effect; its protection limits what the
-  user can raise the level to; `the userLevel` returns the real level.
-  Imported stacks keep their protection (the STAK block holds the level
-  limit, password hash and flags; private-access stacks need the password,
-  and HyperCardPreview's decrypter, MIT licensed, shows how).
-- **The interface follows the level.** At levels 1 and 2 the user sees the
-  card, the Go menu and the stack's own buttons: no tools, no Objects or
-  Paint menus. Each higher level brings back what it unlocks. Which commands
-  each level allows should follow HyperCard's documented behaviour.
-- **HyperCard's menu structure:** File, Edit, Go, Tools and Objects (as the
-  level allows), Font and Style while editing text, and Paint, Options and
-  Patterns while a paint tool is active. Menu item names matter because
-  scripts call them with `doMenu`.
-- **Floating palettes.** The tool and pattern palettes become windows
-  opened from the Tools menu, like HyperCard's tear-off palettes: hidden by
-  default, movable, and available only at levels that allow them. This
-  replaces the always-visible docked panel, which duplicates the Tools menu.
-- **Protect Stack:** a dialog to set the user-level limit, `cantModify`,
-  `cantDelete`, `cantPeek`, `cantAbort` and a password, which is then needed
-  to change protection or exceed the limit. `cantModify` stops changes being
-  saved, `cantPeek` disables peeking at scripts and button outlines, and
-  `cantAbort` disables Ctrl+period. Today Ctrl+Space shows a hidden menu bar
-  again, which should respect protection too.
-- **A way in for authors:** RandomCard's own user level as a preference
-  (HyperCard kept it in the Home stack), and a command to raise it for the
-  current stack, asking for the stack's password if it has one.
+**Decisions:**
+- RandomCard behaves like the purchased HyperCard: it runs at Scripting
+  level by default, and otherwise stacks behave as they did in HyperCard.
+- The tool panel stays docked on the left. It can be shown or hidden (View ▸
+  Tool Panel, Ctrl+T, or Preferences), and it only appears at levels that
+  allow tools. There are no tear-off palettes and no Tools menu.
+- The message box stays at the bottom of the window. Screens are bigger now,
+  so RandomCard can take the space.
+
+**Done:**
+- **Opening a stack behaves as in HyperCard.** Its `openStack` handler runs,
+  and the user level it sets takes effect. Its protection limits what the
+  user can raise the level to. `the userLevel` returns the level in effect.
+  Imported HyperCard stacks keep their level limit, password and flags.
+  Private-access stacks ask for their password and are decrypted (ported
+  from HyperCardPreview, MIT licensed).
+- **The interface follows the level.** Below Painting there is no tool
+  panel and no Paint or Objects menu. Below Typing, fields can't be edited.
+  Script buttons, script shortcuts and the error alert's Script button need
+  Scripting. A Can't Modify stack is browsed at Browsing level, and its
+  changes aren't saved.
+- **Menus:** File, Edit, Go, View, Paint while a paint tool is active, and
+  Objects at Authoring and above. Items the level doesn't allow are hidden
+  or disabled.
+- **Protect Stack** (File menu): Can't Modify, Can't Delete, Can't Abort,
+  Can't Peek, Private Access, the level limit, and a password. The password
+  uses HyperCard's own hash, so imported passwords keep working. With a
+  password set, Protect Stack asks for it before opening. The new limit
+  applies as soon as the dialog closes. Protect Stack is always in the menu,
+  so a stack can't lock its author out.
+- **Preferences** (File menu): RandomCard's own user level, capped by the
+  stack's limit, with "Unlock with Password…" to lift the limit for the
+  session, and whether the tool panel is shown. Settings are saved in
+  `~/.config/randomcard/settings.json`.
+- The demo Address Book sets Typing level on `openBackground` and restores
+  the level when you leave.
+
+**Still to do:**
+- Font and Style menus while editing text; Options and Patterns as menus.
+- Delete Stack, which should respect `cantDelete`.
+- Stacks hiding the menu bar or adding their own menus (item 7 below).
 
 **What protection can and can't do.** It keeps a stack's users from
 changing it by accident or casually. It isn't security: a `.rcstack` file
 is JSON that anyone can edit in a text editor, much as HyperCard's
 protection could be worked around. Real secrecy would need the stack file
 to be encrypted (as HyperCard's private access did for its header).
-
-**Decisions still open:**
-- The default user level when RandomCard starts, and for stacks that don't
-  set one: HyperCard took it from Home (authors usually ran at 5, while the
-  free HyperCard Player effectively limited users). Options include
-  defaulting to 5 and letting stacks lower it, or a "use / author" choice.
-- Whether the docked palette stays available as an option.
-- Whether the message box also becomes a floating window.
 
 ## Painting
 
@@ -206,7 +209,6 @@ sample stacks parse.
   shared script libraries.
 - **References to other stacks:** `card 1 of stack "X"` currently ignores
   the stack part, and objects in other stacks can't be counted or read.
-- **User levels and Protect Stack:** see "Using and authoring stacks".
 - **Card size** changes (`set the rect of card window`), and **Compact Stack**.
 - **Recent cards** view (the Recent dialog) and a **Find dialog**
   (Ctrl+F) in the UI; `find` works from scripts and the message box.
@@ -264,15 +266,12 @@ and the resource chain.
 1. ~~Keyboard messages and interceptable commands.~~ Done.
 2. ~~Paint patterns and the remaining paint tools.~~ Done, except FatBits.
 3. ~~Cut, Copy and Paste of parts, and undo for object edits.~~ Done.
-4. **Using and authoring stacks:** user levels driving the interface,
-   HyperCard's menu structure, floating palettes, and Protect Stack with
-   passwords. Opening a stack should behave as it did in HyperCard. Settle
-   the open decisions in that section first.
+4. ~~Using and authoring stacks.~~ Done, except Font and Style menus.
 5. **Selection and click functions.** Common in scripts that react to
    clicks in fields.
 6. **Styled text.** Needed for faithful imports and chunk properties.
 7. **Script-modifiable menus.** Many stacks add their own menus; builds on
-   the menu restructuring in item 4.
+   the menus from item 4.
 8. **Multiple stacks, Home, and `start using`.** Larger architectural
    change to `World` and the message path.
 9. **HyperCard 1.x import, MACE, AddColor.**

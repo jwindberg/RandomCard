@@ -320,6 +320,8 @@ fn demo_stack_runs() {
     // Address book on its own background.
     assert_eq!(click(&mut i, "Home", "Address Book"), None);
     assert_eq!(current(&i), "Grace Hopper");
+    // The address book is for using, not editing: it runs at the Typing level.
+    assert_eq!(run(&mut i, "put the userLevel"), "2");
     assert_eq!(run(&mut i, "put field \"Count\""), "1 of 3");
     assert_eq!(click(&mut i, "Grace Hopper", "Sort"), None);
     assert_eq!(current(&i), "Ada Lovelace");
@@ -337,6 +339,7 @@ fn demo_stack_runs() {
     assert_eq!(run(&mut i, "put the number of cards"), "8");
     assert_eq!(click(&mut i, "Grace Hopper", "Home"), None);
     assert_eq!(current(&i), "Home");
+    assert_eq!(run(&mut i, "put the userLevel"), "5");
 }
 
 #[test]
@@ -482,4 +485,51 @@ fn undo_card_and_part_edits() {
     i.handle_event(Event::MsgBox("doMenu \"Copy Button\"\ndoMenu \"paste\"".into()));
     let reqs = std::mem::take(&mut lock(&i.world).requests);
     assert!(matches!(&reqs[..], [UiRequest::Edit(EditOp::Copy), UiRequest::Edit(EditOp::Paste)]), "{reqs:?}");
+}
+
+#[test]
+fn user_levels_and_protection() {
+    let mut i = interp_with(stack());
+    assert_eq!(run(&mut i, "put the userLevel"), "5");
+    assert_eq!(run(&mut i, "set the userLevel to 2\nput the userLevel"), "2");
+    // A stack's protection caps the level, until its password is given.
+    lock(&i.world).stack.protection.user_level_limit = 3;
+    assert_eq!(run(&mut i, "set the userLevel to 5\nput the userLevel"), "3");
+    lock(&i.world).unlocked = true;
+    assert_eq!(run(&mut i, "set the userLevel to 5\nput the userLevel"), "5");
+    // Protection properties.
+    assert_eq!(run(&mut i, "set the cantPeek of this stack to true\nput the cantPeek of this stack"), "true");
+    assert_eq!(run(&mut i, "put the cantAbort of this stack"), "false");
+    // A Can't Modify stack can't be saved over, and is browse-only for the user.
+    let dir = std::env::temp_dir().join(format!("randomcard-cm-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    lock(&i.world).stack.path = Some(dir.join("locked.rcstack"));
+    run(&mut i, "set the cantModify of this stack to true");
+    assert!(run(&mut i, "save this stack").contains("can't be modified"));
+    assert_eq!(lock(&i.world).editing_level(), 1);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn private_access_stacks_ask_for_their_password() {
+    let dir = std::env::temp_dir().join(format!("randomcard-pa-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("secret.rcstack");
+    let mut secret = Stack::new("Secret");
+    secret.protection.private_access = true;
+    secret.protection.password_hash = Some(crate::model::password::stored_hash("Open Sesame"));
+    secret.save(&path).unwrap();
+
+    let mut i = interp_with(stack());
+    // Cancelling leaves the current stack open.
+    i.canned_answers.push(DialogReply::Text(None));
+    i.handle_event(Event::OpenFile(path.clone()));
+    assert_eq!(lock(&i.world).stack.name, "Test");
+    // A wrong password asks again; the right one (any case) opens it.
+    i.canned_answers.push(DialogReply::Text(Some("nope".into())));
+    i.canned_answers.push(DialogReply::Text(Some("open sesame".into())));
+    i.handle_event(Event::OpenFile(path));
+    assert_eq!(lock(&i.world).stack.name, "Secret");
+    assert!(i.canned_answers.is_empty());
+    std::fs::remove_dir_all(&dir).ok();
 }

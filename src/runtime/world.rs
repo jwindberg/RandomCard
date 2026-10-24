@@ -278,8 +278,9 @@ pub enum Event {
     /// A keyboard message (keyDown, returnInField, tabKey, ...), with what
     /// the key does if no handler takes it.
     Key { target: ObjRef, message: String, args: Vec<String>, default: KeyAction },
-    /// Replace the open stack (already loaded by the UI) and send open messages.
-    OpenStack(Box<Stack>),
+    /// Open a stack file (RandomCard or HyperCard), asking for its password
+    /// if it needs one.
+    OpenFile(std::path::PathBuf),
     Shutdown,
 }
 
@@ -324,6 +325,11 @@ pub struct World {
     /// Undo and redo history (see `undo.rs`).
     pub undo: Vec<super::undo::UndoEntry>,
     pub redo: Vec<super::undo::UndoEntry>,
+    /// The user level, 1 Browsing … 5 Scripting. Global, as in HyperCard: it
+    /// carries over from stack to stack. The stack's protection caps it.
+    pub user_level: u8,
+    /// The stack's password was given this session, lifting its level limit.
+    pub unlocked: bool,
 }
 
 impl World {
@@ -364,16 +370,36 @@ impl World {
             text_point: None,
             undo: Vec::new(),
             redo: Vec::new(),
+            user_level: 5,
+            unlocked: false,
         }
     }
 
     pub fn replace_stack(&mut self, stack: Stack) {
         let msg_visible = self.msg_visible;
         let msg = std::mem::take(&mut self.msg);
+        let user_level = self.user_level;
         *self = World::new(stack);
         self.msg_visible = msg_visible;
         self.msg = msg;
+        self.user_level = user_level;
         self.picture_rev = rand::random();
+    }
+
+    /// The highest level the stack allows right now.
+    pub fn level_limit(&self) -> u8 {
+        if self.unlocked { 5 } else { self.stack.protection.user_level_limit.clamp(1, 5) }
+    }
+
+    /// The level in effect: the user level, capped by the stack's protection.
+    pub fn level(&self) -> u8 {
+        self.user_level.min(self.level_limit())
+    }
+
+    /// The level for the user's own actions: a Can't Modify stack can only
+    /// be browsed, though its scripts still run.
+    pub fn editing_level(&self) -> u8 {
+        if self.stack.cant_modify { 1 } else { self.level() }
     }
 
     pub fn bg_id(&self) -> Id {

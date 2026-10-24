@@ -58,8 +58,28 @@ scripts name in quotes, are copied.
 What doesn't come across: other resources (XCMDs/XFCNs, color)
 and styled runs within field text, which import as plain text. HyperCard 1.x stacks must first be converted with
 HyperCard 2.x. Private-access stacks import, since only the stack header is
-encrypted. Scripts that use menus, palettes or other windows parse, but
+encrypted; they ask for their password. Protection comes across too:
+the user-level limit, password, Can't Modify and the other flags. Scripts
+that use menus, palettes or other windows parse, but
 those commands do nothing.
+
+**User levels.** As in HyperCard, five levels decide what you can do:
+Browsing, Typing (edit field text), Painting (paint tools and the Paint
+menu), Authoring (the Button and Field tools, the Objects menu, Info
+dialogs) and Scripting (scripts). RandomCard runs at Scripting by default,
+like the full HyperCard. Pick another level in File ▸ Preferences…. Stacks
+can lower it with `set the userLevel`. The demo's Address Book drops to
+Typing while you're in it.
+
+File ▸ Protect Stack… sets Can't Modify, Can't Delete, Can't Abort, Can't
+Peek and Private Access, limits the user level, and sets a password, using
+HyperCard's own password scheme. A password is then needed to open Protect
+Stack or, through Preferences ▸ Unlock with Password…, to go above the
+limit. Protection stops casual changes. It isn't encryption.
+
+The tool panel sits on the left at Painting level and above. Hide or show
+it with View ▸ Tool Panel or Ctrl+T. The message box opens at the bottom of
+the window. Preferences are saved in `~/.config/randomcard/settings.json`.
 
 **Tools.** Browse, Button, Field, and HyperCard's paint tools: Select,
 Lasso, Pencil, Brush, Eraser, Line, Spray, Rect, Round Rect, Bucket, Oval,
@@ -171,9 +191,10 @@ and offer to open the script editor there.
 | Ctrl+N | New card |
 | Ctrl+M | Message box |
 | Ctrl+B | Edit background |
-| Ctrl+Alt+C / B / S | Card / background / stack script |
+| Ctrl+Alt+C / B / S | Card / background / stack script (Scripting level) |
 | Ctrl+Tab | Browse tool |
-| Ctrl+Z | Undo paint |
+| Ctrl+T | Show or hide the tool panel |
+| Ctrl+Z, Ctrl+Shift+Z | Undo, redo |
 | Ctrl+. | Abort running script |
 | Ctrl+Space | Hide or show the menu bar |
 | Ctrl+S, Ctrl+O, Ctrl+Q | Save, open, quit |
@@ -190,15 +211,14 @@ src/
   paint/       raster painting: patterns, brushes, shapes, fills, selections,
                Paint menu operations, painted text
   sound/       note parsing, rendering, built-in voices and audio output
-  ui/          egui app: menus, palette, card rendering, transitions,
-               paint tools, info dialogs, script editor
+  ui/          egui app: menus, tool panel, card rendering, transitions,
+               paint tools, info dialogs, script editor, user levels
 ```
 
 ## Not (yet) implemented
 
-The main gaps are paint patterns and some paint tools, keyboard messages,
-styled text in fields, scriptable menus, multiple open stacks, and
-XCMDs. [ROADMAP.md](ROADMAP.md) lists the remaining work by area, with
+The main gaps are styled text in fields, selection and click functions,
+scriptable menus, multiple open stacks, and XCMDs. [ROADMAP.md](ROADMAP.md) lists the remaining work by area, with
 notes on how to approach each piece and a suggested order.
 
 ## References

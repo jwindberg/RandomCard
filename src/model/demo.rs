@@ -149,7 +149,19 @@ function plural n, noun
 end plural
 "#;
 
-const ADDRESS_BG_SCRIPT: &str = r#"on openCard
+const ADDRESS_BG_SCRIPT: &str = r#"-- Visitors use the address book; they don't redesign it.
+on openBackground
+  global savedLevel
+  put the userLevel into savedLevel
+  set the userLevel to 2
+end openBackground
+
+on closeBackground
+  global savedLevel
+  if savedLevel is a number then set the userLevel to savedLevel
+end closeBackground
+
+on openCard
   put the number of cards - the number of cards of this background into others
   put the number of this card - others && "of" && the number of cards of this background into field "Count"
 end openCard

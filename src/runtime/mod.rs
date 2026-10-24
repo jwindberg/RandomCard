@@ -5,6 +5,7 @@ mod commands;
 pub mod dates;
 pub mod interp;
 mod objects;
+pub mod settings;
 pub mod undo;
 pub mod world;
 
@@ -26,8 +27,12 @@ pub struct Runtime {
     pub abort: Arc<AtomicBool>,
 }
 
-pub fn start(stack: Stack) -> Runtime {
-    let world = Arc::new(Mutex::new(World::new(stack)));
+/// Start the script thread with a stack, or with a file to open (which may
+/// need a password, so it's opened on the script thread).
+pub fn start(stack: Stack, open: Option<std::path::PathBuf>, user_level: u8) -> Runtime {
+    let mut world = World::new(stack);
+    world.user_level = user_level.clamp(1, 5);
+    let world = Arc::new(Mutex::new(world));
     let (events, event_rx) = channel();
     let (dialog_replies, dialog_rx) = channel();
     let abort = Arc::new(AtomicBool::new(false));
@@ -41,6 +46,9 @@ pub fn start(stack: Stack) -> Runtime {
             interp.run(event_rx)
         })
         .expect("can't start script thread");
-    let _ = events.send(Event::Startup);
+    let _ = events.send(match open {
+        Some(path) => Event::OpenFile(path),
+        None => Event::Startup,
+    });
     Runtime { world, events, dialog_replies, abort }
 }

@@ -22,11 +22,17 @@ use woba::QdRect;
 const HEADER: usize = 16;
 const MACBINARY_HEADER: usize = 128;
 
-/// Open a RandomCard stack or an original HyperCard stack, whichever `path` is.
-pub fn load_any(path: &Path) -> Result<Stack, String> {
+/// Reported when a private-access HyperCard stack needs its password, and
+/// when the password given is wrong.
+pub const NEEDS_PASSWORD: &str = "This stack is password protected.";
+pub const WRONG_PASSWORD: &str = "That isn't the stack's password.";
+
+/// Open a RandomCard stack or an original HyperCard stack, whichever `path`
+/// is. Private-access HyperCard stacks need their password to import.
+pub fn load_any(path: &Path, password: Option<&str>) -> Result<Stack, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("Can't open {}: {e}", path.display()))?;
     if is_hypercard_stack(&bytes) {
-        import_bytes(&bytes, path)
+        import_bytes(&bytes, path, password)
     } else {
         Stack::load(path)
     }
@@ -59,11 +65,11 @@ fn data_fork(bytes: &[u8]) -> Option<&[u8]> {
     None
 }
 
-pub fn import_bytes(bytes: &[u8], path: &Path) -> Result<Stack, String> {
+pub fn import_bytes(bytes: &[u8], path: &Path, password: Option<&str>) -> Result<Stack, String> {
     let data = data_fork(bytes).ok_or("This is not a HyperCard stack.")?;
     let blocks = read_blocks(data)?;
     let name = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Imported".into());
-    let mut stack = convert(&blocks, &name)?;
+    let mut stack = convert(&blocks, &name, password)?;
     if let Some(fork) = resources::find_resource_fork(path, bytes) {
         stack.icons = resources::icons(&fork);
         stack.sounds = resources::sounds(&fork);
@@ -243,6 +249,7 @@ fn read_blocks(data: &[u8]) -> R<Vec<Block<'_>>> {
 }
 
 struct StackInfo {
+    protection: crate::model::Protection,
     patterns: Option<Vec<[u8; 8]>>,
     width: u32,
     height: u32,
@@ -251,7 +258,33 @@ struct StackInfo {
     cant_modify: bool,
 }
 
-fn read_stack_block(data: &[u8]) -> R<StackInfo> {
+/// The part of the STAK block that private access encrypts.
+const ENCRYPTED: std::ops::Range<usize> = 0x08..0x08 + 0x32;
+
+/// Decrypt a private-access stack's header with its password, as HyperCard
+/// did (via HyperCardPreview's StackBlockDecrypter).
+fn decrypt_header(data: &[u8], password: &str) -> R<Vec<u8>> {
+    use crate::model::password::{first_hash, hash_number, stored_hash};
+    let mut out = data.to_vec();
+    let Some(slice) = out.get_mut(ENCRYPTED) else { return corrupt("short stack block") };
+    let mut x = first_hash(password);
+    for _ in 0..10 {
+        x = hash_number(x);
+    }
+    // Overlapping 4-byte windows, two bytes apart.
+    for i in (0..=slice.len() - 4).step_by(2) {
+        x = hash_number(x);
+        for (k, b) in x.to_be_bytes().iter().enumerate() {
+            slice[i + k] ^= b;
+        }
+    }
+    if Reader::at(&out, 0x34).u32()? != stored_hash(password) {
+        return Err(WRONG_PASSWORD.into());
+    }
+    Ok(out)
+}
+
+fn read_stack_block(data: &[u8], password: Option<&str>) -> R<StackInfo> {
     let mut r = Reader::new(data);
     let format = r.u32()?;
     match format {
@@ -263,10 +296,30 @@ fn read_stack_block(data: &[u8]) -> R<StackInfo> {
         }
         _ => return Err(format!("Unknown HyperCard stack format ({format}).")),
     }
-    // Card count, list id and the like may be encrypted (private access);
-    // nothing below depends on them except the first background, which is checked.
-    let first_bg = Reader::at(data, 0x18).i32()?;
+    // Flags aren't encrypted; private access encrypts the header around them.
     let flags = Reader::at(data, 0x3c).u16()?;
+    let private_access = flags & (1 << 13) != 0;
+    let decrypted;
+    let header = if private_access {
+        decrypted = decrypt_header(data, password.ok_or(NEEDS_PASSWORD)?)?;
+        &decrypted[..]
+    } else {
+        data
+    };
+    let first_bg = Reader::at(header, 0x18).i32()?;
+    let password_hash = Some(Reader::at(header, 0x34).u32()?).filter(|h| *h != 0);
+    let user_level_limit = match Reader::at(header, 0x38).u16()? {
+        n @ 1..=5 => n as u8,
+        _ => 5,
+    };
+    let protection = crate::model::Protection {
+        user_level_limit,
+        password_hash,
+        cant_delete: flags & (1 << 14) != 0,
+        cant_abort: flags & (1 << 11) != 0,
+        cant_peek: flags & (1 << 10) != 0,
+        private_access,
+    };
     let mut size = Reader::at(data, 0x1a8);
     let (height, width) = (size.i16()?, size.i16()?);
     let script = if data.len() > 0x5f0 { Reader::at(data, 0x5f0).cstring() } else { String::new() };
@@ -276,6 +329,7 @@ fn read_stack_block(data: &[u8]) -> R<StackInfo> {
         pats.iter().any(|p| *p != [0; 8]).then_some(pats)
     });
     Ok(StackInfo {
+        protection,
         patterns,
         width: if width <= 0 { DEFAULT_WIDTH } else { width as u32 },
         height: if height <= 0 { DEFAULT_HEIGHT } else { height as u32 },
@@ -482,8 +536,8 @@ fn read_bitmap(data: &[u8], width: u32, height: u32) -> R<Picture> {
 
 // ----- conversion to RandomCard's model -----
 
-fn convert(blocks: &[Block], name: &str) -> R<Stack> {
-    let info = read_stack_block(blocks[0].data)?;
+fn convert(blocks: &[Block], name: &str, password: Option<&str>) -> R<Stack> {
+    let info = read_stack_block(blocks[0].data, password)?;
     let fonts = match blocks.iter().find(|b| &b.kind == b"FTBL") {
         Some(b) => read_fonts(b.data)?,
         None => HashMap::new(),
@@ -527,6 +581,7 @@ fn convert(blocks: &[Block], name: &str) -> R<Stack> {
     stack.height = info.height;
     stack.script = info.script;
     stack.cant_modify = info.cant_modify;
+    stack.protection = info.protection;
     if let Some(p) = info.patterns {
         stack.patterns = p;
     }
@@ -717,7 +772,7 @@ mod tests {
     fn sample_stacks() {
         let Ok(dir) = std::env::var("RANDOMCARD_HC_SAMPLES") else { return };
         let dir = Path::new(&dir);
-        let open = |n: &str| load_any(&dir.join(format!("{n}.stack"))).unwrap_or_else(|e| panic!("{n}: {e}"));
+        let open = |n: &str| load_any(&dir.join(format!("{n}.stack")), None).unwrap_or_else(|e| panic!("{n}: {e}"));
 
         let s = open("TestCardsBackgrounds");
         let ids: Vec<Id> = s.cards.iter().map(|c| c.id).collect();
@@ -764,9 +819,22 @@ mod tests {
         assert!(card.parts.iter().find(|p| p.kind == PartKind::Button).unwrap().hilite);
 
         assert_eq!(open("TestStackScript").script, "-- script of stack\n-- with two lines");
-        assert!(load_any(&dir.join("TestV1.stack")).unwrap_err().contains("1.x"));
-        // Private access encrypts the stack header, which the import doesn't need.
-        assert!(!open("TestPrivateAccess").cards.is_empty());
+        assert!(load_any(&dir.join("TestV1.stack"), None).unwrap_err().contains("1.x"));
+        // Private access needs the password, which decrypts the stack header.
+        let private = dir.join("TestPrivateAccess.stack");
+        assert_eq!(load_any(&private, None).unwrap_err(), NEEDS_PASSWORD);
+        assert_eq!(load_any(&private, Some("coucou")).unwrap_err(), WRONG_PASSWORD);
+        let s = load_any(&private, Some("AA ee 1234 aaa")).unwrap();
+        assert!(s.protection.private_access && !s.cards.is_empty());
+        assert_eq!(s.protection.password_hash, Some(0xCA92_2FEB));
+        // Protection settings come across.
+        assert_eq!(open("TestPassword").protection.password_hash, Some(0xCA92_2FEB));
+        assert!(open("TestCantPeek").protection.cant_peek);
+        assert!(open("TestCantAbort").protection.cant_abort);
+        assert!(open("TestCantDelete").protection.cant_delete);
+        assert!(open("TestCantModify").cant_modify);
+        assert_eq!(open("TestUserLevel1").protection.user_level_limit, 1);
+        assert_eq!(open("TestUserLevel5").protection.user_level_limit, 5);
         let home = open("Home");
         assert!(home.backgrounds.iter().any(|b| !b.picture.is_blank()));
         // Stacks carry their own 40 paint patterns.
@@ -786,7 +854,7 @@ mod tests {
         std::fs::create_dir_all(&tmp).unwrap();
         std::fs::copy(dir.join("Home.stack"), tmp.join("My Stack")).unwrap();
         std::fs::copy(dir.join("Home.rsrc"), tmp.join("HyperCard.rsrc")).unwrap();
-        let chained = load_any(&tmp.join("My Stack"));
+        let chained = load_any(&tmp.join("My Stack"), None);
         std::fs::remove_dir_all(&tmp).ok();
         let chained = chained.unwrap();
         assert!(chained.icons.contains_key(&3001));
@@ -794,7 +862,7 @@ mod tests {
 
         // Every script in every sample stack parses.
         for entry in std::fs::read_dir(dir).unwrap().flatten() {
-            let Ok(s) = load_any(&entry.path()) else { continue };
+            let Ok(s) = load_any(&entry.path(), Some("AA éé 1234 ÀÂä")) else { continue };
             let mut scripts = vec![s.script.clone()];
             for b in &s.backgrounds {
                 scripts.push(b.script.clone());

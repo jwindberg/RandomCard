@@ -2,6 +2,7 @@
 //! cards each hold a picture layer plus buttons and fields ("parts").
 
 mod demo;
+pub mod password;
 mod picture;
 
 use std::collections::{BTreeMap, HashMap};
@@ -335,6 +336,34 @@ mod pcm {
     }
 }
 
+/// Protect Stack settings. They deter changes rather than secure anything.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Protection {
+    /// The highest user level this stack allows (5 = no limit).
+    pub user_level_limit: u8,
+    /// HyperCard-compatible password hash (see `password.rs`).
+    pub password_hash: Option<u32>,
+    pub cant_delete: bool,
+    pub cant_abort: bool,
+    pub cant_peek: bool,
+    /// Ask for the password before opening the stack.
+    pub private_access: bool,
+}
+
+impl Default for Protection {
+    fn default() -> Self {
+        Protection {
+            user_level_limit: 5,
+            password_hash: None,
+            cant_delete: false,
+            cant_abort: false,
+            cant_peek: false,
+            private_access: false,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Stack {
@@ -346,6 +375,7 @@ pub struct Stack {
     pub backgrounds: Vec<Background>,
     pub cards: Vec<Card>,
     pub cant_modify: bool,
+    pub protection: Protection,
     /// Button icons by resource id.
     pub icons: BTreeMap<i32, Icon>,
     /// Sounds by resource id; scripts play them by name.
@@ -385,6 +415,7 @@ impl Stack {
             backgrounds: vec![bg],
             cards: vec![card],
             cant_modify: false,
+            protection: Protection::default(),
             icons: BTreeMap::new(),
             sounds: BTreeMap::new(),
             patterns: default_patterns(),

@@ -196,7 +196,11 @@ impl Interp {
         }
         let outcome = match ev {
             Event::Startup => self.open_stack_messages(),
-            Event::OpenStack(stack) => self.switch_stack(*stack),
+            Event::OpenFile(path) => match self.load_stack_file(&path) {
+                Ok(Some(stack)) => self.switch_stack(stack),
+                Ok(None) => Ok(()),
+                Err(e) => Err(e),
+            },
             Event::Send { target, message, args } => self.dispatch_top(target, &message, args),
             Event::MsgBox(text) => self.run_msgbox(&text),
             Event::DoMenu(item) => {

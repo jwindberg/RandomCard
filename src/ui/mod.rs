@@ -1,6 +1,7 @@
 //! The RandomCard window: menus, tool palette, the card, and the message box.
 
 mod editing;
+mod levels;
 mod painting;
 mod render;
 mod windows;
@@ -57,7 +58,9 @@ struct PartDrag {
     rect: CardRect,
 }
 
+use crate::runtime::settings::{Settings, level_name};
 use editing::{Clip, Order};
+use levels::PasswordPrompt;
 use painting::{Marquee, PaintStroke, TextEntry};
 
 pub struct App {
@@ -82,6 +85,10 @@ pub struct App {
     part_drag: Option<PartDrag>,
     stroke: Option<PaintStroke>,
     clipboard: Option<Clip>,
+    settings: Settings,
+    prefs_open: bool,
+    protect_open: bool,
+    password_prompt: Option<PasswordPrompt>,
     marquee: Option<Marquee>,
     /// Polygon tool: the corners placed so far.
     polygon: Option<Vec<(i32, i32)>>,
@@ -107,10 +114,16 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, stack: Stack) -> App {
+    /// Start with a stack, or open a file once running (it may ask for a password).
+    pub fn new(cc: &eframe::CreationContext<'_>, stack: Stack, open: Option<PathBuf>) -> App {
         cc.egui_ctx.set_visuals(egui::Visuals::light());
+        let settings = Settings::load();
         App {
-            rt: runtime::start(stack),
+            rt: runtime::start(stack, open, settings.user_level),
+            settings,
+            prefs_open: false,
+            protect_open: false,
+            password_prompt: None,
             tex: Textures::default(),
             last_scene: None,
             frozen: None,
@@ -158,32 +171,53 @@ impl App {
 
     // ----- menus and palette -----
 
+    /// The menus, as the user level allows (HyperCard showed only what each
+    /// level unlocks).
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
-        let (edit_bg, tool, filled, msg_visible) = {
+        let (edit_bg, tool, msg_visible, level, editing, cant_modify, can_undo, can_redo) = {
             let w = self.world();
-            (w.edit_bg, w.tool, w.fill_shapes, w.msg_visible)
+            (
+                w.edit_bg,
+                w.tool,
+                w.msg_visible,
+                w.level(),
+                w.editing_level(),
+                w.stack.cant_modify,
+                !w.undo.is_empty(),
+                !w.redo.is_empty(),
+            )
         };
+        let item = |ui: &mut egui::Ui, enabled: bool, label: &str| ui.add_enabled(enabled, egui::Button::new(label)).clicked();
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
-                for item in ["New Stack…", "Open Stack…", "Import HyperCard Stack…", "Save Stack", "Save a Copy…"] {
-                    if ui.button(item).clicked() {
-                        self.do_menu(item);
+                for label in ["New Stack…", "Open Stack…", "Import HyperCard Stack…"] {
+                    if item(ui, true, label) {
+                        self.do_menu(label);
                     }
                 }
+                if item(ui, !cant_modify, "Save Stack") {
+                    self.do_menu("Save Stack");
+                }
+                if item(ui, true, "Save a Copy…") {
+                    self.do_menu("Save a Copy…");
+                }
                 ui.separator();
-                if ui.button("Quit RandomCard").clicked() {
+                if item(ui, true, "Protect Stack…") {
+                    self.open_protect_stack();
+                }
+                if item(ui, true, "Preferences…") {
+                    self.prefs_open = true;
+                }
+                ui.separator();
+                if item(ui, true, "Quit RandomCard") {
                     self.do_menu("Quit RandomCard");
                 }
             });
             ui.menu_button("Edit", |ui| {
-                let (can_undo, can_redo) = {
-                    let w = self.world();
-                    (!w.undo.is_empty(), !w.redo.is_empty())
-                };
-                if ui.add_enabled(can_undo, egui::Button::new("Undo")).clicked() {
+                if item(ui, can_undo && editing >= 2, "Undo") {
                     self.undo();
                 }
-                if ui.add_enabled(can_redo, egui::Button::new("Redo")).clicked() {
+                if item(ui, can_redo && editing >= 2, "Redo") {
                     self.redo();
                 }
                 ui.separator();
@@ -194,90 +228,101 @@ impl App {
                         Some(t) if !(verb == "Clear" && t == "Picture") => format!("{verb} {t}"),
                         _ => verb.to_string(),
                     };
-                    if ui.add_enabled(target.is_some(), egui::Button::new(&label)).clicked() {
+                    if item(ui, target.is_some(), &label) {
                         self.do_menu(&label);
                     }
                 }
-                let paste = self.paste_name();
+                let paste = self.paste_name().filter(|t| editing >= if *t == "Picture" { 3 } else { 4 });
                 let label = paste.map(|t| format!("Paste {t}")).unwrap_or_else(|| "Paste".into());
-                if ui.add_enabled(paste.is_some(), egui::Button::new(&label)).clicked() {
+                if item(ui, paste.is_some(), &label) {
                     self.do_menu(&label);
                 }
-                ui.separator();
-                for item in ["New Card", "Delete Card", "Cut Card", "Copy Card", "Paste Card"] {
-                    if ui.button(item).clicked() {
-                        self.do_menu(item);
+                if editing >= 2 {
+                    ui.separator();
+                    for label in ["New Card", "Delete Card", "Cut Card", "Copy Card", "Paste Card"] {
+                        if item(ui, true, label) {
+                            self.do_menu(label);
+                        }
                     }
                 }
-                ui.separator();
-                if ui.button(if edit_bg { "✔ Background" } else { "Background" }).clicked() {
-                    self.do_menu("Background");
-                }
-                if ui.button("Clear Picture").clicked() {
-                    self.do_menu("Clear Picture");
+                if editing >= 3 {
+                    ui.separator();
+                    if item(ui, true, if edit_bg { "✔ Background" } else { "Background" }) {
+                        self.do_menu("Background");
+                    }
+                    if item(ui, true, "Clear Picture") {
+                        self.do_menu("Clear Picture");
+                    }
                 }
             });
             ui.menu_button("Go", |ui| {
-                for item in ["Back", "First", "Prev", "Next", "Last"] {
-                    if ui.button(item).clicked() {
-                        self.do_menu(item);
+                for label in ["Back", "First", "Prev", "Next", "Last"] {
+                    if item(ui, true, label) {
+                        self.do_menu(label);
                     }
                 }
                 ui.separator();
-                if ui.button(if msg_visible { "✔ Message" } else { "Message" }).clicked() {
+                if item(ui, true, if msg_visible { "✔ Message" } else { "Message" }) {
                     self.do_menu("Message");
                 }
             });
-            ui.menu_button("Tools", |ui| {
-                for t in Tool::ALL {
-                    let label = windows::capitalize(t.name());
-                    if ui.selectable_label(tool == *t, label).clicked() {
-                        self.choose_tool(*t);
-                    }
+            ui.menu_button("View", |ui| {
+                let shown = self.settings.show_tools;
+                if item(ui, editing >= 3, if shown { "✔ Tool Panel" } else { "Tool Panel" }) {
+                    self.toggle_tool_panel();
                 }
-                ui.separator();
-                let mut f = filled;
-                if ui.checkbox(&mut f, "Draw Filled").changed() {
-                    self.world().fill_shapes = f;
+                if item(ui, true, if msg_visible { "✔ Message Box" } else { "Message Box" }) {
+                    self.do_menu("Message");
                 }
             });
-            ui.menu_button("Paint", |ui| {
-                if ui.button("Select All").clicked() {
-                    self.do_menu("Select All");
-                }
-                ui.separator();
-                for op in crate::paint::PaintOp::ALL {
-                    if ui.button(op.name()).clicked() {
-                        self.do_menu(op.name());
+            if tool.is_paint() {
+                ui.menu_button("Paint", |ui| {
+                    if item(ui, true, "Select All") {
+                        self.do_menu("Select All");
                     }
-                }
-            });
-            ui.menu_button("Objects", |ui| {
-                for item in ["Button Info…", "Field Info…", "Card Info…", "Bkgnd Info…", "Stack Info…"] {
-                    if ui.button(item).clicked() {
-                        self.do_menu(item);
+                    ui.separator();
+                    for op in crate::paint::PaintOp::ALL {
+                        if item(ui, true, op.name()) {
+                            self.do_menu(op.name());
+                        }
                     }
-                }
-                ui.separator();
-                for item in ["Bring Closer", "Send Farther", "Bring to Front", "Send to Back"] {
-                    if ui.button(item).clicked() {
-                        self.do_menu(item);
+                });
+            }
+            if editing >= 4 {
+                ui.menu_button("Objects", |ui| {
+                    for label in ["Button Info…", "Field Info…", "Card Info…", "Bkgnd Info…", "Stack Info…"] {
+                        if item(ui, true, label) {
+                            self.do_menu(label);
+                        }
                     }
-                }
-                ui.separator();
-                for item in ["New Button", "New Field", "New Background"] {
-                    if ui.button(item).clicked() {
-                        self.do_menu(item);
+                    ui.separator();
+                    for label in ["Bring Closer", "Send Farther", "Bring to Front", "Send to Back"] {
+                        if item(ui, true, label) {
+                            self.do_menu(label);
+                        }
                     }
-                }
-                ui.separator();
-                for item in ["Card Script", "Bkgnd Script", "Stack Script"] {
-                    if ui.button(item).clicked() {
-                        self.do_menu(item);
+                    ui.separator();
+                    for label in ["New Button", "New Field", "New Background"] {
+                        if item(ui, true, label) {
+                            self.do_menu(label);
+                        }
                     }
-                }
-            });
+                    if level >= 5 {
+                        ui.separator();
+                        for label in ["Card Script", "Bkgnd Script", "Stack Script"] {
+                            if item(ui, true, label) {
+                                self.do_menu(label);
+                            }
+                        }
+                    }
+                });
+            }
         });
+    }
+
+    fn toggle_tool_panel(&mut self) {
+        self.settings.show_tools = !self.settings.show_tools;
+        self.settings.save();
     }
 
     fn choose_tool(&mut self, t: Tool) {
@@ -327,10 +372,8 @@ impl App {
                             self.alert(e);
                             continue;
                         }
-                        stack.path = Some(path);
-                        self.autosave();
-                        self.reset_view();
-                        self.send(Event::OpenStack(Box::new(stack)));
+                        stack.path = Some(path.clone());
+                        self.open_stack_path(&path);
                     }
                 }
                 UiRequest::SaveStackAs(name) => {
@@ -397,15 +440,11 @@ impl App {
         self.error = Some(ErrorAlert { msg, obj: None, line: None });
     }
 
+    /// Opening happens on the script thread, which can ask for passwords.
     fn open_stack_path(&mut self, path: &std::path::Path) {
-        match crate::import::load_any(path) {
-            Ok(stack) => {
-                self.autosave();
-                self.reset_view();
-                self.send(Event::OpenStack(Box::new(stack)));
-            }
-            Err(e) => self.alert(e),
-        }
+        self.autosave();
+        self.reset_view();
+        self.send(Event::OpenFile(path.to_path_buf()));
     }
 
     fn reset_view(&mut self) {
@@ -437,7 +476,8 @@ impl App {
     fn autosave(&mut self) {
         let json = {
             let mut w = self.world();
-            if !w.dirty || w.busy && self.last_autosave.elapsed() < Duration::from_secs(30) {
+            // Can't Modify stacks keep their changes in memory only.
+            if !w.dirty || w.stack.cant_modify || w.busy && self.last_autosave.elapsed() < Duration::from_secs(30) {
                 return;
             }
             let Some(path) = w.stack.path.clone() else { return };
@@ -459,7 +499,7 @@ impl App {
         let cmd = |k: Key| KeyboardShortcut::new(Modifiers::COMMAND, k);
         let cmd_alt = |k: Key| KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::ALT, k);
         // Command-period always stops scripts; it can't be intercepted.
-        if ctx.input_mut(|i| i.consume_shortcut(&cmd(Key::Period))) {
+        if ctx.input_mut(|i| i.consume_shortcut(&cmd(Key::Period))) && !self.world().stack.protection.cant_abort {
             self.rt.abort.store(true, std::sync::atomic::Ordering::SeqCst);
         }
         // While a dialog is up, keys belong to it.
@@ -468,30 +508,40 @@ impl App {
         }
         // Command keys: offered to commandKeyDown handlers, else a menu command.
         let menu = |s: &str| KeyAction::Menu(s.to_string());
+        let (level, editing, cant_peek) = {
+            let w = self.world();
+            (w.level(), w.editing_level(), w.stack.protection.cant_peek)
+        };
+        // Each shortcut works only where its menu item would be available.
+        let peek = level >= 5 && !cant_peek;
         let command_keys = [
-            (cmd_alt(Key::C), "c", menu("Card Script")),
-            (cmd_alt(Key::B), "b", menu("Bkgnd Script")),
-            (cmd_alt(Key::S), "s", menu("Stack Script")),
-            (cmd(Key::N), "n", menu("New Card")),
-            (cmd(Key::Num1), "1", menu("First")),
-            (cmd(Key::Num2), "2", menu("Prev")),
-            (cmd(Key::Num3), "3", menu("Next")),
-            (cmd(Key::Num4), "4", menu("Last")),
-            (cmd(Key::M), "m", menu("Message")),
-            (cmd(Key::B), "b", menu("Background")),
-            (cmd(Key::O), "o", menu("Open Stack…")),
-            (cmd(Key::Q), "q", menu("Quit RandomCard")),
-            (cmd(Key::S), "s", menu("Save Stack")),
+            (cmd_alt(Key::C), "c", menu("Card Script"), peek),
+            (cmd_alt(Key::B), "b", menu("Bkgnd Script"), peek),
+            (cmd_alt(Key::S), "s", menu("Stack Script"), peek),
+            (cmd(Key::N), "n", menu("New Card"), editing >= 2),
+            (cmd(Key::Num1), "1", menu("First"), true),
+            (cmd(Key::Num2), "2", menu("Prev"), true),
+            (cmd(Key::Num3), "3", menu("Next"), true),
+            (cmd(Key::Num4), "4", menu("Last"), true),
+            (cmd(Key::M), "m", menu("Message"), true),
+            (cmd(Key::B), "b", menu("Background"), editing >= 3),
+            (cmd(Key::O), "o", menu("Open Stack…"), true),
+            (cmd(Key::Q), "q", menu("Quit RandomCard"), true),
+            (cmd(Key::S), "s", menu("Save Stack"), editing >= 2),
         ];
-        for (shortcut, ch, action) in command_keys {
-            if ctx.input_mut(|i| i.consume_shortcut(&shortcut)) {
+        if editing >= 3 && ctx.input_mut(|i| i.consume_shortcut(&cmd(Key::T))) {
+            self.toggle_tool_panel();
+        }
+        for (shortcut, ch, action, allowed) in command_keys {
+            if allowed && ctx.input_mut(|i| i.consume_shortcut(&shortcut)) {
                 self.command_key(ctx, ch, action);
             }
         }
         if ctx.input_mut(|i| i.consume_shortcut(&cmd(Key::Tab))) {
             self.choose_tool(Tool::Browse);
         }
-        if ctx.input_mut(|i| i.consume_shortcut(&cmd(Key::Space))) {
+        // Stacks used below the Painting level can keep the menu bar hidden.
+        if editing >= 3 && ctx.input_mut(|i| i.consume_shortcut(&cmd(Key::Space))) {
             let mut w = self.world();
             w.menubar_visible = !w.menubar_visible;
         }
@@ -592,7 +642,7 @@ impl App {
 
     /// An answer/ask dialog, script error or quit prompt is showing.
     fn modal_open(&self) -> bool {
-        self.world().dialog.is_some() || self.error.is_some() || self.quit_prompt
+        self.world().dialog.is_some() || self.error.is_some() || self.quit_prompt || self.password_prompt.is_some()
     }
 
     /// Keys go to the field being edited, or else the current card.
@@ -937,7 +987,8 @@ impl App {
             }
             let target = over;
             match target {
-                Some(pv) if pv.part.kind == PartKind::Field && !pv.part.lock_text => {
+                // Typing into fields starts at the Typing level.
+                Some(pv) if pv.part.kind == PartKind::Field && !pv.part.lock_text && self.editing_level() >= 2 => {
                     if self.editing.as_ref().is_none_or(|e| e.obj != pv.obj) {
                         self.start_editing(pv.obj, &pv.text);
                     }
@@ -1286,7 +1337,9 @@ impl App {
             let name = card.map(|c| c.name.clone()).filter(|n| !n.is_empty());
             let name = name.map(|n| format!(" \"{n}\"")).unwrap_or_default();
             let layer = if w.edit_bg { " · editing background" } else { "" };
-            (format!("Card {idx} of {n}{name} · {} tool{layer}", w.tool.name()), w.busy)
+            let level = if w.level() < 5 { format!(" · {} level", level_name(w.level())) } else { String::new() };
+            let locked = if w.stack.cant_modify { " · locked" } else { "" };
+            (format!("Card {idx} of {n}{name} · {} tool{layer}{level}{locked}", w.tool.name()), w.busy)
         };
         ui.horizontal(|ui| {
             ui.label(RichText::new(text).small());
@@ -1434,6 +1487,7 @@ impl eframe::App for App {
             self.request_quit(&ctx);
         }
         self.handle_requests(&ctx);
+        self.enforce_level();
         self.shortcuts(&ctx);
         self.keyboard(&ctx);
 
@@ -1464,7 +1518,10 @@ impl eframe::App for App {
             }
             self.status_bar(ui);
         });
-        egui::Panel::left("palette").resizable(false).exact_size(128.0).show(ui, |ui| self.palette(ui));
+        // The tool panel, when shown and the level allows tools.
+        if self.settings.show_tools && self.editing_level() >= 3 {
+            egui::Panel::left("palette").resizable(false).exact_size(128.0).show(ui, |ui| self.palette(ui));
+        }
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(Color32::from_gray(200))).show(ui, |ui| {
             self.canvas(ui);
         });
@@ -1472,6 +1529,9 @@ impl eframe::App for App {
         self.show_windows(&ctx);
         self.show_dialog(&ctx);
         self.show_error(&ctx);
+        self.show_preferences(&ctx);
+        self.show_protect_stack(&ctx);
+        self.show_password_prompt(&ctx);
         self.quit_prompt(&ctx);
 
         if busy || self.anim.is_some() || self.pressed.is_some() || self.flash_until.is_some() {

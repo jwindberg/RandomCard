@@ -396,7 +396,7 @@ impl Interp {
             "numberformat" => self.number_format.clone(),
             "lockscreen" => bool_str(w.lock_screen),
             "lockmessages" | "lockmsgs" => bool_str(self.lock_messages),
-            "userlevel" => "5".into(),
+            "userlevel" => w.level().to_string(),
             "editbkgnd" => bool_str(w.edit_bg),
             "filled" => bool_str(w.fill_shapes),
             "linesize" => w.line_size.to_string(),
@@ -440,7 +440,13 @@ impl Interp {
             "textfont" => self.w().paint_font = v.to_string(),
             "textsize" => self.w().paint_text_size = to_int(v)?.clamp(6, 128) as u32,
             "textstyle" => self.w().paint_text_style = v.to_string(),
-            "userlevel" | "cursor" | "dragspeed" | "textarrows" | "blindtyping" | "powerkeys" | "usermodify"
+            "userlevel" => {
+                // A stack's protection caps how high the level can go.
+                let mut w = self.w();
+                let limit = w.level_limit();
+                w.user_level = (to_int(v)?.clamp(1, 5) as u8).min(limit);
+            }
+            "cursor" | "dragspeed" | "textarrows" | "blindtyping" | "powerkeys" | "usermodify"
             | "lockrecent" | "grid" | "centered" | "multiple" | "language" | "messagewatcher"
             | "variablewatcher" | "textalign" | "textheight" | "scripttextfont" | "scripttextsize" | "debugger"
             | "scripteditor" => {}
@@ -585,7 +591,10 @@ impl Interp {
                 }
                 match name {
                     "cantmodify" => bool_str(s.cant_modify),
-                    "cantdelete" | "cantabort" | "cantpeek" => "false".into(),
+                    "cantdelete" => bool_str(s.protection.cant_delete),
+                    "cantabort" => bool_str(s.protection.cant_abort),
+                    "cantpeek" => bool_str(s.protection.cant_peek),
+                    "privateaccess" => bool_str(s.protection.private_access),
                     "size" => serde_json::to_string(s).map(|j| j.len()).unwrap_or(0).to_string(),
                     _ => {
                         drop(w);
@@ -723,7 +732,11 @@ impl Interp {
                     "name" => w.stack.name = v.to_string(),
                     "script" => w.stack.script = v.to_string(),
                     "cantmodify" => w.stack.cant_modify = to_bool(v)?,
-                    "cantdelete" | "cantabort" | "cantpeek" | "userlevel" => {}
+                    "cantdelete" => w.stack.protection.cant_delete = to_bool(v)?,
+                    "cantabort" => w.stack.protection.cant_abort = to_bool(v)?,
+                    "cantpeek" => w.stack.protection.cant_peek = to_bool(v)?,
+                    "privateaccess" => w.stack.protection.private_access = to_bool(v)?,
+                    "userlevel" => {}
                     _ => return err(format!("Can't set the {name} of a stack")),
                 }
                 Ok(())
