@@ -1088,9 +1088,9 @@ impl App {
             r
         };
         let job_for = {
-            let (part, runs_for) = (part.clone(), runs_for.clone());
+            let (part, runs_for, ctx) = (part.clone(), runs_for.clone(), ui.ctx().clone());
             move |buf: &str, wrap: f32, bold_pass: bool| {
-                let mut job = render::field_job(&part, buf, &runs_for(buf), wrap, None, bold_pass);
+                let mut job = render::field_job(&ctx, &part, buf, &runs_for(buf), wrap, None, bold_pass);
                 // The editor positions rows itself, so lay out left-aligned while typing.
                 job.halign = egui::Align::LEFT;
                 job
@@ -1561,7 +1561,7 @@ fn field_scroll_area<R>(
 /// The text of a scrolling field that isn't being edited.
 fn show_field_text(ui: &mut egui::Ui, pv: &render::PartView, origin: Pos2, found: Option<(usize, usize)>) {
     let text_rect = render::field_text_rect(&pv.part, render::part_rect(&pv.part, origin));
-    let galley = ui.painter().layout_job(render::field_job(&pv.part, &pv.text, &pv.styles, text_rect.width(), found, false));
+    let galley = ui.painter().layout_job(render::field_job(ui.ctx(), &pv.part, &pv.text, &pv.styles, text_rect.width(), found, false));
     let (r, _) = ui.allocate_exact_size(Vec2::new(text_rect.width(), galley.size().y), Sense::hover());
     let pos = Pos2::new(render::aligned_x(&pv.part, r), r.top());
     render::hilite_lines(ui.painter(), &pv.part, &galley, pos, r, found);

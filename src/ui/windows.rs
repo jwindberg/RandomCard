@@ -304,6 +304,8 @@ impl App {
                             changed |= ui.checkbox(&mut p.shared_text, "Shared Text").changed();
                         }
                         ui.end_row();
+                        changed |= ui.checkbox(&mut p.fixed_line_height, "Fixed Line Height").changed();
+                        ui.end_row();
                         ui.label(format!("{} characters", text.chars().count()));
                     }
                     ui.end_row();

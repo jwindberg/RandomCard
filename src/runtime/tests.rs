@@ -604,6 +604,14 @@ fn locked_field_selection_and_clicks() {
 fn styled_text() {
     let mut i = interp_with(stack());
     let f = "field \"Name\"";
+    // The line height follows the size until it's set, as in HyperCard.
+    run(&mut i, &format!("set the textSize of {f} to 12"));
+    assert_eq!(run(&mut i, &format!("put the textHeight of {f}")), "16");
+    run(&mut i, &format!("set the textHeight of {f} to 20"));
+    run(&mut i, &format!("set the fixedLineHeight of {f} to true"));
+    assert_eq!(run(&mut i, &format!("put the textHeight of {f} && the fixedLineHeight of {f}")), "20 true");
+    run(&mut i, &format!("set the textSize of {f} to 9"));
+    assert_eq!(run(&mut i, &format!("put the textHeight of {f}")), "12");
     run(&mut i, &format!("put \"plain bold italic\" into {f}"));
     run(&mut i, &format!("set the textStyle of word 2 of {f} to bold"));
     assert_eq!(run(&mut i, &format!("put the textStyle of word 2 of {f}")), "bold");

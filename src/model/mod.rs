@@ -4,6 +4,7 @@
 pub mod color;
 mod demo;
 mod home;
+pub mod metrics;
 pub mod password;
 mod picture;
 pub mod styles;
@@ -213,6 +214,10 @@ pub struct Part {
     pub auto_select: bool,
     /// With autoSelect, Shift-click selects a run of lines.
     pub multiple_lines: bool,
+    /// The height of a line, or 0 for the text size's usual height.
+    pub text_height: u32,
+    /// Every line is textHeight high, whatever its fonts.
+    pub fixed_line_height: bool,
     pub scroll: i32,
 }
 
@@ -248,12 +253,19 @@ impl Default for Part {
             dont_search: false,
             auto_select: false,
             multiple_lines: false,
+            text_height: 0,
+            fixed_line_height: false,
             scroll: 0,
         }
     }
 }
 
 impl Part {
+    /// The height of a line of this field's text (`the textHeight`).
+    pub fn line_height(&self) -> u32 {
+        if self.text_height > 0 { self.text_height } else { metrics::default_text_height(self.text_size) }
+    }
+
     pub fn new_button(id: Id, name: &str, rect: Rect) -> Part {
         Part { id, kind: PartKind::Button, name: name.into(), rect, ..Part::default() }
     }

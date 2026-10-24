@@ -195,7 +195,7 @@ impl<'a> Reader<'a> {
     }
 }
 
-const MAC_ROMAN_HIGH: [char; 128] = [
+pub(crate) const MAC_ROMAN_HIGH: [char; 128] = [
     'Ä', 'Å', 'Ç', 'É', 'Ñ', 'Ö', 'Ü', 'á', 'à', 'â', 'ä', 'ã', 'å', 'ç', 'é', 'è', 'ê', 'ë', 'í', 'ì', 'î', 'ï', 'ñ',
     'ó', 'ò', 'ô', 'ö', 'õ', 'ú', 'ù', 'û', 'ü', '†', '°', '¢', '£', '§', '•', '¶', 'ß', '®', '©', '™', '´', '¨', '≠',
     'Æ', 'Ø', '∞', '±', '≤', '≥', '¥', 'µ', '∂', '∑', '∏', 'π', '∫', 'ª', 'º', 'Ω', 'æ', 'ø', '¿', '¡', '¬', '√', 'ƒ',
@@ -404,6 +404,7 @@ struct PartRec {
     font: i16,
     size: i16,
     text_style: u8,
+    line_height: i16,
     name: String,
     script: String,
 }
@@ -493,7 +494,7 @@ fn read_part(rec: &[u8]) -> R<PartRec> {
     let size = r.i16()?;
     let text_style = r.u8()?;
     r.skip(1)?;
-    r.skip(2)?; // line height
+    let line_height = r.i16()?;
     let name = r.cstring();
     r.pos += 1;
     let script = r.cstring();
@@ -509,6 +510,7 @@ fn read_part(rec: &[u8]) -> R<PartRec> {
         font,
         size,
         text_style,
+        line_height,
         name,
         script,
     })
@@ -790,6 +792,11 @@ fn convert_part(p: &PartRec, fonts: &HashMap<i16, String>) -> Part {
         part.show_lines = p.ext & 0x40 != 0;
         part.wide_margins = p.ext & 0x20 != 0;
         part.multiple_lines = p.ext & 0x10 != 0;
+        part.fixed_line_height = p.flags & 0x04 == 0;
+        part.text_height = match p.line_height {
+            h if h > 0 && h as u32 != crate::model::metrics::default_text_height(part.text_size) => h as u32,
+            _ => 0,
+        };
     } else {
         part.enabled = p.flags & 0x01 == 0;
         part.show_name = p.ext & 0x80 != 0;

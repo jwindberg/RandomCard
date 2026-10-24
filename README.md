@@ -127,6 +127,16 @@ them. Clicking grouped text in a locked field makes `the clickText` the
 whole group. Only egui's built-in fonts are available, so Courier and Monaco
 show as one monospaced font and the rest as one sans-serif font.
 
+**HyperCard's text metrics.** Text is drawn in egui's fonts but measured by
+the classic Mac bitmap fonts HyperCard used (Chicago, Geneva, New York,
+Monaco, Courier, Helvetica, Times, Palatino): each word takes the width it
+had in HyperCard, and each line its height, so fields wrap and scroll as
+they did and imported stacks fit their fields. Unknown fonts measure as
+Geneva, as they did on the Mac. Fields use HyperCard's text margins,
+`textHeight` and `fixedLineHeight`, and showLines draws its lines on the
+text's baselines. The metrics table in `src/model/metrics/data.rs` was made
+with `tools/font_metrics.py`; it holds numbers only, not the fonts.
+
 **HyperTalk.** Scripts live on buttons, fields, cards, backgrounds and the
 stack. Messages travel the HyperCard message path (part → card → background
 → stack → stacks in use → Home) and can be passed on with `pass`.
@@ -150,7 +160,7 @@ stack. Messages travel the HyperCard message path (part → card → background
   `the target`, `msg`, and `this stack`, plus references held in variables.
 - Properties: name (short and long), id, number, rect, loc, left, top,
   width, height, visible, style, hilite, autoHilite, textFont, textSize,
-  textStyle, textAlign, lockText, script, contents, marked, showPict,
+  textStyle, textAlign, textHeight, fixedLineHeight, lockText, script, contents, marked, showPict,
   itemDelimiter, numberFormat, lockScreen, lockMessages, and more.
 - Painting from scripts: `choose oval tool`, `set the pattern to 3`,
   `set the filled to true`, `drag from 10,10 to 100,80`, `click at` (a

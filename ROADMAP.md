@@ -151,8 +151,8 @@ container), click functions in locked fields, and autoSelect list fields.
 - **How styled text looks.** Only egui's built-in fonts are available: one
   sans-serif and one monospaced (used for Courier and Monaco), with no bold
   weight, so bold is drawn twice slightly offset. Outline and shadow aren't
-  drawn. Bundling or finding fonts like HyperCard's (Chicago, Geneva, New
-  York, Times) would make styled stacks look closer to the original.
+  drawn. Text is spaced by HyperCard's metrics, so this affects only the
+  look, not what fits. Open-licensed lookalike fonts could be bundled.
 - **Copying styled text:** text copied from one field and pasted into
   another loses its styles.
 - **List fields:** Command-click to select lines that aren't next to each
@@ -160,7 +160,9 @@ container), click functions in locked fields, and autoSelect list fields.
   `the selectedLine` reporting such selections.
 - **The selection in the message box:** `the selection` and
   `the selectedText` only see fields.
-- **`autoTab`, `fixedLineHeight`, `textHeight`** behaviour.
+- **`autoTab`** behaviour. Character positions within a word come from
+  egui's font, so a click can land a character away from where it would
+  have in HyperCard; line breaks and line heights match.
 
 ## Buttons
 
@@ -224,10 +226,6 @@ loaded to come back to.
   covers painting, parts and cards.
 - **The system clipboard:** cut and copied parts and pictures stay inside
   RandomCard rather than going to the desktop clipboard.
-- **Font metrics:** text uses egui's fonts rather than HyperCard's bitmap
-  fonts, which is intended. It runs slightly larger than the originals, so
-  some imported fields show less text than they did; matching font sizes to
-  HyperCard's text metrics would fix that without changing the look.
 - **Script editor:** find and replace, go to line, and syntax colouring,
   using egui's standard text-editing features.
 - **A Home menu** belongs with Home stack support.
@@ -279,4 +277,4 @@ resources) for buttons, fields and rectangles.
 8. ~~Multiple stacks, Home, and `start using`.~~ Done, except stack windows
    and objects in other stacks.
 9. ~~HyperCard 1.x import, MACE, AddColor.~~ Done, except MACE.
-10. **Font metrics, printing, the debugger.**
+10. **Font metrics, printing, the debugger.** Font metrics done.

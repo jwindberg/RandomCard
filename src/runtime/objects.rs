@@ -519,7 +519,8 @@ impl Interp {
                     "style" => p.style.name().to_string(),
                     "textfont" => p.text_font.clone(),
                     "textsize" => p.text_size.to_string(),
-                    "textheight" => ((p.text_size * 4).div_ceil(3)).to_string(),
+                    "textheight" => p.line_height().to_string(),
+                    "fixedlineheight" => bool_str(p.fixed_line_height),
                     "textstyle" => p.text_style.clone(),
                     "textalign" => p.text_align.name().into(),
                     "hilite" | "highlight" | "hilight" | "highlite" => bool_str(s.hilite(card, layer, id)),
@@ -700,8 +701,13 @@ impl Interp {
                         None => return bad("a style"),
                     },
                     "textfont" => p.text_font = v.to_string(),
-                    "textsize" => p.text_size = to_int(v)?.clamp(6, 128) as u32,
-                    "textheight" => {}
+                    "textsize" => {
+                        p.text_size = to_int(v)?.clamp(6, 128) as u32;
+                        // As in HyperCard, the line height follows the size.
+                        p.text_height = 0;
+                    }
+                    "textheight" => p.text_height = to_int(v)?.clamp(1, 512) as u32,
+                    "fixedlineheight" => p.fixed_line_height = to_bool(v)?,
                     "textstyle" => p.text_style = crate::model::styles::normalize_style(v),
                     "textalign" => match TextAlign::parse(v) {
                         Some(a) => p.text_align = a,

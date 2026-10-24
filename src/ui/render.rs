@@ -9,7 +9,7 @@ use eframe::egui::{
 };
 
 use crate::model::styles::{self, StyleRun};
-use crate::model::{Icon, Id, Layer, Part, PartKind, PartStyle, Picture, Pixel, TextAlign};
+use crate::model::{Icon, Id, Layer, Part, PartKind, PartStyle, Picture, Pixel, TextAlign, metrics};
 use crate::runtime::world::{FieldRange, ObjRef, World};
 
 use super::addcolor::{self, ColorShape};
@@ -239,10 +239,6 @@ fn font_id(font: &str, size: u32) -> FontId {
     FontId::new(size.clamp(6, 128) as f32, family)
 }
 
-pub fn font_for(part: &Part) -> FontId {
-    font_id(&part.text_font, part.text_size)
-}
-
 /// How text in a font, size and style looks. Bold is drawn as a second,
 /// offset pass (see `field_job`); outline and shadow aren't drawn.
 fn format_for(font: &str, size: u32, style: &str, color: Color32) -> TextFormat {
@@ -251,16 +247,93 @@ fn format_for(font: &str, size: u32, style: &str, color: Color32) -> TextFormat 
     if styles::has_style(style, "underline") {
         f.underline = Stroke::new(1.0, color);
     }
-    if styles::has_style(style, "condense") {
-        f.extra_letter_spacing = -0.6;
-    } else if styles::has_style(style, "extend") {
-        f.extra_letter_spacing = 1.0;
-    }
     f
+}
+
+thread_local! {
+    /// egui's glyph widths, by monospace, size and character.
+    static GLYPH_WIDTHS: std::cell::RefCell<HashMap<(bool, u32, char), f32>> = Default::default();
+}
+
+fn glyph_width(ctx: &egui::Context, font: &FontId, c: char) -> f32 {
+    let key = (font.family == FontFamily::Monospace, font.size.to_bits(), c);
+    if let Some(w) = GLYPH_WIDTHS.with(|g| g.borrow().get(&key).copied()) {
+        return w;
+    }
+    let w = ctx.fonts_mut(|f| f.glyph_width(font, c));
+    GLYPH_WIDTHS.with(|g| g.borrow_mut().insert(key, w));
+    w
+}
+
+thread_local! {
+    /// The egui size that best matches a HyperCard font and size.
+    static MATCHED_SIZES: std::cell::RefCell<HashMap<(String, u32), f32>> = Default::default();
+}
+
+/// The size to draw a HyperCard font at so that its text is about as wide
+/// as it was in HyperCard, leaving less for letter spacing to make up.
+fn matched_size(ctx: &egui::Context, font: &str, size: u32, id: &FontId) -> f32 {
+    let key = (font.to_ascii_lowercase(), size);
+    if let Some(s) = MATCHED_SIZES.with(|m| m.borrow().get(&key).copied()) {
+        return s;
+    }
+    const SAMPLE: &str = "The quick brown fox jumps over the lazy dog, 1234567890.";
+    let theirs = metrics::metrics(font, size, "plain").text_width(SAMPLE);
+    let ours: f32 = SAMPLE.chars().map(|c| glyph_width(ctx, id, c)).sum();
+    let ratio = if ours > 0.0 { (theirs / ours).clamp(0.85, 1.2) } else { 1.0 };
+    // Half sizes keep the glyph cache small.
+    let matched = (id.size * ratio * 2.0).round() / 2.0;
+    MATCHED_SIZES.with(|m| m.borrow_mut().insert(key, matched));
+    matched
+}
+
+/// Append text spaced by HyperCard's character widths, a word at a time:
+/// each word (with the spaces after it) is stretched or squeezed to the
+/// width it had in HyperCard, so lines break where they did.
+fn append_spaced(ctx: &egui::Context, job: &mut LayoutJob, text: &str, m: &metrics::Metrics, fmt: TextFormat) {
+    let mut start = 0;
+    let mut in_space = false;
+    let mut words: Vec<&str> = Vec::new();
+    for (i, c) in text.char_indices() {
+        let space = c == ' ' || c == '\t';
+        if in_space && !space {
+            words.push(&text[start..i]);
+            start = i;
+        }
+        in_space = space;
+        if c == '\n' {
+            words.push(&text[start..i + 1]);
+            start = i + 1;
+            in_space = false;
+        }
+    }
+    if start < text.len() {
+        words.push(&text[start..]);
+    }
+    for word in words {
+        let glyphs: Vec<char> = word.chars().filter(|c| *c != '\n').collect();
+        let mut f = fmt.clone();
+        // egui adds the spacing between the glyphs of a section.
+        if glyphs.len() > 1 {
+            let ours: f32 = glyphs.iter().map(|c| glyph_width(ctx, &fmt.font_id, *c)).sum();
+            let theirs = m.text_width(word);
+            f.extra_letter_spacing = (theirs - ours) / (glyphs.len() - 1) as f32;
+        }
+        job.append(word, 0.0, f);
+    }
 }
 
 fn text_format(part: &Part, color: Color32) -> TextFormat {
     format_for(&part.text_font, part.text_size, &part.text_style, color)
+}
+
+/// A one-line label in the part's font, spaced as HyperCard spaced it.
+fn label_job(ctx: &egui::Context, part: &Part, text: &str, color: Color32) -> LayoutJob {
+    let mut fmt = text_format(part, color);
+    fmt.font_id.size = matched_size(ctx, &part.text_font, part.text_size, &fmt.font_id);
+    let mut job = LayoutJob::default();
+    append_spaced(ctx, &mut job, text, &metrics::metrics(&part.text_font, part.text_size, &part.text_style), fmt);
+    job
 }
 
 fn is_bold(part: &Part) -> bool {
@@ -426,7 +499,7 @@ pub const ICON_SIZE: f32 = 32.0;
 fn draw_icon_and_name(painter: &Painter, tex: &Textures, p: &Part, rect: Rect, inverted: bool, fg: Color32, fill: Color32) {
     let label_part = Part { text_size: 9, text_style: "plain".into(), text_font: "Geneva".into(), ..p.clone() };
     let label = (p.show_name && !p.name.is_empty()).then(|| {
-        painter.layout_job(LayoutJob::single_section(p.name.clone(), text_format(&label_part, fg)))
+        painter.layout_job(label_job(painter.ctx(), &label_part, &p.name, fg))
     });
     let block_h = match &label {
         Some(g) => ICON_SIZE + 1.0 + g.size().y + 1.0,
@@ -454,7 +527,7 @@ fn draw_icon_and_name(painter: &Painter, tex: &Textures, p: &Part, rect: Rect, i
 }
 
 fn draw_label(painter: &Painter, p: &Part, pos: Pos2, align: Align2, text: &str, color: Color32) {
-    let job = LayoutJob::single_section(text.to_string(), text_format(p, color));
+    let job = label_job(painter.ctx(), p, text, color);
     let galley = painter.layout_job(job);
     let r = align.anchor_size(pos, galley.size());
     painter.galley(r.min, galley.clone(), color);
@@ -463,9 +536,8 @@ fn draw_label(painter: &Painter, p: &Part, pos: Pos2, align: Align2, text: &str,
     }
 }
 
-pub const FIELD_MARGIN: f32 = 4.0;
 /// Room kept free at the right of a scrolling field for its scroll bar.
-pub const SCROLLBAR: f32 = 14.0;
+pub const SCROLLBAR: f32 = 16.0;
 
 /// Where a scrolling field's scroll area goes: the text area plus the room
 /// for its scroll bar.
@@ -474,13 +546,21 @@ pub fn scroll_view_rect(p: &Part, rect: Rect) -> Rect {
     Rect::from_min_max(text.min, Pos2::new(rect.right() - 1.0, text.bottom()))
 }
 
+/// Where a field's text goes, inset from its frame as in HyperCard: a
+/// 1-pixel frame, 3 pixels each side (wideMargins: 8 left, 6 right, and 4
+/// at the top), less any shadow or scroll bar.
 pub fn field_text_rect(p: &Part, rect: Rect) -> Rect {
-    let margin = if p.wide_margins { FIELD_MARGIN + 6.0 } else { FIELD_MARGIN };
-    let mut r = rect.shrink2(Vec2::new(margin, 2.0));
-    if p.style == PartStyle::Scrolling {
-        r.max.x -= SCROLLBAR;
+    let wide = if p.wide_margins { 1.0 } else { 0.0 };
+    let (mut right, mut bottom) = (4.0 + 3.0 * wide, 1.0);
+    match p.style {
+        PartStyle::Shadow => {
+            right += 2.0;
+            bottom += 2.0;
+        }
+        PartStyle::Scrolling => right += SCROLLBAR,
+        _ => {}
     }
-    r
+    Rect::from_min_max(rect.min + Vec2::new(4.0 + 5.0 * wide, 1.0 + 4.0 * wide), rect.max - Vec2::new(right, bottom))
 }
 
 /// Lay out field text with its style runs, optionally hiliting a range of
@@ -488,6 +568,7 @@ pub fn field_text_rect(p: &Part, rect: Rect) -> Rect {
 /// twice: `bold_pass` lays out the same text with only the bold runs
 /// visible, to draw again slightly to the right.
 pub fn field_job(
+    ctx: &egui::Context,
     p: &Part,
     text: &str,
     runs: &[StyleRun],
@@ -516,14 +597,22 @@ pub fn field_job(
             true if styles::has_style(style, "bold") => ink,
             true => Color32::TRANSPARENT,
         };
-        let mut fmt = format_for(run.font.as_deref().unwrap_or(&p.text_font), run.size.unwrap_or(p.text_size), style, color);
+        let (font, size) = (run.font.as_deref().unwrap_or(&p.text_font), run.size.unwrap_or(p.text_size));
+        let mut fmt = format_for(font, size, style, color);
         if lit && !bold_pass {
             fmt.background = BLACK;
         }
-        job.append(&text[bytes[a]..bytes[b]], 0.0, fmt);
+        let m = metrics::metrics(font, size, style);
+        fmt.font_id.size = matched_size(ctx, font, size, &fmt.font_id);
+        let line_height = if p.fixed_line_height { p.line_height() } else { m.line_height() };
+        fmt.line_height = Some(line_height as f32);
+        append_spaced(ctx, &mut job, &text[bytes[a]..bytes[b]], &m, fmt);
     }
     if text.is_empty() {
-        job.append("", 0.0, text_format(p, BLACK));
+        let mut fmt = text_format(p, BLACK);
+        let m = metrics::metrics(&p.text_font, p.text_size, &p.text_style);
+        fmt.line_height = Some(if p.fixed_line_height { p.line_height() } else { m.line_height() } as f32);
+        job.append("", 0.0, fmt);
     }
     job.wrap.max_width = if p.dont_wrap { f32::INFINITY } else { width };
     job.halign = match p.text_align {
@@ -544,7 +633,7 @@ pub fn has_bold(p: &Part, runs: &[StyleRun]) -> bool {
 pub fn paint_field_text(painter: &Painter, pv: &PartView, galley: std::sync::Arc<egui::Galley>, pos: Pos2, width: f32, hl: Option<(usize, usize)>) {
     painter.galley(pos, galley, BLACK);
     if has_bold(&pv.part, &pv.styles) {
-        let bold = painter.layout_job(field_job(&pv.part, &pv.text, &pv.styles, width, hl, true));
+        let bold = painter.layout_job(field_job(painter.ctx(), &pv.part, &pv.text, &pv.styles, width, hl, true));
         painter.galley(pos + Vec2::new(0.6, 0.0), bold, BLACK);
     }
 }
@@ -569,7 +658,7 @@ fn field_text_origin(p: &Part, text_rect: Rect) -> Pos2 {
 pub fn field_char_at(painter: &Painter, pv: &PartView, origin: Pos2, pos: Pos2) -> Option<usize> {
     let p = &pv.part;
     let text_rect = field_text_rect(p, part_rect(p, origin));
-    let galley = painter.layout_job(field_job(p, &pv.text, &pv.styles, text_rect.width(), None, false));
+    let galley = painter.layout_job(field_job(painter.ctx(), p, &pv.text, &pv.styles, text_rect.width(), None, false));
     let rel = pos - field_text_origin(p, text_rect);
     if rel.y > galley.size().y {
         return None;
@@ -585,7 +674,7 @@ pub fn field_char_at(painter: &Painter, pv: &PartView, origin: Pos2, pos: Pos2) 
 pub fn field_char_point(painter: &Painter, pv: &PartView, at: usize) -> Pos2 {
     let p = &pv.part;
     let text_rect = field_text_rect(p, part_rect(p, Pos2::ZERO));
-    let galley = painter.layout_job(field_job(p, &pv.text, &pv.styles, text_rect.width(), None, false));
+    let galley = painter.layout_job(field_job(painter.ctx(), p, &pv.text, &pv.styles, text_rect.width(), None, false));
     field_text_origin(p, text_rect) + galley.pos_from_cursor(egui::text::CCursor::new(at)).left_bottom().to_vec2()
 }
 
@@ -628,21 +717,27 @@ fn draw_field(painter: &Painter, pv: &PartView, rect: Rect, highlight: Option<(u
         return;
     }
     let text_rect = field_text_rect(p, rect);
-    let job = field_job(p, &pv.text, &pv.styles, text_rect.width(), highlight, false);
+    let job = field_job(painter.ctx(), p, &pv.text, &pv.styles, text_rect.width(), highlight, false);
     let galley = painter.layout_job(job);
     // Clip to the whole field so large text isn't cut by the margins.
     let clip_rect = if p.style == PartStyle::Scrolling { text_rect } else { rect.shrink(1.0) };
     let clip = painter.with_clip_rect(clip_rect.intersect(painter.clip_rect()));
     let scroll = if p.style == PartStyle::Scrolling { p.scroll as f32 } else { 0.0 };
-    let line_h = font_for(p).size * 1.25;
     if p.show_lines {
-        let mut y = text_rect.top() + line_h - scroll;
+        // On each line's baseline, then every textHeight below the text.
+        let line_h = p.line_height() as f32;
+        let baseline = |top: f32, h: f32| top + h - (h / 4.0).floor();
+        let mut ys: Vec<f32> = galley.rows.iter().map(|r| baseline(r.pos.y, r.height())).collect();
+        let mut next = galley.rows.last().map_or(0.0, |r| r.pos.y + r.height());
+        while next - scroll < text_rect.height() {
+            ys.push(baseline(next, line_h));
+            next += line_h;
+        }
         let dotted = Stroke::new(1.0, GRAY);
-        while y < text_rect.bottom() {
-            if y > text_rect.top() {
+        for y in ys.into_iter().map(|y| text_rect.top() + y - scroll + 0.5) {
+            if y > text_rect.top() && y < text_rect.bottom() {
                 clip.line_segment([Pos2::new(text_rect.left(), y), Pos2::new(text_rect.right(), y)], dotted);
             }
-            y += line_h;
         }
     }
     let pos = field_text_origin(p, text_rect);
