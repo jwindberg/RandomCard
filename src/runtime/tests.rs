@@ -296,13 +296,13 @@ fn click(i: &mut Interp, card_name: &str, button: &str) -> Option<String> {
 fn demo_stack_runs() {
     let mut i = interp_with(Stack::demo());
     i.handle_event(Event::Startup);
-    assert_eq!(run(&mut i, "put field \"Page\""), "Card 1 of 8");
+    assert_eq!(run(&mut i, "put field \"Page\""), "Card 1 of 13");
     let current = |i: &Interp| {
         let w = lock(&i.world);
         w.stack.card(w.card_id).unwrap().name.clone()
     };
     // The stack's own Tour menu.
-    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "7");
+    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "12");
     i.handle_event(Event::DoMenu("Dice".into()));
     assert_eq!(current(&i), "Dice");
     i.handle_event(Event::DoMenu("First".into()));
@@ -327,10 +327,55 @@ fn demo_stack_runs() {
         let n: u32 = run(&mut i, &format!("put field \"{die}\" of card \"Dice\"")).parse().unwrap();
         assert!((1..=4).contains(&n), "{die} rolled {n} on a 4-sided die");
     }
-    // A fast bounce runs to completion.
-    run(&mut i, "go to card \"Animation\"\nset the hilite of button \"Fast\" to true");
-    assert_eq!(click(&mut i, "Animation", "Bounce"), None);
+    // The ball moves on idle only while it's moving, by its speed.
+    run(&mut i, "go to card \"Animation\"");
+    let idle = |i: &mut Interp| run(i, "send \"idle\" to this card\nput the loc of button \"Ball\"");
+    let still = idle(&mut i);
+    assert_eq!(idle(&mut i), still, "the ball starts out still");
+    assert_eq!(run(&mut i, "put field \"Speed\""), "Speed: 4");
+    assert_eq!(click(&mut i, "Animation", "Start"), None);
+    assert_eq!(run(&mut i, "put the name of card button 1"), "card button \"Stop\"");
+    assert_eq!(idle(&mut i), "256,196");
+    assert_eq!(click(&mut i, "Animation", "Faster"), None);
+    assert_eq!(run(&mut i, "put field \"Speed\""), "Speed: 5");
+    assert_eq!(idle(&mut i), "261,201");
+    // Hiding the ball leaves it moving.
     assert_eq!(click(&mut i, "Animation", "Show the ball"), None);
+    assert_eq!(idle(&mut i), "266,206");
+    assert_eq!(click(&mut i, "Animation", "Stop"), None);
+    assert_eq!(idle(&mut i), "266,206");
+    assert_eq!(run(&mut i, "put the name of card button 1"), "card button \"Start\"");
+    // Every Contents button reaches its card.
+    for (button, card) in [
+        ("Draw Something", "Drawing"),
+        ("Sound", "Sound"),
+        ("Keys", "Keys"),
+        ("Fields & Text", "Fields"),
+        ("Print & Find", "Print & Find"),
+        ("Debugging", "Debugging"),
+    ] {
+        assert_eq!(click(&mut i, "Contents", button), None, "{button}");
+        assert_eq!(current(&i), card);
+    }
+    // Scripts name fields on the card that's showing, so go to each card first.
+    run(&mut i, "go to card \"Sound\"");
+    for b in ["Boing", "Play Tune", "Flute", "Dial", "Stop"] {
+        assert_eq!(click(&mut i, "Sound", b), None, "{b}");
+    }
+    // The Keys card reports keys it's sent.
+    run(&mut i, "go to card \"Keys\"");
+    run(&mut i, "send \"arrowKey left\" to card \"Keys\"");
+    assert_eq!(run(&mut i, "put field \"Last Key\" of card \"Keys\""), "arrowKey left");
+    run(&mut i, "send \"functionKey 5\" to card \"Keys\"");
+    assert_eq!(run(&mut i, "put field \"Last Key\" of card \"Keys\""), "functionKey 5");
+    // The debugger card's script runs to its answer (tests don't stop at checkpoints).
+    run(&mut i, "go to card \"Debugging\"");
+    assert_eq!(click(&mut i, "Debugging", "Step Through Me"), None);
+    assert_eq!(run(&mut i, "put field \"Answer\" of card \"Debugging\""), "1 + 4 + 9 + 16 + 25 = 55");
+    assert_eq!(click(&mut i, "Debugging", "Message Watcher"), None);
+    run(&mut i, "go to card \"Print & Find\"");
+    assert_eq!(click(&mut i, "Print & Find", "Find Bill"), None);
+    assert_eq!(current(&i), "Bill Atkinson");
     // Address book on its own background.
     assert_eq!(click(&mut i, "Contents", "Address Book"), None);
     assert_eq!(current(&i), "Grace Hopper");
@@ -350,7 +395,7 @@ fn demo_stack_runs() {
     assert_eq!(run(&mut i, "put the number of cards of this background"), "4");
     i.canned_answers.push(DialogReply::Button("Delete".into()));
     assert_eq!(click(&mut i, "", "Delete"), None);
-    assert_eq!(run(&mut i, "put the number of cards"), "8");
+    assert_eq!(run(&mut i, "put the number of cards"), "13");
     assert_eq!(click(&mut i, "Grace Hopper", "Contents"), None);
     assert_eq!(current(&i), "Contents");
     assert_eq!(run(&mut i, "put the userLevel"), "5");

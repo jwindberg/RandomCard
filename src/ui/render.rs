@@ -777,21 +777,7 @@ fn draw_field(painter: &Painter, pv: &PartView, rect: Rect, highlight: Option<(u
     let clip = painter.with_clip_rect(clip_rect.intersect(painter.clip_rect()));
     let scroll = if p.style == PartStyle::Scrolling { p.scroll as f32 } else { 0.0 };
     if p.show_lines {
-        // On each line's baseline, then every textHeight below the text.
-        let line_h = p.line_height() as f32;
-        let baseline = |top: f32, h: f32| top + h - (h / 4.0).floor();
-        let mut ys: Vec<f32> = galley.rows.iter().map(|r| baseline(r.pos.y, r.height())).collect();
-        let mut next = galley.rows.last().map_or(0.0, |r| r.pos.y + r.height());
-        while next - scroll < text_rect.height() {
-            ys.push(baseline(next, line_h));
-            next += line_h;
-        }
-        let dotted = Stroke::new(1.0, GRAY);
-        for y in ys.into_iter().map(|y| text_rect.top() + y - scroll + 0.5) {
-            if y > text_rect.top() && y < text_rect.bottom() {
-                clip.line_segment([Pos2::new(text_rect.left(), y), Pos2::new(text_rect.right(), y)], dotted);
-            }
-        }
+        draw_show_lines(&clip, p, &galley, text_rect, scroll);
     }
     let pos = field_text_origin(p, text_rect);
     hilite_lines(&clip, p, &galley, pos, text_rect, highlight);
@@ -799,6 +785,25 @@ fn draw_field(painter: &Painter, pv: &PartView, rect: Rect, highlight: Option<(u
     paint_field_text(&clip, pv, galley, pos, text_rect.width(), highlight);
     if p.style == PartStyle::Scrolling {
         draw_scroll_indicator(painter, scroll_view_rect(p, rect), scroll, content_h);
+    }
+}
+
+/// showLines: a dotted line on each line of text's baseline, then every
+/// textHeight to the bottom of the field. Drawn the same while typing.
+pub fn draw_show_lines(painter: &Painter, p: &Part, galley: &egui::Galley, text_rect: Rect, scroll: f32) {
+    let line_h = p.line_height() as f32;
+    let baseline = |top: f32, h: f32| top + h - (h / 4.0).floor();
+    let mut ys: Vec<f32> = galley.rows.iter().map(|r| baseline(r.pos.y, r.height())).collect();
+    let mut next = galley.rows.last().map_or(0.0, |r| r.pos.y + r.height());
+    while next - scroll < text_rect.height() {
+        ys.push(baseline(next, line_h));
+        next += line_h;
+    }
+    let dotted = Stroke::new(1.0, GRAY);
+    for y in ys.into_iter().map(|y| text_rect.top() + y - scroll + 0.5) {
+        if y > text_rect.top() && y < text_rect.bottom() {
+            painter.line_segment([Pos2::new(text_rect.left(), y), Pos2::new(text_rect.right(), y)], dotted);
+        }
     }
 }
 

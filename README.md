@@ -29,6 +29,14 @@ its button takes you to the built-in Tour. Scripts can `go to stack "X"` or
 `go to card 3 of stack "X"`. The stack you leave is saved first, and one
 without a file stays loaded so you can come back to it.
 
+**The Tour.** The built-in Tour stack (`go to stack "Tour"`) is a hands-on
+demo of what works: HyperTalk basics, dice with a popup and AddColor,
+painting, animation, sound, keyboard messages,
+field options and styled text, printing, Find and Recent, the debugger, and
+an address book on its own background. Its buttons' scripts are worth
+reading with the Button tool. It's built fresh each time it opens, so it
+always matches this version of RandomCard.
+
 **Importing HyperCard stacks.** File ▸ Import HyperCard Stack… (or
 Open Stack…, or a path on the command line) reads original HyperCard 1.x
 and 2.x stack files. MacBinary-wrapped files work too. The import brings in:

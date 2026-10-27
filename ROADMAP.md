@@ -30,6 +30,9 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 - **A stack runs the way its author set it up.** Using a stack and authoring
   one are different activities. Opening a stack should behave as it would
   have in HyperCard, including its user level and protection.
+- **The Tour shows everything that works.** A finished feature gets a way
+  to try it in the Tour (`src/model/demo.rs`), tested in `demo_stack_runs`
+  where a script can drive it.
 
 ## Status at a glance
 
@@ -149,6 +152,10 @@ selection (`select`, `the selectedText` and friends, `the selection` as a
 container), click functions in locked fields, and autoSelect list fields.
 
 **Missing:**
+- **Sideways scrolling in a scrolling dontWrap field.** While typing, a
+  dontWrap field scrolls sideways to follow the insertion point (HyperCard
+  only cut long lines off), but a field that also has the scrolling style
+  only scrolls up and down, so the insertion point can go out of view.
 - **How styled text looks.** Only egui's built-in fonts are available: one
   sans-serif and one monospaced (used for Courier and Monaco), with no bold
   weight, so bold is drawn twice slightly offset. Outline and shadow aren't
@@ -327,9 +334,17 @@ Next, ranked by what people who built HyperCard stacks will need first:
    pictures pixel by pixel.
 7. **The rest of painting.** The Options and Patterns menus, editing
    patterns, Shift for straight lines and perfect shapes, and Pickup, Scale
-   and Revert.
-8. **Multiple stack windows.** `go to stack … in a new window`, and
-   `the stacks`.
+   and Revert. Double-clicking the eraser clears the whole picture, as in
+   HyperCard; it asks first with the same prompt as Edit ▸ Clear Picture.
+8. **Multiple windows.** `go to stack … in a new window`, and
+   `the stacks`. Start with the tool windows: script editors, the Variable
+   and Message Watchers, and Info windows are drawn inside the main window
+   today, so stepping through a script covers the card being debugged.
+   Each should be a real OS window (an egui viewport) that can be moved
+   anywhere, including another monitor. Check that the debugger's keys
+   (F10, F11, F5) work in the script window. Small alerts and dialogs stay
+   in the main window, as in HyperCard. Linux, Mac and Windows support
+   this through winit; a Haiku backend needs to as well.
 9. **Report printing, MACE sound, Compact Stack and Delete Stack.**
 10. **Objects in other stacks.** First check what HyperCard allowed. Its
     scripts usually reached other stacks with `lock screen`, `go`, `get`
@@ -379,6 +394,13 @@ first three are favourites.
   and high-resolution pictures.
 - **Media.** Video playback in a card region, recording sound
   (`record sound`), and playing common audio files.
+- **Slider and scrollbar parts.** HyperCard had only buttons and fields,
+  so authors built sliders from a track, a thumb button and a `mouseDown`
+  loop following `the mouseH`; later xTalks such as LiveCode added
+  scrollbar parts. A slider part with `the thumbPosition`, a range
+  (`startValue`, `endValue`), and a message as it moves, saved with the
+  stack and set in its Info window. The Tour's Animation card would use
+  one for the ball's speed.
 - **Plugins.** A safe stand-in for XCMDs: externals written as
   WebAssembly modules, sandboxed and cross-platform, called like
   commands and functions.

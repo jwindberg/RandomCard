@@ -173,15 +173,21 @@ impl Interp {
     // ----- event loop -----
 
     pub fn run(mut self, rx: Receiver<Event>) {
+        // `idle` goes out on a steady beat, as HyperCard sent it about every
+        // tick, even while other messages (such as mouseWithin) keep coming.
+        const IDLE_EVERY: Duration = Duration::from_millis(30);
+        let mut last_idle = std::time::Instant::now();
         loop {
-            match rx.recv_timeout(Duration::from_millis(100)) {
+            match rx.recv_timeout(IDLE_EVERY.saturating_sub(last_idle.elapsed())) {
                 Ok(Event::Shutdown) => break,
                 Ok(ev) => self.handle_event(ev),
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    self.debug_commands_while_idle();
-                    self.idle()
-                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+            if last_idle.elapsed() >= IDLE_EVERY {
+                self.debug_commands_while_idle();
+                self.idle();
+                last_idle = std::time::Instant::now();
             }
         }
         self.close_all_files();

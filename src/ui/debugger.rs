@@ -27,6 +27,30 @@ impl App {
         lock(&self.rt.world).debug.clone()
     }
 
+    /// While a script is stopped, View ▸ Message Watcher and Variable
+    /// Watcher open at once: sent as doMenu, they would wait behind the
+    /// stopped script. True if `item` was one of them.
+    pub(super) fn watcher_menu(&mut self, item: &str) -> bool {
+        if !self.debug_pause().is_some_and(|p| p.paused) {
+            return false;
+        }
+        match crate::runtime::menus::item_key(item).as_str() {
+            "message watcher" => self.show_message_watcher(true),
+            "variable watcher" => self.variable_watcher = true,
+            _ => return false,
+        }
+        true
+    }
+
+    /// Closing the script the debugger is stopped in runs the script on, as
+    /// Go does; otherwise it would stay stopped with nothing showing it, and
+    /// every click after would wait behind it.
+    pub(super) fn script_closed(&self, obj: ObjRef) {
+        if self.debug_pause().is_some_and(|p| p.paused && same_script(p.obj, obj)) {
+            self.send_debug(DebugCmd::Go);
+        }
+    }
+
     /// Each frame: bring up the script where a script has stopped, take the
     /// debugger's keys, and draw the watchers.
     pub(super) fn debugger(&mut self, ctx: &egui::Context) {
@@ -95,26 +119,9 @@ impl App {
     }
 
     fn variable_watcher_window(&mut self, ctx: &egui::Context) {
-        let (globals, pause, busy) = {
-            let w = lock(&self.rt.world);
-            (w.globals_view.clone(), w.debug.clone(), w.busy)
-        };
         let mut open = true;
         egui::Window::new("Variable Watcher").open(&mut open).default_size([320.0, 260.0]).show(ctx, |ui| {
-            // Values can change while stopped, or between handlers.
-            let editable = pause.as_ref().is_some_and(|p| p.paused) || !busy;
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                if let Some(p) = pause.as_ref().filter(|p| !p.locals.is_empty()) {
-                    ui.label(RichText::new(format!("Locals of {}", p.handler)).strong());
-                    self.variable_rows(ui, "locals", &p.locals, editable);
-                    ui.add_space(6.0);
-                }
-                ui.label(RichText::new("Globals").strong());
-                if globals.is_empty() {
-                    ui.label(RichText::new("No globals yet").weak());
-                }
-                self.variable_rows(ui, "globals", &globals, editable);
-            });
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| self.variables(ui, "watcher"));
             ui.label(RichText::new("Click a value to change it; Enter sets it.").weak().small());
         });
         if !open {
@@ -122,12 +129,33 @@ impl App {
         }
     }
 
-    fn variable_rows(&mut self, ui: &mut egui::Ui, grid: &str, vars: &[(String, String)], editable: bool) {
-        egui::Grid::new(grid).num_columns(2).striped(true).show(ui, |ui| {
+    /// The stopped handler's locals and the globals, each value editable
+    /// while stopped or between handlers. `view` tells apart the places
+    /// that list them: the watcher and the script editor's pane.
+    pub(super) fn variables(&mut self, ui: &mut egui::Ui, view: &str) {
+        let (globals, pause, busy) = {
+            let w = lock(&self.rt.world);
+            (w.globals_view.clone(), w.debug.clone(), w.busy)
+        };
+        let editable = pause.as_ref().is_some_and(|p| p.paused) || !busy;
+        if let Some(p) = pause.as_ref().filter(|p| !p.locals.is_empty()) {
+            ui.label(RichText::new(format!("Locals of {}", p.handler)).strong());
+            self.variable_rows(ui, view, "locals", &p.locals, editable);
+            ui.add_space(6.0);
+        }
+        ui.label(RichText::new("Globals").strong());
+        if globals.is_empty() {
+            ui.label(RichText::new("No globals yet").weak());
+        }
+        self.variable_rows(ui, view, "globals", &globals, editable);
+    }
+
+    fn variable_rows(&mut self, ui: &mut egui::Ui, view: &str, grid: &str, vars: &[(String, String)], editable: bool) {
+        egui::Grid::new((view, grid)).num_columns(2).striped(true).show(ui, |ui| {
             for (name, value) in vars {
                 ui.label(RichText::new(name).monospace());
                 match &mut self.var_edit {
-                    Some((n, text)) if n == name && editable => {
+                    Some((v, n, text)) if v == view && n == name && editable => {
                         let r = ui.add(egui::TextEdit::singleline(text).desired_width(200.0));
                         r.request_focus();
                         if r.lost_focus() {
@@ -142,7 +170,7 @@ impl App {
                         let shown = if value.len() > 200 { format!("{}…", &value[..value.floor_char_boundary(200)]) } else { value.clone() };
                         let r = ui.add(egui::Label::new(RichText::new(shown.replace('\n', "⏎")).monospace()).sense(egui::Sense::click()));
                         if editable && r.clicked() {
-                            self.var_edit = Some((name.clone(), value.clone()));
+                            self.var_edit = Some((view.to_string(), name.clone(), value.clone()));
                         }
                     }
                 }

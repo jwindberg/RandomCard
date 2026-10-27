@@ -306,7 +306,9 @@ impl Player {
     pub fn stop(&mut self) {
         self.queue.clear();
         if let Some((_, p)) = &self.device {
+            // clear() also pauses the player; resume it for the next sound.
             p.clear();
+            p.play();
         }
     }
 

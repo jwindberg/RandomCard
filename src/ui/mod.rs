@@ -126,8 +126,13 @@ pub struct App {
     /// The world's `stack_serial` the view belongs to.
     stack_seen: u64,
     flash_until: Option<Instant>,
+    /// When the script now running started, to show "Script running" only
+    /// for one that takes a while (not each quick idle or mouseUp).
+    busy_since: Option<Instant>,
     last_autosave: Instant,
     quit_prompt: bool,
+    /// Edit ▸ Clear Picture asks first; scripts' `doMenu` doesn't.
+    clear_picture_prompt: bool,
     quitting: bool,
     title: String,
     message_watcher: bool,
@@ -135,8 +140,9 @@ pub struct App {
     hide_frequent_messages: bool,
     hide_unhandled_messages: bool,
     variable_watcher: bool,
-    /// Variable watcher entries being edited: (name, text).
-    var_edit: Option<(String, String)>,
+    /// A variable being edited: (which view, name, text). The watcher and
+    /// the script editor's pane both list variables.
+    var_edit: Option<(String, String, String)>,
     /// The pause the script editor was last brought up for.
     debug_seen: Option<(ObjRef, usize)>,
 }
@@ -187,8 +193,10 @@ impl App {
             selection_rev_seen: 0,
             stack_seen: 0,
             flash_until: None,
+            busy_since: None,
             last_autosave: Instant::now(),
             quit_prompt: false,
+            clear_picture_prompt: false,
             quitting: false,
             title: String::new(),
             message_watcher: false,
@@ -274,8 +282,14 @@ impl App {
                             separated = false;
                             let shortcut = (!i.command_char.is_empty())
                                 .then(|| format!("Ctrl+{}", i.command_char.to_uppercase()));
-                            if menus::menu_item(ui, label, *enabled, *checked, indent, shortcut).clicked() {
-                                self.do_menu(label);
+                            if menus::menu_item(ui, label, *enabled, *checked, indent, shortcut).clicked()
+                                && !self.watcher_menu(label)
+                            {
+                                if crate::runtime::menus::item_key(label) == "clear picture" {
+                                    self.clear_picture_prompt = true;
+                                } else {
+                                    self.do_menu(label);
+                                }
                             }
                         }
                     });
@@ -1150,6 +1164,15 @@ impl App {
                 job
             }
         };
+        // showLines stays while typing, under the text.
+        if part.show_lines {
+            let galley = ui.painter().layout_job(job_for(&e.buffer, text_rect.width(), false));
+            let scrolling = part.style == PartStyle::Scrolling;
+            let clip = if scrolling { text_rect } else { rect.shrink(1.0) };
+            let scroll = if scrolling { part.scroll as f32 } else { 0.0 };
+            let painter = ui.painter().with_clip_rect(clip.intersect(ui.clip_rect()));
+            render::draw_show_lines(&painter, &part, &galley, text_rect, scroll);
+        }
         let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap: f32| {
             ui.painter().layout_job(job_for(buf.as_str(), wrap, false))
         };
@@ -1177,9 +1200,26 @@ impl App {
             })
         } else {
             ui.scope_builder(egui::UiBuilder::new().max_rect(text_rect), |ui| {
-                let out = edit.show(ui);
-                thicken(ui, &out);
-                out.response
+                // Typing stays inside the field, as HyperCard drew it.
+                ui.set_clip_rect(rect.shrink(1.0).intersect(ui.clip_rect()));
+                if part.dont_wrap {
+                    // Long lines scroll sideways to follow the insertion
+                    // point while typing; HyperCard only cut them off.
+                    egui::ScrollArea::horizontal()
+                        .id_salt(("dont-wrap", field_edit_id(e.obj)))
+                        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                            let out = edit.show(ui);
+                            thicken(ui, &out);
+                            out.response
+                        })
+                        .inner
+                } else {
+                    let out = edit.show(ui);
+                    thicken(ui, &out);
+                    out.response
+                }
             })
             .inner
         };
@@ -1512,6 +1552,7 @@ impl App {
             let locked = if w.stack.cant_modify { " · locked" } else { "" };
             (format!("Card {idx} of {n}{name} · {} tool{layer}{level}{locked}", w.tool.name()), w.busy)
         };
+        let busy = busy && self.busy_since.is_some_and(|t| t.elapsed() > Duration::from_millis(300));
         ui.horizontal(|ui| {
             ui.label(RichText::new(text).small());
             if busy {
@@ -1520,6 +1561,37 @@ impl App {
                 });
             }
         });
+    }
+
+    /// Edit ▸ Clear Picture clears a whole picture, so it asks first.
+    fn clear_picture_prompt(&mut self, ctx: &egui::Context) {
+        if !self.clear_picture_prompt {
+            return;
+        }
+        let question = if self.world().edit_bg {
+            "Clear the background's picture?"
+        } else {
+            "Clear the picture on this card?"
+        };
+        let mut choice = None;
+        egui::Modal::new(egui::Id::unique("clear-picture-prompt")).show(ctx, |ui| {
+            ui.label(question);
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button("Cancel").clicked() {
+                    choice = Some(false);
+                }
+                if ui.button(RichText::new("Clear").strong()).clicked() {
+                    choice = Some(true);
+                }
+            });
+        });
+        if let Some(clear) = choice {
+            self.clear_picture_prompt = false;
+            if clear {
+                self.do_menu("Clear Picture");
+            }
+        }
     }
 
     fn quit_prompt(&mut self, ctx: &egui::Context) {
@@ -1670,6 +1742,7 @@ impl eframe::App for App {
             let dirty = if w.dirty && w.stack.path.is_none() { " (unsaved)" } else { "" };
             (format!("RandomCard — {}{dirty}", w.stack.name), w.beeps, w.busy, w.menubar_visible, w.msg_visible)
         };
+        self.busy_since = if busy { Some(self.busy_since.unwrap_or_else(Instant::now)) } else { None };
         if title != self.title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.title = title;
@@ -1710,6 +1783,7 @@ impl eframe::App for App {
         self.show_protect_stack(&ctx);
         self.show_password_prompt(&ctx);
         self.quit_prompt(&ctx);
+        self.clear_picture_prompt(&ctx);
 
         if busy || self.anim.is_some() || self.pressed.is_some() || self.flash_until.is_some() {
             ctx.request_repaint();

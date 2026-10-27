@@ -149,14 +149,14 @@ fn house(p: &mut Picture) {
 const STACK_SCRIPT: &str = r#"-- A menu of the stack's own. Its items arrive as doMenu messages.
 on openStack
   if there is no menu "Tour" then create menu "Tour"
-  put "Contents,Basics,Dice,Drawing,Animation,-,Address Book" into menu "Tour"
+  put "Contents,Basics,Dice,Drawing,Animation,Sound,Keys,Fields,Print & Find,Debugging,-,Address Book" into menu "Tour"
 end openStack
 
 on doMenu what
   if what is "Address Book" then
     visual effect zoom open
     go to first card of background "Address"
-  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation," then
+  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation,Sound,Keys,Fields,Print & Find,Debugging," then
     visual effect dissolve
     go to card what
   else
@@ -236,8 +236,8 @@ pub fn build() -> Stack {
     b.card_part(c, sub);
     let mut intro = b.label(
         "Intro",
-        Rect::new(56, 92, 456, 140),
-        "Click a button to explore. Every button here runs a HyperTalk script: pick the Button tool on the left and double-click one to see it. Ctrl+M opens the message box.",
+        Rect::new(56, 96, 456, 132),
+        "Click a button to explore. To read a button's script, choose the Button tool and double-click the button.",
         12,
     );
     intro.text_align = TextAlign::Center;
@@ -248,13 +248,18 @@ pub fn build() -> Stack {
         ("Dice & Effects", "on mouseUp\n  visual effect checkerboard\n  go to card \"Dice\"\nend mouseUp"),
         ("Draw Something", "on mouseUp\n  visual effect wipe left\n  go to card \"Drawing\"\nend mouseUp"),
         ("Animation", "on mouseUp\n  visual effect venetian blinds\n  go to card \"Animation\"\nend mouseUp"),
+        ("Sound", "on mouseUp\n  visual effect barn door open\n  go to card \"Sound\"\nend mouseUp"),
+        ("Keys", "on mouseUp\n  visual effect wipe up\n  go to card \"Keys\"\nend mouseUp"),
+        ("Fields & Text", "on mouseUp\n  visual effect dissolve\n  go to card \"Fields\"\nend mouseUp"),
+        ("Print & Find", "on mouseUp\n  visual effect scroll left\n  go to card \"Print & Find\"\nend mouseUp"),
+        ("Debugging", "on mouseUp\n  visual effect iris open\n  go to card \"Debugging\"\nend mouseUp"),
         ("Address Book", "on mouseUp\n  visual effect zoom open\n  go to first card of background \"Address\"\nend mouseUp"),
     ];
     for (i, (name, script)) in buttons.iter().enumerate() {
-        let (col, row) = ((i % 2) as i32, (i / 2) as i32);
-        let x = 96 + col * 170;
-        let y = 160 + row * 42;
-        let p = b.button(name, Rect::new(x, y, x + 150, y + 28), script);
+        let (col, row) = ((i % 3) as i32, (i / 3) as i32);
+        let x = 36 + col * 150;
+        let y = 150 + row * 38;
+        let p = b.button(name, Rect::new(x, y, x + 140, y + 28), script);
         b.card_part(c, p);
     }
 
@@ -312,6 +317,8 @@ pub fn build() -> Stack {
     let c = b.card(main, "Dice");
     let t = b.label("Heading", Rect::new(20, 10, 492, 36), "Roll the dice", 20);
     b.card_part(c, t);
+    // AddColor colors the dice, as HyperCard 2.2's AddColor did.
+    let colors = [[255, 205, 205], [205, 222, 255]];
     for (i, name) in ["Die 1", "Die 2"].iter().enumerate() {
         let x = 120 + i as i32 * 150;
         let mut d = Part::new_field(b.id(), name, Rect::new(x, 50, x + 110, 150));
@@ -320,6 +327,8 @@ pub fn build() -> Stack {
         d.text_size = 64;
         d.text_align = TextAlign::Center;
         d.contents = (i + 3).to_string();
+        let target = color::ColorTarget::Field { id: d.id, color: colors[i], bevel: 0 };
+        b.stack.cards[c].colors.push(color::ColorItem { target, enabled: true });
         b.card_part(c, d);
     }
     let mut result = b.label("Result", Rect::new(60, 160, 452, 184), "Click Roll.", 14);
@@ -381,67 +390,276 @@ end mouseUp"#,
     house(&mut b.stack.cards[c].picture);
     let hint = b.label(
         "Hint",
-        Rect::new(20, 8, 492, 60),
-        "Choose a paint tool on the left (Pencil, Brush, Rect, Oval, Bucket...) and draw on this card. Ctrl+Z undoes the last stroke. Choose Browse to click buttons again.",
+        Rect::new(20, 8, 492, 28),
+        "Draw with the paint tools on the left. The hand (or Ctrl+Tab) gets you back.",
         12,
     );
     b.card_part(c, hint);
-    let clear = b.button(
-        "Erase Picture",
-        Rect::new(372, 270, 492, 296),
-        "on mouseUp\n  answer \"Erase the picture on this card?\" with \"Cancel\" or \"Erase\"\n  if it is \"Erase\" then doMenu \"Clear Picture\"\nend mouseUp",
-    );
-    b.card_part(c, clear);
-    let pencil = b.button("Pencil", Rect::new(372, 236, 492, 262), "on mouseUp\n  choose pencil tool\nend mouseUp");
-    b.card_part(c, pencil);
 
     // ----- Animation -----
+    // A small state machine in the card's script: whether the ball is
+    // moving, and its velocity. Each idle message moves it one step, so the
+    // buttons keep working while it moves.
     let c = b.card(main, "Animation");
     let t = b.label("Heading", Rect::new(20, 10, 492, 36), "Moving things with scripts", 20);
     b.card_part(c, t);
+    let start = b.button(
+        "Start",
+        Rect::new(20, 48, 100, 72),
+        "on mouseUp\n  global ballMoving\n  put not (ballMoving is true) into ballMoving\n  showState\nend mouseUp",
+    );
+    b.card_part(c, start);
+    let speeds = [
+        ("Slower", "on mouseUp\n  global ballSpeed\n  put max(1, ballSpeed - 1) into ballSpeed\n  showState\nend mouseUp"),
+        ("Faster", "on mouseUp\n  global ballSpeed\n  put min(12, ballSpeed + 1) into ballSpeed\n  showState\nend mouseUp"),
+    ];
+    for (i, (name, script)) in speeds.iter().enumerate() {
+        let x = 112 + i as i32 * 76;
+        let p = b.button(name, Rect::new(x, 48, x + 70, 72), script);
+        b.card_part(c, p);
+    }
+    let speed = b.label("Speed", Rect::new(264, 52, 344, 70), "Speed: 4", 12);
+    b.card_part(c, speed);
+    let mut show = b.button("Show the ball", Rect::new(356, 50, 492, 72), "on mouseUp\n  set the visible of button \"Ball\" to the hilite of me\nend mouseUp");
+    show.style = PartStyle::CheckBox;
+    show.hilite = true;
+    show.text_align = TextAlign::Left;
+    b.card_part(c, show);
     let mut ball = b.button("Ball", Rect::new(240, 180, 264, 204), "on mouseUp\n  beep\nend mouseUp");
     ball.style = PartStyle::Oval;
     ball.show_name = false;
     ball.hilite = true;
     ball.auto_hilite = false;
     b.card_part(c, ball);
-    let bounce = b.button(
-        "Bounce",
-        Rect::new(20, 48, 140, 76),
-        r#"on mouseUp
-  put 5 into dx
-  put 4 into dy
-  if the hilite of button "Fast" then put 0 into delay
-  else put 2 into delay
-  repeat 200 times
+    b.stack.cards[c].script = r#"-- The ball's state: whether it's moving, and its velocity (a speed, and
+-- a direction across and down). Buttons change the state; idle moves it.
+on openCard
+  global ballMoving, ballSpeed, dirX, dirY
+  put false into ballMoving
+  if ballSpeed is empty then put 4 into ballSpeed
+  if dirX is empty then put 1 into dirX
+  if dirY is empty then put 1 into dirY
+  showState
+  pass openCard
+end openCard
+
+on closeCard
+  global ballMoving
+  put false into ballMoving
+  pass closeCard
+end closeCard
+
+on idle
+  global ballMoving, ballSpeed, dirX, dirY
+  if ballMoving is true then
     get the loc of button "Ball"
-    put item 1 of it + dx into x
-    put item 2 of it + dy into y
-    if x < 32 or x > 480 then multiply dx by -1
-    if y < 96 or y > 290 then multiply dy by -1
-    set the loc of button "Ball" to x, y
-    wait delay ticks
-    if the mouseClick then exit repeat
-  end repeat
-end mouseUp"#,
+    put item 1 of it + dirX * ballSpeed into x
+    put item 2 of it + dirY * ballSpeed into y
+    if x < 32 or x > 480 then multiply dirX by -1
+    if y < 96 or y > 290 then multiply dirY by -1
+    set the loc of button "Ball" to max(32, min(480, x)), max(96, min(290, y))
+  end if
+  pass idle
+end idle
+
+on showState
+  global ballMoving, ballSpeed
+  if ballMoving then set the name of card button 1 to "Stop"
+  else set the name of card button 1 to "Start"
+  put "Speed:" && ballSpeed into field "Speed"
+end showState
+"#
+    .into();
+
+    // ----- Sound -----
+    let c = b.card(main, "Sound");
+    let t = b.label("Heading", Rect::new(20, 10, 492, 36), "Sound", 20);
+    b.card_part(c, t);
+    let about = b.label(
+        "About",
+        Rect::new(20, 42, 492, 76),
+        "Change the notes below and click Play Tune.",
+        12,
     );
-    b.card_part(c, bounce);
-    let mut show = b.button("Show the ball", Rect::new(160, 50, 290, 72), "on mouseUp\n  set the visible of button \"Ball\" to the hilite of me\nend mouseUp");
-    show.style = PartStyle::CheckBox;
-    show.hilite = true;
-    show.text_align = TextAlign::Left;
-    b.card_part(c, show);
-    for (i, name) in ["Slow", "Fast"].iter().enumerate() {
-        let x = 300 + i as i32 * 80;
-        let mut r = b.button(name, Rect::new(x, 50, x + 72, 72), "");
-        r.style = PartStyle::Radio;
-        r.family = 1;
-        r.hilite = i == 0;
-        r.text_align = TextAlign::Left;
-        b.card_part(c, r);
+    b.card_part(c, about);
+    let sounds = [
+        ("Boing", "on mouseUp\n  play \"boing\"\nend mouseUp"),
+        ("Flute", "on mouseUp\n  play \"flute\" \"e4q g a b a g e h\"\nend mouseUp"),
+        ("Dial", "on mouseUp\n  dial \"555-0187\"\nend mouseUp"),
+        ("Stop", "on mouseUp\n  play stop\nend mouseUp"),
+    ];
+    for (i, (name, script)) in sounds.iter().enumerate() {
+        let x = 20 + i as i32 * 94;
+        let p = b.button(name, Rect::new(x, 84, x + 86, 112), script);
+        b.card_part(c, p);
     }
-    let note = b.label("Note", Rect::new(20, 80, 492, 96), "Click anywhere during the bounce to stop it.", 11);
-    b.card_part(c, note);
+    // The tune and its button go together, apart from the one-shot sounds.
+    let play = b.button(
+        "Play Tune",
+        Rect::new(400, 122, 492, 150),
+        "on mouseUp\n  play \"harpsichord\" tempo 200 field \"Tune\"\nend mouseUp",
+    );
+    b.card_part(c, play);
+    let mut tune = Part::new_field(b.id(), "Tune", Rect::new(20, 124, 390, 148));
+    tune.contents = "c4q c g g a a g h f f e e d d c h".into();
+    b.card_part(c, tune);
+    let guide = b.label(
+        "Notes Guide",
+        Rect::new(20, 160, 492, 296),
+        "Each note is a name, then a sharp or flat, an octave and a length, as in c4q or f#5e.\n\
+         Name: c d e f g a b, r for a rest, or a MIDI number (60 is middle C).\n\
+         Sharp or flat: # or b, as in f# or bb.\n\
+         Octave: 0 to 9; middle C is c4.\n\
+         Length: w whole, h half, q quarter, e eighth, s 16th, t 32nd, x 64th.\n\
+         After the length, . makes a dotted note and 3 a triplet, as in q. or e3.\n\
+         A note without an octave or length keeps the last one given.",
+        12,
+    );
+    b.card_part(c, guide);
+
+    // ----- Keys -----
+    let c = b.card(main, "Keys");
+    let t = b.label("Heading", Rect::new(20, 10, 492, 36), "Keyboard messages", 20);
+    b.card_part(c, t);
+    let about = b.label(
+        "About",
+        Rect::new(20, 42, 492, 76),
+        "Press keys: this card's script shows each key message. It doesn't pass them on, so the arrow keys don't change cards here.",
+        12,
+    );
+    b.card_part(c, about);
+    let mut last = b.label("Last Key", Rect::new(20, 100, 492, 140), "Press a key.", 24);
+    last.text_align = TextAlign::Center;
+    b.card_part(c, last);
+    b.stack.cards[c].script = r#"on keyDown which
+  put "keyDown" && quote & which & quote into field "Last Key"
+end keyDown
+
+on arrowKey which
+  put "arrowKey" && which into field "Last Key"
+end arrowKey
+
+on functionKey which
+  put "functionKey" && which into field "Last Key"
+end functionKey
+
+on returnKey
+  put "returnKey" into field "Last Key"
+end returnKey
+
+on tabKey
+  put "tabKey" into field "Last Key"
+end tabKey
+"#
+    .into();
+
+    // ----- Fields and text -----
+    let c = b.card(main, "Fields");
+    let t = b.label("Heading", Rect::new(20, 10, 492, 36), "Fields and text", 20);
+    b.card_part(c, t);
+    let hint = b.label("Hint", Rect::new(20, 40, 492, 56), "Select text in any field and use the Font and Style menus.", 12);
+    b.card_part(c, hint);
+    let fields = [
+        (
+            "Lined",
+            Rect::new(20, 62, 250, 174),
+            "showLines draws a line under each line of text.\nType here to add more.",
+        ),
+        (
+            "Wide",
+            Rect::new(262, 62, 492, 174),
+            "wideMargins gives a field more room around its text.",
+        ),
+        (
+            "No Wrap",
+            Rect::new(20, 184, 250, 296),
+            "dontWrap keeps each line on one line, however long it gets.\nShort lines are fine.",
+        ),
+        (
+            "Scrolling",
+            Rect::new(262, 184, 492, 296),
+            "A scrolling field has a scroll bar, for more text than fits.\n\nHyperCard came out in August 1987, free with every Mac.\n\nBill Atkinson wrote it; Dan Winkler wrote HyperTalk.\n\nStacks were shared on floppy disks and bulletin boards.\n\nMyst began as a HyperCard stack.\n\nThe last version, HyperCard 2.4, came out in 1998.",
+        ),
+    ];
+    for (name, rect, text) in fields {
+        let mut f = Part::new_field(b.id(), name, rect);
+        f.contents = text.into();
+        match name {
+            "Lined" => f.show_lines = true,
+            "Wide" => f.wide_margins = true,
+            "No Wrap" => f.dont_wrap = true,
+            _ => f.style = PartStyle::Scrolling,
+        }
+        b.card_part(c, f);
+    }
+
+    // ----- Printing and finding -----
+    let c = b.card(main, "Print & Find");
+    let t = b.label("Heading", Rect::new(20, 10, 492, 36), "Printing and finding", 20);
+    b.card_part(c, t);
+    let about = b.label(
+        "About",
+        Rect::new(20, 42, 492, 76),
+        "Printing opens a PDF in your PDF viewer. Find and Recent are also in the Go menu.",
+        12,
+    );
+    b.card_part(c, about);
+    let actions = [
+        ("Print Card", "on mouseUp\n  print card\nend mouseUp"),
+        ("Print Stack", "on mouseUp\n  print all cards\nend mouseUp"),
+        ("Print Some Text", "on mouseUp\n  print \"Hello from RandomCard!\" & return & return & \"Printed on\" && the long date & \".\"\nend mouseUp"),
+        ("Find Bill", "on mouseUp\n  visual effect dissolve\n  find \"Bill\"\nend mouseUp"),
+        ("Find…", "on mouseUp\n  doMenu \"Find…\"\nend mouseUp"),
+        ("Recent", "on mouseUp\n  doMenu \"Recent\"\nend mouseUp"),
+    ];
+    for (i, (name, script)) in actions.iter().enumerate() {
+        let (col, row) = ((i % 3) as i32, (i / 3) as i32);
+        let x = 36 + col * 150;
+        let y = 88 + row * 40;
+        let p = b.button(name, Rect::new(x, y, x + 140, y + 28), script);
+        b.card_part(c, p);
+    }
+
+    // ----- The debugger -----
+    let c = b.card(main, "Debugging");
+    let t = b.label("Heading", Rect::new(20, 10, 492, 36), "The debugger", 20);
+    b.card_part(c, t);
+    let about = b.label(
+        "About",
+        Rect::new(20, 42, 492, 76),
+        "Step Through Me stops at a checkpoint. Then F10 is Step, F11 Step Into, F5 Go, and Shift+F5 Abort.",
+        12,
+    );
+    b.card_part(c, about);
+    let step = b.button(
+        "Step Through Me",
+        Rect::new(36, 88, 176, 116),
+        r#"on mouseUp
+  debug checkpoint
+  put 0 into total
+  repeat with i = 1 to 5
+    add square(i) to total
+  end repeat
+  put "1 + 4 + 9 + 16 + 25 =" && total into field "Answer"
+end mouseUp
+
+function square n
+  return n * n
+end square"#,
+    );
+    b.card_part(c, step);
+    let watchers = [
+        ("Message Watcher", "on mouseUp\n  show message watcher\nend mouseUp"),
+        ("Variable Watcher", "on mouseUp\n  show variable watcher\nend mouseUp"),
+    ];
+    for (i, (name, script)) in watchers.iter().enumerate() {
+        let x = 186 + i as i32 * 150;
+        let p = b.button(name, Rect::new(x, 88, x + 140, 116), script);
+        b.card_part(c, p);
+    }
+    let mut answer = b.label("Answer", Rect::new(20, 132, 492, 156), "", 14);
+    answer.text_align = TextAlign::Center;
+    b.card_part(c, answer);
 
     // ----- Address book: a second background with per-card field text -----
     let addr = b.background("Address", ADDRESS_BG_SCRIPT);

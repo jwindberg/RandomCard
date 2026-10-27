@@ -465,6 +465,17 @@ impl App {
                 if let Some(err) = &ed.error {
                     ui.colored_label(Color32::from_rgb(170, 0, 0), err);
                 }
+                // While stopped here, the variables sit beside the script, so
+                // values show as you step.
+                if stopped_at.is_some() {
+                    let pane = egui::Panel::right(id.with("variables")).resizable(true);
+                    pane.default_size(200.0).min_size(120.0).show(ui, |ui| {
+                        egui::ScrollArea::vertical()
+                            .id_salt("variables")
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| self.variables(ui, "editor"));
+                    });
+                }
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                     let edit_id = id.with("text");
                     if let Some(line) = ed.goto_line.take() {
@@ -547,6 +558,9 @@ impl App {
         } else if !open {
             // Closing the window keeps the edits, as HyperCard's editor did when you said yes.
             self.save_script(ed);
+        }
+        if ed.open && !open {
+            self.script_closed(ed.obj);
         }
         ed.open = open;
     }
