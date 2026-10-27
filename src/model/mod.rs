@@ -82,6 +82,12 @@ impl Layer {
     }
 }
 
+/// Where a popup's chosen item starts, from the left of its menu box: room
+/// for the check mark its menu shows, so the item lines up with the menu.
+pub const POPUP_TEXT_INSET: i32 = 15;
+/// The gap between a popup's triangle and the right of its menu box.
+pub const POPUP_TRIANGLE_RIGHT: i32 = 9;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PartStyle {
     Transparent,
@@ -91,8 +97,12 @@ pub enum PartStyle {
     Shadow,
     CheckBox,
     Radio,
+    /// HyperCard 2's standard Macintosh push button.
+    Standard,
     Default,
     Oval,
+    /// A popup menu: the button's lines are its items.
+    Popup,
     Scrolling,
 }
 
@@ -105,8 +115,10 @@ impl PartStyle {
         PartStyle::Shadow,
         PartStyle::CheckBox,
         PartStyle::Radio,
+        PartStyle::Standard,
         PartStyle::Default,
         PartStyle::Oval,
+        PartStyle::Popup,
     ];
     pub const FIELD_STYLES: &'static [PartStyle] = &[
         PartStyle::Transparent,
@@ -125,8 +137,10 @@ impl PartStyle {
             PartStyle::Shadow => "shadow",
             PartStyle::CheckBox => "checkBox",
             PartStyle::Radio => "radioButton",
+            PartStyle::Standard => "standard",
             PartStyle::Default => "default",
             PartStyle::Oval => "oval",
+            PartStyle::Popup => "popup",
             PartStyle::Scrolling => "scrolling",
         }
     }
@@ -140,7 +154,9 @@ impl PartStyle {
             "shadow" => PartStyle::Shadow,
             "checkbox" => PartStyle::CheckBox,
             "radiobutton" | "radio" => PartStyle::Radio,
+            "standard" => PartStyle::Standard,
             "default" => PartStyle::Default,
+            "popup" => PartStyle::Popup,
             "oval" => PartStyle::Oval,
             "scrolling" => PartStyle::Scrolling,
             _ => return None,
@@ -202,6 +218,10 @@ pub struct Part {
     pub family: u32,
     pub shared_hilite: bool,
     pub icon: i32,
+    /// For popups: the width of the title at the left, where the name goes.
+    pub title_width: u32,
+    /// For popups: the chosen line, from 1, or 0 for none.
+    pub selected_line: u32,
 
     // Fields
     pub lock_text: bool,
@@ -244,6 +264,8 @@ impl Default for Part {
             family: 0,
             shared_hilite: true,
             icon: 0,
+            title_width: 0,
+            selected_line: 0,
             lock_text: false,
             dont_wrap: false,
             auto_tab: false,
@@ -264,6 +286,29 @@ impl Part {
     /// The height of a line of this field's text (`the textHeight`).
     pub fn line_height(&self) -> u32 {
         if self.text_height > 0 { self.text_height } else { metrics::default_text_height(self.text_size) }
+    }
+
+    /// A popup's chosen item: its selected line, or empty if none is chosen.
+    pub fn selected_text(&self) -> &str {
+        match self.selected_line {
+            0 => "",
+            n => self.contents.split('\n').nth(n as usize - 1).unwrap_or(""),
+        }
+    }
+
+    /// A popup's menu box: right of the title, inside the 1-pixel shadow
+    /// along its right and bottom edges.
+    pub fn popup_box(&self) -> Rect {
+        let r = self.rect;
+        Rect::new((r.left + self.title_width as i32).min(r.right - 1), r.top, r.right - 1, r.bottom - 1)
+    }
+
+    /// The left, top and right corners of the downward triangle in a
+    /// popup's menu box, 11 pixels wide and 6 high.
+    pub fn popup_triangle(&self) -> [(i32, i32); 3] {
+        let b = self.popup_box();
+        let (left, top) = (b.right - POPUP_TRIANGLE_RIGHT - 11, (b.top + b.bottom) / 2 - 3);
+        [(left, top), (left + 11, top), (left + 5, top + 6)]
     }
 
     pub fn new_button(id: Id, name: &str, rect: Rect) -> Part {

@@ -168,11 +168,11 @@ container), click functions in locked fields, and autoSelect list fields.
 ## Buttons
 
 **Missing:**
-- **Popup buttons** (style 11; imported as rectangles today).
-- **The "standard" style** (HyperCard 2.2+; imported as round rect).
 - **Creating and editing icons** (an icon editor, or importing images).
   Icons can be imported and chosen, not drawn.
-- **`titleWidth`** and `the selectedLine` / `selectedText` of popups.
+- **Popup details:** the menu opens with the chosen item roughly over the
+  button, but not to the pixel; the title is always drawn left-aligned;
+  and `the selectedLine` can't be set (use `select line 2 of button 1`).
 
 ## HyperTalk
 
@@ -280,9 +280,11 @@ Next, ranked by what people who built HyperCard stacks will need first:
    in the message box, and Go ▸ Recent (Ctrl+R) shows miniatures of the
    last 42 cards. Recent covers the current stack only, until history
    spans stacks.
-2. **Popup buttons and the standard button style.** HyperCard 2.2 stacks
-   used popups widely and they import as plain rectangles today. Includes
-   `the selectedLine` and `selectedText` of a popup, and `titleWidth`.
+2. ~~Popup buttons and the standard button style.~~ Done: popups import
+   with their items, title width and chosen item, show their menu when
+   clicked, and answer `the selectedText`, `selectedLine` and
+   `selectedChunk`; `select line 2 of button 1` chooses an item. The Tour's
+   Dice card has one.
 3. **Real stacks as tests.** A harness that opens each stack in a folder,
    sends `openStack`, clicks every button, and reports script errors and
    unknown commands. Run against a collection of real stacks, it shows

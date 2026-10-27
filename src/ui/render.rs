@@ -9,7 +9,7 @@ use eframe::egui::{
 };
 
 use crate::model::styles::{self, StyleRun};
-use crate::model::{Icon, Id, Layer, Part, PartKind, PartStyle, Picture, Pixel, TextAlign, metrics};
+use crate::model::{Icon, Id, Layer, POPUP_TEXT_INSET, Part, PartKind, PartStyle, Picture, Pixel, TextAlign, metrics};
 use crate::runtime::world::{FieldRange, ObjRef, World};
 
 use super::addcolor::{self, ColorShape};
@@ -463,6 +463,14 @@ fn draw_button(painter: &Painter, tex: &Textures, pv: &PartView, rect: Rect, pre
             painter.rect_filled(rect, 8.0, bg);
             painter.rect_stroke(rect, 8.0, stroke, StrokeKind::Inside);
         }
+        PartStyle::Standard => {
+            painter.rect_filled(rect, 8.0, bg);
+            painter.rect_stroke(rect, 8.0, stroke, StrokeKind::Inside);
+        }
+        PartStyle::Popup => {
+            draw_popup(&painter, p, rect, fg, bg);
+            return;
+        }
         PartStyle::Default => {
             painter.rect_stroke(rect, 10.0, Stroke::new(3.0, BLACK), StrokeKind::Inside);
             let inner = rect.shrink(4.0);
@@ -511,6 +519,30 @@ fn draw_button(painter: &Painter, tex: &Textures, pv: &PartView, rect: Rect, pre
         };
         draw_label(&painter, p, pos, align, &p.name, fg);
     }
+}
+
+/// A popup: its name in the title area at the left, then a framed and
+/// shadowed menu box holding the chosen item and a downward triangle.
+fn draw_popup(painter: &Painter, p: &Part, rect: Rect, fg: Color32, bg: Color32) {
+    let at = |x: i32, y: i32| rect.min + Vec2::new((x - p.rect.left) as f32, (y - p.rect.top) as f32);
+    let b = p.popup_box();
+    let boxr = Rect::from_min_max(at(b.left, b.top), at(b.right, b.bottom));
+    painter.rect_filled(boxr.translate(Vec2::splat(1.0)), 0.0, BLACK);
+    painter.rect_filled(boxr, 0.0, bg);
+    painter.rect_stroke(boxr, 0.0, Stroke::new(1.0, BLACK), StrokeKind::Inside);
+    let tri = p.popup_triangle().map(|(x, y)| at(x, y));
+    painter.add(egui::Shape::convex_polygon(tri.to_vec(), fg, Stroke::NONE));
+    if p.show_name && p.title_width > 0 && !p.name.is_empty() {
+        let title = painter.with_clip_rect(Rect::from_min_max(rect.min, Pos2::new(boxr.left(), rect.max.y)));
+        let label_fg = if p.enabled { BLACK } else { GRAY };
+        draw_label(&title, p, Pos2::new(rect.left() + 2.0, boxr.center().y), Align2::LEFT_CENTER, &p.name, label_fg);
+    }
+    let text_rect = Rect::from_min_max(
+        Pos2::new(boxr.left() + POPUP_TEXT_INSET as f32, boxr.top()),
+        Pos2::new(tri[0].x - 2.0, boxr.bottom()),
+    );
+    let inside = painter.with_clip_rect(text_rect.intersect(painter.clip_rect()));
+    draw_label(&inside, p, Pos2::new(text_rect.left(), boxr.center().y), Align2::LEFT_CENTER, p.selected_text(), fg);
 }
 
 pub const ICON_SIZE: f32 = 32.0;

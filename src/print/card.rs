@@ -8,7 +8,7 @@ use super::layout::{self, Line, Setting};
 use super::pdf::{Document, text_literal};
 use crate::model::metrics;
 use crate::model::styles::{self, StyleRun};
-use crate::model::{Id, Layer, Part, PartKind, PartStyle, Picture, Pixel, Rect, Stack, TextAlign};
+use crate::model::{Id, Layer, POPUP_TEXT_INSET, Part, PartKind, PartStyle, Picture, Pixel, Rect, Stack, TextAlign};
 
 /// A page's drawing commands, in a card's coordinates (y down).
 pub struct Canvas<'a> {
@@ -285,6 +285,16 @@ fn draw_button(c: &mut Canvas, stack: &Stack, card: Id, layer: Layer, p: &Part) 
             c.round_path(r, 8.0, 0.5);
             c.op("B");
         }
+        PartStyle::Standard => {
+            c.fill_color(bg);
+            c.op(format!("{BLACK} G 1 w"));
+            c.round_path(r, 8.0, 0.5);
+            c.op("B");
+        }
+        PartStyle::Popup => {
+            draw_popup(c, p, fg, bg);
+            return;
+        }
         PartStyle::Default => {
             c.op(format!("{BLACK} G 3 w"));
             c.round_path(r, 10.0, 1.5);
@@ -376,6 +386,33 @@ fn draw_button(c: &mut Canvas, stack: &Stack, card: Id, layer: Layer, p: &Part) 
         c.lines(&lines, r.left as f32 + 6.0, top, fg);
         c.op("Q");
     }
+}
+
+/// A popup, as on screen: the title at the left, then the shadowed menu box
+/// with the chosen item and a downward triangle.
+fn draw_popup(c: &mut Canvas, p: &Part, fg: f32, bg: f32) {
+    let b = p.popup_box();
+    c.fill_rect(Rect::new(b.left + 1, b.top + 1, b.right + 1, b.bottom + 1), BLACK);
+    c.fill_rect(b, bg);
+    c.frame_rect(b);
+    let [(x1, y1), (x2, y2), (x3, y3)] = p.popup_triangle();
+    c.fill_color(fg);
+    c.op(format!("{x1} {y1} m {x2} {y2} l {x3} {y3} l h f"));
+    let m = metrics::metrics(&p.text_font, p.text_size, &p.text_style);
+    let top = (b.top + b.bottom) as f32 / 2.0 - (m.ascent + m.descent) as f32 / 2.0;
+    let text = |c: &mut Canvas, s: &str, clip: Rect, x: i32, g: f32| {
+        let lines = one_line(TextAlign::Left, s, p.text_size, &p.text_font, &p.text_style, 0.0);
+        c.op("q");
+        c.clip(clip);
+        c.lines(&lines, x as f32, top, g);
+        c.op("Q");
+    };
+    if p.show_name && p.title_width > 0 && !p.name.is_empty() {
+        let title = Rect::new(p.rect.left, p.rect.top, b.left, p.rect.bottom);
+        text(c, &p.name, title, p.rect.left + 2, if p.enabled { BLACK } else { GRAY });
+    }
+    let inside = Rect::new(b.left + POPUP_TEXT_INSET, b.top, x1 - 2, b.bottom);
+    text(c, p.selected_text(), inside, inside.left, fg);
 }
 
 fn draw_field(c: &mut Canvas, stack: &Stack, card: Id, layer: Layer, p: &Part) {

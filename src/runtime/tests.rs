@@ -318,6 +318,15 @@ fn demo_stack_runs() {
     assert_eq!(click(&mut i, "Contents", "Dice & Effects"), None);
     assert_eq!(click(&mut i, "Dice", "Roll"), None);
     assert!(run(&mut i, "put field \"Result\" of card \"Dice\"").starts_with("You rolled"));
+    // The Sides popup chooses the dice.
+    assert_eq!(click(&mut i, "Dice", "Sides"), None);
+    assert_eq!(run(&mut i, "put field \"Result\" of card \"Dice\""), "Rolling 6-sided dice.");
+    run(&mut i, "select line 1 of button \"Sides\" of card \"Dice\"");
+    assert_eq!(click(&mut i, "Dice", "Roll"), None);
+    for die in ["Die 1", "Die 2"] {
+        let n: u32 = run(&mut i, &format!("put field \"{die}\" of card \"Dice\"")).parse().unwrap();
+        assert!((1..=4).contains(&n), "{die} rolled {n} on a 4-sided die");
+    }
     // A fast bounce runs to completion.
     run(&mut i, "go to card \"Animation\"\nset the hilite of button \"Fast\" to true");
     assert_eq!(click(&mut i, "Animation", "Bounce"), None);
@@ -537,6 +546,28 @@ fn private_access_stacks_ask_for_their_password() {
     assert_eq!(lock(&i.world).stack.name, "Secret");
     assert!(i.canned_answers.is_empty());
     std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn popup_buttons() {
+    let mut i = interp_with(stack());
+    run(&mut i, "set the style of button \"Go\" to popup");
+    assert_eq!(run(&mut i, "put the style of button 1"), "popup");
+    run(&mut i, "put \"Small\" & return & \"Medium\" & return & \"Large\" into button \"Go\"");
+    assert_eq!(run(&mut i, "put the selectedText of button 1"), "");
+    run(&mut i, "select line 2 of button \"Go\"");
+    assert_eq!(run(&mut i, "put the selectedText of button 1"), "Medium");
+    assert_eq!(run(&mut i, "put the selectedLine of button 1"), "line 2 of card button 1");
+    assert_eq!(run(&mut i, "put the selectedChunk of button 1"), "char 7 to 12 of card button 1");
+    run(&mut i, "select last line of button 1");
+    assert_eq!(run(&mut i, "put the selectedText of button 1"), "Large");
+    assert!(run(&mut i, "select line 5 of button 1").starts_with("ERROR"));
+    // Choosing an item leaves any text selection alone.
+    assert_eq!(run(&mut i, "put the selectedText"), "");
+    run(&mut i, "set the titleWidth of button 1 to 40");
+    assert_eq!(run(&mut i, "put titleWidth of button 1"), "40");
+    run(&mut i, "set the style of button 1 to standard");
+    assert_eq!(run(&mut i, "put the style of button 1"), "standard");
 }
 
 #[test]

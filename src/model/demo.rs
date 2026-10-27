@@ -325,13 +325,25 @@ pub fn build() -> Stack {
     let mut result = b.label("Result", Rect::new(60, 160, 452, 184), "Click Roll.", 14);
     result.text_align = TextAlign::Center;
     b.card_part(c, result);
+    let mut sides = b.button(
+        "Sides",
+        Rect::new(20, 202, 170, 222),
+        "on mouseUp\n  put \"Rolling\" && the selectedText of me & \"-sided dice.\" into field \"Result\"\nend mouseUp",
+    );
+    sides.style = PartStyle::Popup;
+    sides.title_width = 48;
+    sides.text_align = TextAlign::Left;
+    sides.contents = "4\n6\n8\n12\n20".into();
+    sides.selected_line = 2;
+    b.card_part(c, sides);
     let roll = b.button(
         "Roll",
         Rect::new(196, 196, 316, 226),
         r#"on mouseUp
+  put the selectedText of button "Sides" into sides
   repeat 8 times
-    put random(6) into field "Die 1"
-    put random(6) into field "Die 2"
+    put random(sides) into field "Die 1"
+    put random(sides) into field "Die 2"
     wait 3 ticks
   end repeat
   put field "Die 1" + field "Die 2" into total
@@ -362,7 +374,7 @@ end mouseUp"#,
   put "That's every effect." into msg
 end mouseUp"#,
     );
-    b.card_part(c, effects);
+    b.card_part(c, Part { style: PartStyle::Standard, ..effects });
 
     // ----- Drawing -----
     let c = b.card(main, "Drawing");

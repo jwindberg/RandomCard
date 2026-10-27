@@ -1228,6 +1228,9 @@ impl Interp {
 
     /// `select line 2 of field 1`, `select after text of field "Notes"`.
     fn select_text(&mut self, prep: Prep, e: &Expr) -> R<()> {
+        if self.select_popup_line(e)? {
+            return Ok(());
+        }
         let FieldRange { card, layer, field: id, mut start, mut end } = self.text_range(e)?;
         let lock_text = self.w().stack.part(card, layer, id).is_some_and(|p| p.lock_text);
         match prep {
@@ -1242,6 +1245,33 @@ impl Interp {
         w.focus = (!lock_text).then_some((layer, id));
         w.set_selection(Some(FieldRange { card, layer, field: id, start, end }));
         Ok(())
+    }
+
+    /// `select line 3 of button "Size"` chooses a popup's item. False if
+    /// `e` isn't a chunk of a button, so it selects text in a field instead.
+    fn select_popup_line(&mut self, e: &Expr) -> R<bool> {
+        let (chunks, base) = Self::container_parts(e);
+        if chunks.is_empty() || !matches!(base, Expr::Object(_)) {
+            return Ok(false);
+        }
+        let ObjRef::Part { layer, id, card } = self.resolve_dynamic(base)? else { return Ok(false) };
+        let contents = match self.w().stack.part(card, layer, id) {
+            Some(p) if p.kind == PartKind::Button => p.contents.clone(),
+            _ => return Ok(false),
+        };
+        let line = match self.resolve_chunks(&chunks, &contents)?.as_slice() {
+            [r] if matches!(r.kind, ChunkKind::Line) => r.start,
+            _ => return err("Can only select a line of a button"),
+        };
+        if line < 1 || line > contents.split('\n').count() as i64 {
+            return err(format!("The button has no line {line}"));
+        }
+        let mut w = self.w();
+        if let Some(p) = w.stack.part_mut(card, layer, id) {
+            p.selected_line = line as u32;
+            w.dirty = true;
+        }
+        Ok(true)
     }
 
     /// `the selection` as a container: the selected text.

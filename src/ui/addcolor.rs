@@ -75,7 +75,8 @@ fn part_shape(p: &Part, color: [u8; 3], bevel: u16) -> Option<ColorShape> {
         }
         (PartKind::Button, PartStyle::Shadow) => (Rect::new(r.left, r.top, r.right - 1, r.bottom - 1), Shape::Rect),
         (PartKind::Field, PartStyle::Shadow) => (Rect::new(r.left, r.top, r.right - 2, r.bottom - 2), Shape::Rect),
-        (PartKind::Button, PartStyle::RoundRect) => (r, Shape::Round(8)),
+        (PartKind::Button, PartStyle::RoundRect | PartStyle::Standard) => (r, Shape::Round(8)),
+        (PartKind::Button, PartStyle::Popup) => (p.popup_box(), Shape::Rect),
         (PartKind::Button, PartStyle::Default) => (Rect::new(r.left + 4, r.top + 4, r.right - 4, r.bottom - 4), Shape::Round(6)),
         (PartKind::Button, PartStyle::Oval) => (r, Shape::Oval),
         _ => (r, Shape::Rect),

@@ -6,6 +6,7 @@ mod editing;
 mod menus;
 mod levels;
 mod painting;
+mod popup;
 mod recent;
 mod render;
 mod windows;
@@ -117,6 +118,8 @@ pub struct App {
     /// Where to put the cursor when the message box takes focus (else at the end).
     msg_cursor: Option<usize>,
     recent_open: bool,
+    /// A popup button's menu, while it's open.
+    popup: Option<popup::PopupMenu>,
     beeps_seen: u32,
     /// The world's `selection_rev` the field editor has caught up with.
     selection_rev_seen: u64,
@@ -179,6 +182,7 @@ impl App {
             focus_msg_box: false,
             msg_cursor: None,
             recent_open: false,
+            popup: None,
             beeps_seen: 0,
             selection_rev_seen: 0,
             stack_seen: 0,
@@ -239,7 +243,7 @@ impl App {
         };
         egui::MenuBar::new().ui(ui, |ui| {
             for menu in menus.iter().filter(|m| !m.builtin || state.menu_shown(&m.name)) {
-                let items: Vec<(String, bool, &MenuItem)> = menu
+                let items: Vec<(String, bool, bool, &MenuItem)> = menu
                     .items
                     .iter()
                     .filter(|i| !i.builtin || i.is_separator() || state.item_shown(&menu.name, &i.name))
@@ -249,17 +253,18 @@ impl App {
                         } else {
                             (i.name.clone(), true, false)
                         };
-                        let label = if checked || i.checked { format!("✔ {label}") } else { label };
-                        (label, enabled && i.enabled, i)
+                        (label, enabled && i.enabled, checked || i.checked, i)
                     })
                     .collect();
+                // A menu with a check mark leaves room for it on every item.
+                let indent = items.iter().any(|(_, _, checked, _)| *checked);
                 ui.add_enabled_ui(menu.enabled, |ui| {
                     ui.menu_button(&menu.name, |ui| {
                         let mut separated = true;
-                        for (k, (label, enabled, i)) in items.iter().enumerate() {
+                        for (k, (label, enabled, checked, i)) in items.iter().enumerate() {
                             if i.is_separator() {
                                 // No separators at the ends or two in a row.
-                                let more = items[k + 1..].iter().any(|(_, _, j)| !j.is_separator());
+                                let more = items[k + 1..].iter().any(|(_, _, _, j)| !j.is_separator());
                                 if !separated && more {
                                     ui.separator();
                                     separated = true;
@@ -267,12 +272,10 @@ impl App {
                                 continue;
                             }
                             separated = false;
-                            let mut button = egui::Button::new(label.as_str());
-                            if !i.command_char.is_empty() {
-                                button = button.shortcut_text(format!("Ctrl+{}", i.command_char.to_uppercase()));
-                            }
-                            if ui.add_enabled(*enabled, button).clicked() {
-                                self.do_menu(label.trim_start_matches("✔ "));
+                            let shortcut = (!i.command_char.is_empty())
+                                .then(|| format!("Ctrl+{}", i.command_char.to_uppercase()));
+                            if menus::menu_item(ui, label, *enabled, *checked, indent, shortcut).clicked() {
+                                self.do_menu(label);
                             }
                         }
                     });
@@ -998,7 +1001,8 @@ impl App {
 
         let primary_pressed = ctx.input(|i| i.pointer.primary_pressed());
         let primary_released = ctx.input(|i| i.pointer.primary_released());
-        if primary_pressed && over_card {
+        // A click while a popup's menu is open only closes the menu.
+        if primary_pressed && over_card && self.popup.is_none() {
             {
                 let mut w = self.world();
                 if let Some((x, y)) = card_pos {
@@ -1033,6 +1037,18 @@ impl App {
                 self.world().selection = None;
             }
             let t = target.map(|pv| pv.obj).unwrap_or(card);
+            if let Some(pv) = target.filter(|pv| pv.part.kind == PartKind::Button && pv.part.style == PartStyle::Popup) {
+                // A popup shows its menu; choosing an item sends mouseUp.
+                self.send(Event::Send { target: t, message: "mouseDown".into(), args: vec![] });
+                let b = pv.part.popup_box();
+                let at = Rect::from_min_max(
+                    origin + Vec2::new(b.left as f32, b.top as f32),
+                    origin + Vec2::new(b.right as f32, b.bottom as f32),
+                );
+                let items = pv.part.contents.split('\n').map(String::from).collect();
+                self.popup = Some(popup::PopupMenu { obj: t, at, items, selected: pv.part.selected_line, dragging: true });
+                return;
+            }
             self.pressed = Some(t);
             self.pressed_inside = true;
             self.send(Event::Send { target: t, message: "mouseDown".into(), args: vec![] });
@@ -1330,9 +1346,11 @@ impl App {
         }
 
         let pressed = if self.pressed_inside { self.pressed } else { None };
-        let pressed_button = pressed.filter(|o| {
-            shown.parts.iter().any(|pv| pv.obj == *o && pv.part.kind == PartKind::Button && pv.part.auto_hilite)
-        });
+        let pressed_button = pressed
+            .filter(|o| {
+                shown.parts.iter().any(|pv| pv.obj == *o && pv.part.kind == PartKind::Button && pv.part.auto_hilite)
+            })
+            .or(self.popup.as_ref().map(|m| m.obj));
         let animating = self.anim.as_ref().is_some_and(|a| a.start.elapsed().as_secs_f32() < a.seconds);
         // Scrolling fields are live scroll areas while browsing a card that's
         // on screen (not mid-transition or behind lock screen).
@@ -1684,6 +1702,7 @@ impl eframe::App for App {
 
         self.show_windows(&ctx);
         self.recent_window(&ctx);
+        self.popup_menu(&ctx);
         self.debugger(&ctx);
         self.show_dialog(&ctx);
         self.show_error(&ctx);

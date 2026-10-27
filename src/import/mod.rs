@@ -399,6 +399,9 @@ struct PartRec {
     rect: QdRect,
     ext: u8,
     style: u8,
+    /// A popup's title width, or a field's last selected line.
+    title_width: i16,
+    /// A button's icon, a popup's selected line, or a field's first selected line.
     icon: i16,
     align: i16,
     font: i16,
@@ -487,7 +490,7 @@ fn read_part(rec: &[u8]) -> R<PartRec> {
     let rect = r.rect()?;
     let ext = r.u8()?;
     let style = r.u8()?;
-    r.skip(2)?; // title width / last selected line
+    let title_width = r.i16()?;
     let icon = r.i16()?;
     let align = r.i16()?;
     let font = r.i16()?;
@@ -505,6 +508,7 @@ fn read_part(rec: &[u8]) -> R<PartRec> {
         rect,
         ext,
         style,
+        title_width,
         icon,
         align,
         font,
@@ -759,11 +763,11 @@ fn convert_part(p: &PartRec, fonts: &HashMap<i16, String>) -> Part {
         (5, false) => PartStyle::CheckBox,
         (6, false) => PartStyle::Radio,
         (7, true) => PartStyle::Scrolling,
-        (8, false) => PartStyle::RoundRect, // "standard"
+        (8, false) => PartStyle::Standard,
         (9, false) => PartStyle::Default,
         (10, false) => PartStyle::Oval,
-        (_, true) => PartStyle::Rectangle,
-        _ => PartStyle::Rectangle, // popup and anything unknown
+        (11, false) => PartStyle::Popup,
+        _ => PartStyle::Rectangle,
     };
     part.text_align = match p.align {
         1 => TextAlign::Center,
@@ -804,7 +808,13 @@ fn convert_part(p: &PartRec, fonts: &HashMap<i16, String>) -> Part {
         part.auto_hilite = p.ext & 0x20 != 0;
         part.shared_hilite = p.ext & 0x10 == 0;
         part.family = (p.ext & 0x0f) as u32;
-        part.icon = p.icon as i32;
+        if part.style == PartStyle::Popup {
+            // A popup has no icon; the slot holds its selected line.
+            part.title_width = p.title_width.max(0) as u32;
+            part.selected_line = p.icon.max(0) as u32;
+        } else {
+            part.icon = p.icon as i32;
+        }
     }
     part
 }
@@ -816,6 +826,35 @@ mod tests {
     #[test]
     fn mac_roman_text() {
         assert_eq!(mac_roman(b"caf\x8e\rna\x95ve \xc2 \x96"), "café\nnaïve ¬ ñ");
+    }
+
+    #[test]
+    fn button_styles() {
+        let rec = |style: u8, title_width: i16, icon: i16| PartRec {
+            id: 1,
+            is_field: false,
+            flags: 0,
+            rect: QdRect { top: 0, left: 0, bottom: 20, right: 100 },
+            ext: 0,
+            style,
+            title_width,
+            icon,
+            align: 0,
+            font: 0,
+            size: 12,
+            text_style: 0,
+            line_height: 0,
+            name: "B".into(),
+            script: String::new(),
+        };
+        let fonts = HashMap::new();
+        let standard = convert_part(&rec(8, 0, 0), &fonts);
+        assert_eq!(standard.style, PartStyle::Standard);
+        // A popup keeps its title width, and its selected line in the icon slot.
+        let popup = convert_part(&rec(11, 40, 3), &fonts);
+        assert_eq!((popup.style, popup.title_width, popup.selected_line, popup.icon), (PartStyle::Popup, 40, 3, 0));
+        // Other buttons keep their icon.
+        assert_eq!(convert_part(&rec(0, 0, 3001), &fonts).icon, 3001);
     }
 
     #[test]

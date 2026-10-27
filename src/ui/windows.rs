@@ -295,18 +295,25 @@ impl App {
                             changed |= ui.add(egui::DragValue::new(&mut p.family).range(0..=15)).changed();
                         });
                         ui.end_row();
-                        ui.label("Icon:");
-                        let label = |id: i32| match icons.iter().find(|(i, _)| *i == id) {
-                            _ if id == 0 => "None".to_string(),
-                            Some((_, name)) if !name.is_empty() => format!("{id} {name}"),
-                            _ => id.to_string(),
-                        };
-                        egui::ComboBox::from_id_salt("icon").selected_text(label(p.icon)).show_ui(ui, |ui| {
-                            changed |= ui.selectable_value(&mut p.icon, 0, "None").changed();
-                            for (i, _) in &icons {
-                                changed |= ui.selectable_value(&mut p.icon, *i, label(*i)).changed();
-                            }
-                        });
+                        if p.style == PartStyle::Popup {
+                            // A popup has a title where other buttons have an icon.
+                            ui.label("Title Width:");
+                            let width = (p.rect.right - p.rect.left).max(0) as u32;
+                            changed |= ui.add(egui::DragValue::new(&mut p.title_width).range(0..=width)).changed();
+                        } else {
+                            ui.label("Icon:");
+                            let label = |id: i32| match icons.iter().find(|(i, _)| *i == id) {
+                                _ if id == 0 => "None".to_string(),
+                                Some((_, name)) if !name.is_empty() => format!("{id} {name}"),
+                                _ => id.to_string(),
+                            };
+                            egui::ComboBox::from_id_salt("icon").selected_text(label(p.icon)).show_ui(ui, |ui| {
+                                changed |= ui.selectable_value(&mut p.icon, 0, "None").changed();
+                                for (i, _) in &icons {
+                                    changed |= ui.selectable_value(&mut p.icon, *i, label(*i)).changed();
+                                }
+                            });
+                        }
                         ui.end_row();
                         ui.label(format!("Hilite: {hilite}"));
                     } else {
@@ -330,8 +337,10 @@ impl App {
                     ui.end_row();
                 });
                 if p.kind == PartKind::Button {
-                    ui.label("Contents:");
-                    changed |= ui.add(egui::TextEdit::multiline(&mut p.contents).desired_rows(2)).changed();
+                    let popup = p.style == PartStyle::Popup;
+                    ui.label(if popup { "Menu items, one per line:" } else { "Contents:" });
+                    let rows = if popup { 5 } else { 2 };
+                    changed |= ui.add(egui::TextEdit::multiline(&mut p.contents).desired_rows(rows)).changed();
                 }
                 ui.separator();
                 let r = p.rect;

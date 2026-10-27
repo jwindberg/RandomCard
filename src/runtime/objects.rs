@@ -532,6 +532,23 @@ impl Interp {
                     "family" => if p.family == 0 { String::new() } else { p.family.to_string() },
                     "sharedhilite" => bool_str(p.shared_hilite),
                     "icon" => p.icon.to_string(),
+                    "titlewidth" => p.title_width.to_string(),
+                    // A popup's chosen item, as HyperCard 2.2 reports it.
+                    "selectedtext" | "selectedline" | "selectedchunk" if p.kind == PartKind::Button => {
+                        let n = p.selected_line as usize;
+                        let line = p.contents.split('\n').nth(n.wrapping_sub(1));
+                        let Some(line) = line.filter(|_| n > 0) else { return Ok(String::new()) };
+                        let number = s.parts(card, layer).iter().filter(|q| q.kind == p.kind).position(|q| q.id == id);
+                        let button = format!("{} button {}", layer.name(), number.unwrap_or(0) + 1);
+                        match name {
+                            "selectedtext" => line.to_string(),
+                            "selectedline" => format!("line {n} of {button}"),
+                            _ => {
+                                let start: usize = p.contents.split('\n').take(n - 1).map(|l| l.chars().count() + 1).sum();
+                                format!("char {} to {} of {button}", start + 1, start + line.chars().count())
+                            }
+                        }
+                    }
                     "locktext" => bool_str(p.lock_text),
                     "dontwrap" => bool_str(p.dont_wrap),
                     "autotab" => bool_str(p.auto_tab),
@@ -720,6 +737,7 @@ impl Interp {
                     "enabled" => p.enabled = to_bool(v)?,
                     "family" => p.family = if v.trim().is_empty() { 0 } else { to_int(v)?.clamp(0, 15) as u32 },
                     "sharedhilite" => p.shared_hilite = to_bool(v)?,
+                    "titlewidth" => p.title_width = to_int(v)?.max(0) as u32,
                     "locktext" => p.lock_text = to_bool(v)?,
                     "dontwrap" => p.dont_wrap = to_bool(v)?,
                     "autotab" => p.auto_tab = to_bool(v)?,

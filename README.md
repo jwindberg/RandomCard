@@ -113,8 +113,10 @@ press Delete to remove. Paint tools draw on whichever layer you are editing.
 Edit ▸ Background (Ctrl+B) switches to the background layer.
 
 **Parts.** Button styles: transparent, opaque, rectangle, roundRect, shadow,
-checkBox, radioButton, default and oval, with families, autoHilite and
-enabled. Field styles: transparent, opaque, rectangle, shadow and scrolling,
+checkBox, radioButton, standard, default, oval and popup, with families,
+autoHilite and enabled. A popup's lines are its menu: clicking it shows the
+menu, choosing an item sends `mouseUp`, and `the selectedText of button 1`
+reports the choice. Field styles: transparent, opaque, rectangle, shadow and scrolling,
 with lockText, dontWrap, showLines, wideMargins, text font, size, style and
 alignment. Locked fields with autoSelect are list fields: a click selects
 the whole line, and with multipleLines Shift-click extends the selection.

@@ -1,6 +1,8 @@
 //! How RandomCard's built-in menus and items look at the moment: which the
 //! user level and tool allow, which are enabled, how Cut and Paste name what
-//! they act on, and which carry a check mark.
+//! they act on, and which carry a check mark; and how an item is drawn.
+
+use eframe::egui;
 
 use crate::model::styles;
 use crate::runtime::menus::item_key;
@@ -89,4 +91,34 @@ impl MenuState {
         };
         (label, enabled, checked)
     }
+}
+
+/// A menu item. With `indent`, its text starts after a column for the check
+/// mark, so a menu's items line up whichever of them is checked, as on the
+/// Macintosh.
+pub fn menu_item(
+    ui: &mut egui::Ui,
+    name: &str,
+    enabled: bool,
+    checked: bool,
+    indent: bool,
+    shortcut: Option<String>,
+) -> egui::Response {
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let format = egui::TextFormat { font_id: font.clone(), color: egui::Color32::PLACEHOLDER, ..Default::default() };
+    let mut label = egui::text::LayoutJob::single_section(name.to_string(), format);
+    if indent {
+        label.sections[0].leading_space = font.size * 1.3;
+    }
+    let mut button = egui::Button::new(label);
+    if let Some(s) = shortcut {
+        button = button.shortcut_text(s);
+    }
+    let resp = ui.add_enabled(enabled, button);
+    if checked {
+        let at = egui::Pos2::new(resp.rect.left() + ui.spacing().button_padding.x, resp.rect.center().y);
+        let color = ui.style().interact(&resp).text_color();
+        ui.painter().text(at, egui::Align2::LEFT_CENTER, "✔", font, color);
+    }
+    resp
 }
