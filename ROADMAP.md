@@ -13,7 +13,7 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
   editor, the message box and scroll bars use standard egui widgets. They
   bring keyboard support, high-resolution displays, smooth scrolling and
   accessibility, and need less code than imitations of classic controls.
-- **HyperCard's behaviour wherever scripts or stacks can see it.** Part
+- **HyperCard's behavior wherever scripts or stacks can see it.** Part
   rectangles, card size and coordinates are exact, because scripts move
   things by position and imported stacks are laid out to the pixel.
   Properties keep their HyperCard meaning even when the visuals are
@@ -24,9 +24,13 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
   (antialiased text, crisper outlines), but button and field styles stay
   visibly distinct, since stack authors chose them deliberately.
 - **No compromise on semantics.** The message path, HyperTalk, and
-  painting behave as in HyperCard. The paint layer stays black and white
-  for now (imported pictures and patterns depend on it); colour would be
-  an addition, not a change to the model.
+  painting behave as in HyperCard.
+- **Full color, in time.** HyperCard was black and white because the 1987
+  Mac was. To stand beside modern software RandomCard aims for full color:
+  painting with a color picker, colored parts and text, and images (see
+  Color below). Black-and-white stacks keep looking exactly as they did:
+  1-bit pictures and patterns become a special case of color, not a
+  separate world.
 - **A stack runs the way its author set it up.** Using a stack and authoring
   one are different activities. Opening a stack should behave as it would
   have in HyperCard, including its user level and protection.
@@ -53,6 +57,7 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 | Home, stacks in use, going between stacks | One stack window at a time |
 | Printing | Cards and text, as PDF; no report printing |
 | Externals (XCMDs) | Missing |
+| Color | AddColor from imported stacks, on screen only; no color painting, parts or text yet |
 
 ## Using and authoring stacks
 
@@ -168,7 +173,7 @@ container), click functions in locked fields, and autoSelect list fields.
   `the selectedLine` reporting such selections.
 - **The selection in the message box:** `the selection` and
   `the selectedText` only see fields.
-- **`autoTab`** behaviour. Character positions within a word come from
+- **`autoTab`** behavior. Character positions within a word come from
   egui's font, so a click can land a character away from where it would
   have in HyperCard; line breaks and line heights match.
 
@@ -234,7 +239,7 @@ loaded to come back to.
   covers painting, parts and cards.
 - **The system clipboard:** cut and copied parts and pictures stay inside
   RandomCard rather than going to the desktop clipboard.
-- **Script editor:** find and replace, go to line, and syntax colouring,
+- **Script editor:** find and replace, go to line, and syntax coloring,
   using egui's standard text-editing features.
 - **A Home menu** belongs with Home stack support.
 - **Report printing** (`open report printing`, Print Report…) and Page
@@ -262,6 +267,35 @@ resources) for buttons, fields and rectangles.
 - **PICT resources** and `picture`/`palette` windows.
 - **Checksum validation** of LIST and PAGE blocks, for clearer errors on
   damaged stacks.
+
+## Color
+
+HyperCard came out on black-and-white Macs; color arrived late, through
+the AddColor XCMD laid over 1-bit cards. RandomCard aims for full color,
+as modern software has.
+
+**Today:** AddColor from HyperCard 2.x stacks (colored buttons, fields,
+rectangles and color pictures) shows on screen but doesn't print. Nothing
+else can be colored.
+
+**The plan, roughly in order:**
+- **Color pictures.** Card and background pictures that hold color, with
+  today's 1-bit pictures and patterns as a special case, so imported stacks
+  load and look the same.
+- **Painting in color.** A color picker (any color, an eyedropper, recent
+  colors), separate line and fill colors for every paint tool, color
+  patterns and gradients, and opacity.
+- **Colored parts.** Fill, text and frame colors for buttons and fields in
+  their Info windows, and as properties scripts can set (in the spirit of
+  later xTalks: `the foreColor`, `the backColor`). AddColor items become
+  part of this rather than a layer on top.
+- **Colored text.** A color in text style runs, beside font, size and
+  style.
+- **Images.** PNG and JPEG pictures pasted or dropped onto cards, and
+  high-resolution pictures.
+- **Printing in color**, including AddColor.
+- **AddColor's commands** for scripts (also under externals, item 4 of the
+  suggested order).
 
 ## Testing
 
@@ -329,7 +363,7 @@ Next, ranked by what people who built HyperCard stacks will need first:
      "This stack uses the XCMD 'X', which RandomCard doesn't have", and
      Stack Info shows the list.
 5. **The script editor.** Find and replace, going to a line (`edit script
-   of … at line`), and syntax colouring.
+   of … at line`), and syntax coloring.
 6. **FatBits and an icon editor.** Drawing custom icons and touching up
    pictures pixel by pixel.
 7. **The rest of painting.** The Options and Patterns menus, editing
@@ -349,13 +383,16 @@ Next, ranked by what people who built HyperCard stacks will need first:
 10. **Objects in other stacks.** First check what HyperCard allowed. Its
     scripts usually reached other stacks with `lock screen`, `go`, `get`
     and `go back`, and that idiom has to work across stacks either way.
+11. **Color.** Long term and large: the Color section's plan, from color
+    pictures and a color picker to colored parts and text, images, and
+    printing in color. Each step lands on its own.
 
 ## Future
 
 Ideas, not commitments: what HyperCard might have grown into. Each should
 feel like HyperTalk (plain words, everything is text) rather than a
 bolted-on API, and none should change how existing stacks behave. The
-first three are favourites.
+first three are favorites.
 
 - **JSON and REST.** Fetching and sending data from scripts, in
   HyperTalk's style:
@@ -377,6 +414,12 @@ first three are favourites.
 - **Unicode and system fonts.** Text beyond MacRoman, emoji, and real
   fonts chosen from the system, for new stacks that don't need to look
   like 1990.
+- **Internationalization.** RandomCard's own text (menus, dialogs, Info
+  windows, the Tour) translated, with American English as the source
+  language; dates, times and numbers in the user's locale where scripts
+  ask for them (`the long date`), right-to-left text and input methods in
+  fields. HyperTalk's words stay English, so a stack's scripts run the same
+  everywhere.
 - **A web player.** egui runs in the browser (WebAssembly), so a stack
   could be published as a web page anyone can click through, the way
   HyperCard stacks were once passed around on floppies.
@@ -389,9 +432,8 @@ first three are favourites.
 - **A shell and file system.** `do shell "…"` (opt-in, with permission
   per stack), listing folders, reading and writing files beyond
   `open file`, as replacements for the XCMDs stacks used for this.
-- **Color and modern images.** A color paint layer alongside the 1-bit
-  one, PNG and JPEG pictures on cards (pasted or dropped), resizable cards
-  and high-resolution pictures.
+- **Resizable cards.** Cards that grow with the window, beyond HyperCard's
+  fixed card sizes.
 - **Media.** Video playback in a card region, recording sound
   (`record sound`), and playing common audio files.
 - **Slider and scrollbar parts.** HyperCard had only buttons and fields,

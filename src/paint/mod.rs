@@ -77,7 +77,7 @@ pub fn is_dark(p: Pixel) -> bool {
     p == Pixel::Black
 }
 
-/// A square pen of `size` pixels centred on (x, y).
+/// A square pen of `size` pixels centered on (x, y).
 pub fn dot(pic: &mut Picture, x: i32, y: i32, size: u32, color: Pixel) {
     let size = size.max(1) as i32;
     let off = (size - 1) / 2;
@@ -236,7 +236,7 @@ pub fn oval(pic: &mut Picture, x0: i32, y0: i32, x1: i32, y1: i32, size: u32, fi
     });
 }
 
-/// Even-odd point-in-polygon test at the pixel's centre.
+/// Even-odd point-in-polygon test at the pixel's center.
 pub fn in_polygon(points: &[(i32, i32)], x: i32, y: i32) -> bool {
     let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
     let mut inside = false;
@@ -275,7 +275,7 @@ pub fn polygon(pic: &mut Picture, points: &[(i32, i32)], size: u32, fill: Option
     }
 }
 
-/// A regular polygon dragged out from its centre to a corner.
+/// A regular polygon dragged out from its center to a corner.
 pub fn regular_polygon_points(center: (i32, i32), corner: (i32, i32), sides: u32) -> Vec<(i32, i32)> {
     let sides = sides.clamp(3, 50);
     let (dx, dy) = ((corner.0 - center.0) as f32, (corner.1 - center.1) as f32);
@@ -289,7 +289,7 @@ pub fn regular_polygon_points(center: (i32, i32), corner: (i32, i32), sides: u32
         .collect()
 }
 
-/// Bucket fill: the region of same-coloured pixels (clear counts as white)
+/// Bucket fill: the region of same-colored pixels (clear counts as white)
 /// around (x, y), painted with `ink`.
 pub fn fill(pic: &mut Picture, x: i32, y: i32, ink: Ink) {
     let (w, h) = (pic.width as i32, pic.height as i32);
@@ -297,7 +297,7 @@ pub fn fill(pic: &mut Picture, x: i32, y: i32, ink: Ink) {
         return;
     }
     let target = is_dark(pic.get(x, y));
-    // Find the whole region before painting, since a pattern adds both colours.
+    // Find the whole region before painting, since a pattern adds both colors.
     let mut seen = vec![false; (w * h) as usize];
     let mut region = Vec::new();
     let mut stack = vec![(x, y)];
@@ -313,7 +313,7 @@ pub fn fill(pic: &mut Picture, x: i32, y: i32, ink: Ink) {
         region.push((x, y));
         stack.extend([(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]);
     }
-    // Filling a solid area with its own colour does nothing.
+    // Filling a solid area with its own color does nothing.
     if ink == Ink::Solid(if target { Pixel::Black } else { Pixel::White }) {
         return;
     }

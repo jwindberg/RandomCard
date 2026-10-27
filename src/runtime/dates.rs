@@ -82,7 +82,7 @@ pub fn parse_date(s: &str) -> Option<NaiveDateTime> {
     if items.len() == 7 && items.iter().all(|i| i.parse::<i64>().is_ok()) {
         let n: Vec<i64> = items.iter().map(|i| i.parse().unwrap()).collect();
         let date = NaiveDate::from_ymd_opt(n[0] as i32, 1, 1)?;
-        // dateItems may overflow (e.g. month 13); normalise like HyperCard.
+        // dateItems may overflow (e.g. month 13); normalize like HyperCard.
         let dt = date.and_hms_opt(0, 0, 0)?;
         let months = n[1] - 1;
         let dt = dt.checked_add_months(chrono::Months::new(months.max(0) as u32))?;

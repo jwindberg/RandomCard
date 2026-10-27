@@ -548,7 +548,7 @@ fn draw_popup(painter: &Painter, p: &Part, rect: Rect, fg: Color32, bg: Color32)
 pub const ICON_SIZE: f32 = 32.0;
 
 /// HyperCard's icon button layout: the icon and a 9-point name beneath it,
-/// centred together. A missing icon leaves its space empty, as in HyperCard.
+/// centered together. A missing icon leaves its space empty, as in HyperCard.
 fn draw_icon_and_name(painter: &Painter, tex: &Textures, p: &Part, rect: Rect, inverted: bool, fg: Color32, fill: Color32) {
     let label_part = Part { text_size: 9, text_style: "plain".into(), text_font: "Geneva".into(), ..p.clone() };
     let label = (p.show_name && !p.name.is_empty()).then(|| {

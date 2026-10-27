@@ -693,7 +693,7 @@ impl Interp {
 
     /// The stack a name refers to: the current one, one already loaded, or
     /// one loaded now from its file (the built-in Tour has none). None if
-    /// there's no such stack, or the user cancelled its password.
+    /// there's no such stack, or the user canceled its password.
     pub(super) fn stack_ref(&mut self, name: &str) -> R<Option<ObjRef>> {
         let name = name.trim().trim_matches('"');
         {

@@ -137,7 +137,7 @@ pub fn render(sound: &Sound, notes: &[Note], tempo: f32) -> Vec<f32> {
             if i + 1 >= src.len() {
                 break;
             }
-            // Linear interpolation between neighbouring samples.
+            // Linear interpolation between neighboring samples.
             let f = pos - i as f32;
             out.push(src[i] * (1.0 - f) + src[i + 1] * f);
             pos += ratio;

@@ -14,7 +14,7 @@ use super::{App, render, windows};
 pub struct PaintStroke {
     start: (i32, i32),
     last: (i32, i32),
-    /// The pencil's colour, fixed for the whole stroke.
+    /// The pencil's color, fixed for the whole stroke.
     color: Pixel,
 }
 

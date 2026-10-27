@@ -580,7 +580,7 @@ fn private_access_stacks_ask_for_their_password() {
     secret.save(&path).unwrap();
 
     let mut i = interp_with(stack());
-    // Cancelling leaves the current stack open.
+    // Canceling leaves the current stack open.
     i.canned_answers.push(DialogReply::Text(None));
     i.handle_event(Event::OpenFile(path.clone()));
     assert_eq!(lock(&i.world).stack.name, "Test");

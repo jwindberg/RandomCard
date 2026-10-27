@@ -1,4 +1,4 @@
-//! Recursive-descent parser for HyperTalk, modelled on HyperCard 2.x syntax.
+//! Recursive-descent parser for HyperTalk, modeled on HyperCard 2.x syntax.
 
 use super::ast::*;
 use super::lexer::{Tok, Token, lex};
