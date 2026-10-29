@@ -2,6 +2,10 @@
 name = "randomcard"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+authors = ["jwindberg"]
+description = "A recreation of Apple's HyperCard: stacks of cards, painting, and HyperTalk"
+repository = "https://github.com/jwindberg/RandomCard"
 
 [dependencies]
 ab_glyph = "0.2.32"
@@ -15,3 +19,8 @@ rfd = "0.17.2"
 rodio = { version = "0.23.0", default-features = false, features = ["playback"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+
+# macOS: native menus at the top of the screen, in place of winit's default.
+[target.'cfg(target_os = "macos")'.dependencies]
+muda = "0.21"
+winit = { version = "0.30", default-features = false }

@@ -122,3 +122,48 @@ pub fn menu_item(
     }
     resp
 }
+
+/// A menu as the menu bar shows it: only what the user level and tool
+/// allow, separators tidied. The window draws these on Linux and Windows,
+/// and macOS shows them as native menus.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShownMenu {
+    pub name: String,
+    pub enabled: bool,
+    pub items: Vec<ShownItem>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShownItem {
+    pub label: String,
+    pub enabled: bool,
+    pub checked: bool,
+    pub separator: bool,
+    /// Its Command key, lowercase, or empty for none.
+    pub key: String,
+}
+
+/// The Command key of one of RandomCard's own menu items, as the keyboard
+/// handles it (see `App::shortcuts`). Undo and the clipboard keys are left
+/// to the text being edited. On a Mac, ⌘H is the system's Hide, so Home has
+/// no key there.
+pub fn builtin_key(item: &str) -> Option<&'static str> {
+    Some(match item_key(item).as_str() {
+        "new card" => "n",
+        "first" => "1",
+        "prev" => "2",
+        "next" => "3",
+        "last" => "4",
+        "message" => "m",
+        "home" if !cfg!(target_os = "macos") => "h",
+        "background" => "b",
+        "open stack" => "o",
+        "print card" => "p",
+        "find" => "f",
+        "recent" => "r",
+        "quit randomcard" => "q",
+        "save stack" => "s",
+        "tool panel" => "t",
+        _ => return None,
+    })
+}

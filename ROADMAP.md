@@ -235,6 +235,12 @@ loaded to come back to.
 ## Editing and the UI
 
 **Missing:**
+- **Native menus on macOS: what's left.** Keys are native (⌘ on a Mac,
+  Ctrl elsewhere) and the Mac's menus are native, at the top of the screen,
+  rebuilt as scripts change them. Still to do: Mac alternatives for Home
+  and the Browse tool, whose ⌘H and ⌘Tab macOS keeps for itself; `hide
+  menuBar` has no effect on a Mac; and opening a stack by double-clicking
+  it in the Finder.
 - **Undo for Info dialog changes** and for script edits; the undo history
   covers painting, parts and cards.
 - **The system clipboard:** cut and copied parts and pictures stay inside

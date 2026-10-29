@@ -39,8 +39,11 @@ pub fn build() -> Stack {
     let mut about = label(
         id(),
         Rect::new(40, 66, 472, 120),
-        "Your Home stack. Its script is in every stack's message path, so handlers you put there \
-         (Objects ▸ Stack Script) work anywhere. Go ▸ Home (Ctrl+H) brings you back.",
+        &format!(
+            "Your Home stack. Its script is in every stack's message path, so handlers you put there \
+             (Objects ▸ Stack Script) work anywhere. Go ▸ Home ({}) brings you back.",
+            super::shortcut("H")
+        ),
         12,
     );
     about.name = "About".into();

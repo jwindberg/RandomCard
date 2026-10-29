@@ -3,7 +3,7 @@
 
 use eframe::egui::{self, Color32, RichText};
 
-use crate::model::password;
+use crate::model::{password, shortcut};
 use crate::runtime::settings::level_name;
 use crate::runtime::world::Tool;
 
@@ -197,7 +197,7 @@ impl App {
             }
             ui.separator();
             let mut show = self.settings.show_tools;
-            if ui.checkbox(&mut show, "Show the tool panel (Ctrl+T)").changed() {
+            if ui.checkbox(&mut show, format!("Show the tool panel ({})", shortcut("T"))).changed() {
                 self.settings.show_tools = show;
                 self.settings.save();
             }
@@ -221,7 +221,7 @@ impl App {
             ui.checkbox(&mut w.stack.cant_modify, "Can't modify stack");
             let p = &mut w.stack.protection;
             ui.checkbox(&mut p.cant_delete, "Can't delete stack");
-            ui.checkbox(&mut p.cant_abort, "Can't abort (Ctrl+. won't stop scripts)");
+            ui.checkbox(&mut p.cant_abort, format!("Can't abort ({} won't stop scripts)", shortcut(".")));
             ui.checkbox(&mut p.cant_peek, "Can't peek (no script shortcuts)");
             let has_password = p.password_hash.is_some();
             ui.add_enabled(has_password, egui::Checkbox::new(&mut p.private_access, "Private access (password to open)"))

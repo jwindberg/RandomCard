@@ -4,7 +4,19 @@ A recreation of Apple's HyperCard in Rust: stacks of cards, backgrounds, buttons
 and fields, MacPaint-style painting, and a HyperTalk interpreter with
 HyperCard's message passing.
 
-## Running
+## Download
+
+Preview builds for macOS (Apple silicon and Intel), Linux (x86_64 AppImage)
+and Windows (x64) are on the
+[releases page](https://github.com/jwindberg/RandomCard/releases). They're
+previews: expect rough edges, and please report what you find.
+
+- **macOS:** unzip and move RandomCard to Applications. The app isn't
+  signed, so the first time, right-click it and choose Open.
+- **Linux:** make the AppImage executable (`chmod +x`) and run it.
+- **Windows:** unzip and run `RandomCard.exe`.
+
+## Running from source
 
 ```sh
 cargo run --release                 # opens your Home stack
@@ -263,6 +275,11 @@ Watcher lists messages as they're sent (`show message watcher` works too).
 
 ## Keyboard
 
+On a Mac, use ⌘ wherever this says Ctrl. macOS keeps ⌘H (Hide) and ⌘Tab
+(switching apps) for itself, so Home and the Browse tool have no shortcut
+there; use the Go menu and the tool panel. The menus are at the top of the
+screen, so hiding the menu bar (Ctrl+Space) doesn't apply.
+
 | Keys | Action |
 | --- | --- |
 | Ctrl+1 / 2 / 3 / 4 | First / previous / next / last card |
@@ -334,5 +351,7 @@ RANDOMCARD_HC_SAMPLES=HyperCardPreview/HyperCardCommon/HyperCardCommonTests \
 Both are cloned into `reference/`, which is git-ignored, if you want to read
 them alongside this code.
 
-HyperCard and HyperTalk are trademarks of Apple Inc. This project is not
-affiliated with Apple.
+## License
+
+MIT; see [LICENSE](LICENSE). HyperCard and HyperTalk are trademarks of Apple
+Inc. This project is not affiliated with Apple.

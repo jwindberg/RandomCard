@@ -5,6 +5,8 @@ mod debugger;
 mod editing;
 mod menus;
 mod levels;
+#[cfg(target_os = "macos")]
+mod native_menu;
 mod painting;
 mod popup;
 mod recent;
@@ -69,7 +71,6 @@ struct PartDrag {
 use crate::runtime::settings::{Settings, level_name};
 use editing::{Clip, Order};
 use menus::MenuState;
-use crate::runtime::menus::MenuItem;
 use levels::PasswordPrompt;
 use painting::{Marquee, PaintStroke, TextEntry};
 
@@ -120,6 +121,11 @@ pub struct App {
     recent_open: bool,
     /// A popup button's menu, while it's open.
     popup: Option<popup::PopupMenu>,
+    /// The native menu bar, and the items chosen from it.
+    #[cfg(target_os = "macos")]
+    native_menus: native_menu::NativeMenus,
+    #[cfg(target_os = "macos")]
+    native_events: std::sync::mpsc::Receiver<muda::MenuId>,
     beeps_seen: u32,
     /// The world's `selection_rev` the field editor has caught up with.
     selection_rev_seen: u64,
@@ -152,6 +158,18 @@ impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, stack: Stack, open: Option<PathBuf>) -> App {
         cc.egui_ctx.set_visuals(egui::Visuals::light());
         let settings = Settings::load();
+        // Items chosen from the Mac's native menus come in here, and wake
+        // the window to act on them.
+        #[cfg(target_os = "macos")]
+        let native_events = {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let ctx = cc.egui_ctx.clone();
+            muda::MenuEvent::set_event_handler(Some(move |e: muda::MenuEvent| {
+                let _ = tx.send(e.id);
+                ctx.request_repaint();
+            }));
+            rx
+        };
         App {
             rt: runtime::start(stack, open, settings.user_level, runtime::settings::home_path()),
             settings,
@@ -189,6 +207,10 @@ impl App {
             msg_cursor: None,
             recent_open: false,
             popup: None,
+            #[cfg(target_os = "macos")]
+            native_menus: native_menu::NativeMenus::new(),
+            #[cfg(target_os = "macos")]
+            native_events,
             beeps_seen: 0,
             selection_rev_seen: 0,
             stack_seen: 0,
@@ -218,11 +240,12 @@ impl App {
 
     // ----- menus and palette -----
 
-    /// The menu bar, drawn from the world's menus (which scripts can
-    /// change). Built-in menus and items appear only when the user level and
-    /// tool allow them, as HyperCard showed only what each level unlocks.
-    fn menu_bar(&mut self, ui: &mut egui::Ui) {
-        let (menus, state) = {
+    /// The menus as the menu bar shows them, from the world's menus (which
+    /// scripts can change). Built-in menus and items appear only when the
+    /// user level and tool allow them, as HyperCard showed only what each
+    /// level unlocks.
+    fn shown_menus(&self) -> Vec<menus::ShownMenu> {
+        let (all, state) = {
             let w = self.world();
             let state = MenuState {
                 edit_bg: w.edit_bg,
@@ -249,53 +272,92 @@ impl App {
             text_style: self.current_text_style(),
             ..state
         };
+        let mut shown = Vec::new();
+        for menu in all.iter().filter(|m| !m.builtin || state.menu_shown(&m.name)) {
+            let mut items: Vec<menus::ShownItem> = Vec::new();
+            for i in menu.items.iter() {
+                if i.builtin && !i.is_separator() && !state.item_shown(&menu.name, &i.name) {
+                    continue;
+                }
+                // On a Mac, Quit is in the application menu.
+                if cfg!(target_os = "macos") && crate::runtime::menus::item_key(&i.name) == "quit randomcard" {
+                    continue;
+                }
+                if i.is_separator() {
+                    // No separators at the start or two in a row.
+                    if items.last().is_some_and(|l| !l.separator) {
+                        items.push(menus::ShownItem {
+                            label: String::new(),
+                            enabled: false,
+                            checked: false,
+                            separator: true,
+                            key: String::new(),
+                        });
+                    }
+                    continue;
+                }
+                let (label, enabled, checked) =
+                    if i.builtin { state.item_look(&i.name) } else { (i.name.clone(), true, false) };
+                let key = if !i.command_char.is_empty() {
+                    i.command_char.to_lowercase()
+                } else if i.builtin {
+                    menus::builtin_key(&i.name).unwrap_or_default().to_string()
+                } else {
+                    String::new()
+                };
+                items.push(menus::ShownItem {
+                    label,
+                    enabled: enabled && i.enabled,
+                    checked: checked || i.checked,
+                    separator: false,
+                    key,
+                });
+            }
+            // Nor one at the end.
+            if items.last().is_some_and(|l| l.separator) {
+                items.pop();
+            }
+            shown.push(menus::ShownMenu { name: menu.name.clone(), enabled: menu.enabled, items });
+        }
+        shown
+    }
+
+    /// The menu bar in the window (on a Mac the menus are native instead).
+    fn menu_bar(&mut self, ui: &mut egui::Ui) {
+        let shown = self.shown_menus();
         egui::MenuBar::new().ui(ui, |ui| {
-            for menu in menus.iter().filter(|m| !m.builtin || state.menu_shown(&m.name)) {
-                let items: Vec<(String, bool, bool, &MenuItem)> = menu
-                    .items
-                    .iter()
-                    .filter(|i| !i.builtin || i.is_separator() || state.item_shown(&menu.name, &i.name))
-                    .map(|i| {
-                        let (label, enabled, checked) = if i.builtin {
-                            state.item_look(&i.name)
-                        } else {
-                            (i.name.clone(), true, false)
-                        };
-                        (label, enabled && i.enabled, checked || i.checked, i)
-                    })
-                    .collect();
+            for menu in &shown {
                 // A menu with a check mark leaves room for it on every item.
-                let indent = items.iter().any(|(_, _, checked, _)| *checked);
+                let indent = menu.items.iter().any(|i| i.checked);
                 ui.add_enabled_ui(menu.enabled, |ui| {
                     ui.menu_button(&menu.name, |ui| {
-                        let mut separated = true;
-                        for (k, (label, enabled, checked, i)) in items.iter().enumerate() {
-                            if i.is_separator() {
-                                // No separators at the ends or two in a row.
-                                let more = items[k + 1..].iter().any(|(_, _, _, j)| !j.is_separator());
-                                if !separated && more {
-                                    ui.separator();
-                                    separated = true;
-                                }
+                        for i in &menu.items {
+                            if i.separator {
+                                ui.separator();
                                 continue;
                             }
-                            separated = false;
-                            let shortcut = (!i.command_char.is_empty())
-                                .then(|| format!("Ctrl+{}", i.command_char.to_uppercase()));
-                            if menus::menu_item(ui, label, *enabled, *checked, indent, shortcut).clicked()
-                                && !self.watcher_menu(label)
-                            {
-                                if crate::runtime::menus::item_key(label) == "clear picture" {
-                                    self.clear_picture_prompt = true;
-                                } else {
-                                    self.do_menu(label);
-                                }
+                            let shortcut = (!i.key.is_empty()).then(|| crate::model::shortcut(&i.key.to_uppercase()));
+                            if menus::menu_item(ui, &i.label, i.enabled, i.checked, indent, shortcut).clicked() {
+                                self.choose_menu_item(&i.label);
                             }
                         }
                     });
                 });
             }
         });
+    }
+
+    /// A menu item chosen with the mouse, from the window's menu bar or the
+    /// Mac's.
+    fn choose_menu_item(&mut self, label: &str) {
+        if self.watcher_menu(label) {
+            return;
+        }
+        if crate::runtime::menus::item_key(label) == "clear picture" {
+            self.clear_picture_prompt = true;
+        } else {
+            self.do_menu(label);
+        }
     }
 
     /// The font, size and style the Font and Style menus show: of the
@@ -1557,7 +1619,8 @@ impl App {
             ui.label(RichText::new(text).small());
             if busy {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new("Script running — Ctrl+. to stop").small().color(Color32::DARK_RED));
+                    let stop = format!("Script running — {} to stop", crate::model::shortcut("."));
+                    ui.label(RichText::new(stop).small().color(Color32::DARK_RED));
                 });
             }
         });
@@ -1756,7 +1819,10 @@ impl eframe::App for App {
             self.autosave();
         }
 
-        if menubar {
+        // On a Mac the menus are native, at the top of the screen.
+        #[cfg(target_os = "macos")]
+        self.native_menu_bar(&ctx);
+        if menubar && !cfg!(target_os = "macos") {
             egui::Panel::top("menubar").show(ui, |ui| self.menu_bar(ui));
         }
         egui::Panel::bottom("status").show(ui, |ui| {

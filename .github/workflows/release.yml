@@ -1,0 +1,116 @@
+# Builds the packages for a version tag (v1.2.3) and attaches them to a
+# draft pre-release, to be published by hand.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - name: Build (Apple silicon and Intel)
+        run: |
+          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+      - name: Make RandomCard.app
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          app=RandomCard.app/Contents
+          mkdir -p "$app/MacOS" "$app/Resources"
+          lipo -create -output "$app/MacOS/RandomCard" \
+            target/aarch64-apple-darwin/release/randomcard \
+            target/x86_64-apple-darwin/release/randomcard
+          sed "s/VERSION/$version/g" packaging/macos/Info.plist > "$app/Info.plist"
+          cargo run --release --example make_icons -- icons
+          iconset=RandomCard.iconset
+          mkdir "$iconset"
+          for size in 16 32 128 256 512; do
+            cp "icons/icon_$size.png" "$iconset/icon_${size}x${size}.png"
+            cp "icons/icon_$((size * 2)).png" "$iconset/icon_${size}x${size}@2x.png"
+          done
+          iconutil -c icns "$iconset" -o "$app/Resources/RandomCard.icns"
+          ditto -c -k --keepParent RandomCard.app "RandomCard-$version-macOS.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: RandomCard-*-macOS.zip
+
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install the sound library headers
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
+      - name: Build
+        run: cargo build --release
+      - name: Make the AppImage
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cargo run --release --example make_icons -- icons
+          mkdir -p AppDir/usr/bin
+          cp target/release/randomcard AppDir/usr/bin/
+          cp packaging/linux/randomcard.desktop AppDir/
+          cp icons/icon_256.png AppDir/randomcard.png
+          ln -s usr/bin/randomcard AppDir/AppRun
+          curl -sSfL -o appimagetool \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 ./appimagetool AppDir "RandomCard-$version-x86_64.AppImage"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: RandomCard-*.AppImage
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        run: cargo build --release
+      - name: Check it needs no Visual C++ runtime
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $dumpbin = & $vswhere -latest -find "VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
+          $dependents = & $dumpbin /nologo /dependents target/release/randomcard.exe
+          $dependents
+          if ($dependents -match "VCRUNTIME|MSVCP|api-ms-win-crt|ucrtbase") {
+            Write-Error "randomcard.exe needs the Visual C++ runtime"
+            exit 1
+          }
+      - name: Zip
+        shell: pwsh
+        run: |
+          $version = "$env:GITHUB_REF_NAME".TrimStart("v")
+          New-Item -ItemType Directory RandomCard | Out-Null
+          Copy-Item target/release/randomcard.exe RandomCard/RandomCard.exe
+          Copy-Item LICENSE, README.md RandomCard/
+          Compress-Archive RandomCard "RandomCard-$version-windows-x64.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: RandomCard-*-windows-x64.zip
+
+  release:
+    needs: [macos, linux, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          prerelease: true
+          files: RandomCard-*

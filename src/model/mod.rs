@@ -23,6 +23,12 @@ pub type Id = u32;
 pub const DEFAULT_WIDTH: u32 = 512;
 pub const DEFAULT_HEIGHT: u32 = 342;
 
+/// A Command-key shortcut as this platform writes it: ⌘M on a Mac, where
+/// HyperCard's Command key is, and Ctrl+M elsewhere.
+pub fn shortcut(key: &str) -> String {
+    if cfg!(target_os = "macos") { format!("⌘{key}") } else { format!("Ctrl+{key}") }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Rect {
     pub left: i32,
@@ -442,9 +448,16 @@ impl Default for Protection {
     }
 }
 
+/// The version of the `.rcstack` file format this RandomCard writes. Files
+/// from before it was recorded are format 1. A newer RandomCard that changes
+/// the format bumps this and upgrades older files as it loads them.
+pub const STACK_FORMAT: u32 = 1;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Stack {
+    /// The file format the stack was saved in (see `STACK_FORMAT`).
+    pub format: u32,
     pub name: String,
     pub script: String,
     pub width: u32,
@@ -485,6 +498,7 @@ impl Stack {
         let card =
             Card { id: 3, background: 2, picture: Picture::new(w, h), show_pict: true, ..Card::default() };
         Stack {
+            format: STACK_FORMAT,
             name: name.into(),
             script: String::new(),
             width: w,
@@ -708,6 +722,15 @@ impl Stack {
         let text = std::fs::read_to_string(path).map_err(|e| format!("Can't open {}: {e}", path.display()))?;
         let mut stack: Stack =
             serde_json::from_str(&text).map_err(|e| format!("{} is not a stack: {e}", path.display()))?;
+        if stack.format > STACK_FORMAT {
+            return Err(format!(
+                "{} was saved by a newer RandomCard (stack format {}). This version reads up to format {STACK_FORMAT}.",
+                path.display(),
+                stack.format
+            ));
+        }
+        // Loaded stacks save in the current format.
+        stack.format = STACK_FORMAT;
         if stack.cards.is_empty() || stack.backgrounds.is_empty() {
             return Err(format!("{} contains no cards", path.display()));
         }
@@ -750,5 +773,25 @@ mod tests {
         assert_eq!(lesson(&loaded), lesson(&stack));
         assert_eq!(loaded.path.as_deref(), Some(path.as_path()));
         assert_eq!(loaded.sounds[&7], sound);
+    }
+
+    #[test]
+    fn stack_format() {
+        let dir = std::env::temp_dir().join(format!("randomcard-format-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("s.rcstack");
+        let saved = |json: serde_json::Value| std::fs::write(&path, json.to_string()).unwrap();
+        let mut json = serde_json::to_value(Stack::new("S")).unwrap();
+        assert_eq!(json["format"], STACK_FORMAT);
+        // Stacks saved before the format was recorded are format 1.
+        json.as_object_mut().unwrap().remove("format");
+        saved(json.clone());
+        assert_eq!(Stack::load(&path).unwrap().format, STACK_FORMAT);
+        // A newer RandomCard's stack is refused, not misread.
+        json["format"] = (STACK_FORMAT + 1).into();
+        saved(json);
+        let err = Stack::load(&path).unwrap_err();
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(err.contains("newer RandomCard"), "{err}");
     }
 }

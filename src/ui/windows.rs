@@ -3,7 +3,7 @@
 
 use eframe::egui::{self, Color32, RichText};
 
-use crate::model::{Id, PartKind, PartStyle, TextAlign};
+use crate::model::{Id, PartKind, PartStyle, TextAlign, shortcut};
 use crate::runtime::world::{Dialog, DialogReply, Event, ObjRef, World, lock, same_script};
 
 use super::App;
@@ -459,7 +459,7 @@ impl App {
                         self.save_script(ed);
                         close = true;
                     }
-                    ui.label(RichText::new("Ctrl+S saves · Ctrl+D sets a checkpoint").weak());
+                    ui.label(RichText::new(format!("{} saves · {} sets a checkpoint", shortcut("S"), shortcut("D"))).weak());
                 });
                 let stopped_at = self.debug_bar(ui, ed.obj);
                 if let Some(err) = &ed.error {
