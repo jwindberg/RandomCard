@@ -344,10 +344,10 @@ Next, ranked by what people who built HyperCard stacks will need first:
    built-in externals below.
 4. **Externals: XCMDs and XFCNs in Rust.** [XCMDS.md](XCMDS.md) lists every
    external found in real stacks and decides each one: built into RandomCard,
-   kept as an external, stubbed, or still unknown. Most become RandomCard
-   features. For the rest, a framework where anyone can add commands and
-   functions in Rust, as HyperCard developers once did in Pascal, C or
-   assembly:
+   kept as an external, stubbed, or still unknown. Nearly all become
+   RandomCard features. For the rare rest, a framework where anyone can add
+   commands and functions in Rust, as HyperCard developers once did in
+   Pascal, C or assembly:
    - **One interface.** An external is a Rust type with a name, saying
      whether it's a command or a function. It gets its arguments as text,
      and a context for calling back into RandomCard: evaluating an
@@ -362,16 +362,17 @@ Next, ranked by what people who built HyperCard stacks will need first:
      `FontExists`, `Palette` (the Navigator palette), `PictureWindow` (with
      a PICT decoder) and AddColor's commands. More come from the test
      results.
-   - **Your own.** Written in Rust against a small SDK crate with the same
-     interface, then either compiled into RandomCard (add a file, rebuild),
-     or compiled to WebAssembly and installed in a stack, in Home, or in
-     `~/.config/randomcard/externals/`. They'd be found along the same
-     chain HyperCard searched for XCMD resources. A WebAssembly external
-     needs no rebuild, runs on every platform, is sandboxed, and travels
-     inside the stack as a real XCMD did. *To decide:* WebAssembly needs a
-     runtime library (wasmi or wasmtime). Native dynamic libraries are the
-     alternative, but they're specific to each platform and can't be
-     sandboxed.
+   - **Features first.** HyperCard ran on one kind of Mac, so a stack could
+     carry 68000 code. RandomCard runs on x86, ARM and more, where compiled
+     code in a stack would need a build for each of them. So what an
+     external did becomes a RandomCard feature wherever possible, and
+     nearly always it is.
+   - **Compiled externals, rarely.** For a feature that truly can't be part
+     of RandomCard, compiled externals will be supported, written in Rust
+     against the same interface. They should be the rare exception, and
+     they're low priority: how they're packaged for each platform (inside
+     a stack, beside it, or in `~/.config/randomcard/externals/`) is
+     decided when the first one is needed.
    - **Imported stacks.** The importer lists the XCMDs and XFCNs in a
      stack's resource fork. A call to one that has no Rust version says
      "This stack uses the XCMD 'X', which RandomCard doesn't have", and
