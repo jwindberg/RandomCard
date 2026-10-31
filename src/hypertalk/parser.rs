@@ -1974,7 +1974,9 @@ impl Parser {
                 None => BgSpec::Position(Position::This),
             })));
         }
-        if let Some(kind) = part_kind(&w) {
+        // A plural ("fields", "btns") never starts a reference to one part,
+        // so scripts can use it as a name: `put empty into cd field fields`.
+        if let Some(kind) = part_kind(&w).filter(|_| !matches!(w.as_str(), "fields" | "flds" | "buttons" | "btns")) {
             self.advance();
             if !self.is("id") && !self.starts_term() {
                 return Err(self.err_here(&format!("Expected a {} number or name", kind.name())));

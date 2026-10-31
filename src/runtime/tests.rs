@@ -960,3 +960,34 @@ fn deep_recursion_fits_the_script_stack() {
     assert!(a.contains("Too much recursion"), "{a}");
     assert!(b.contains("Too much recursion"), "{b}");
 }
+
+#[test]
+fn plurals_as_variable_names() {
+    // Apple's Human Interface Notes stack loops with a variable named "fields".
+    let mut i = interp_with(stack());
+    run(&mut i, "repeat with fields = 1 to the number of bg fields\n  put \"x\" into bg field fields of this card\nend repeat");
+    assert_eq!(run(&mut i, "put field \"Name\""), "x");
+    assert_eq!(run(&mut i, "put 1 into buttons\nput the short name of cd btn buttons"), "Go");
+    // The plurals still count parts.
+    assert_eq!(run(&mut i, "put the number of cd buttons"), "1");
+}
+
+#[test]
+fn repeating_messages_report_an_error_once() {
+    let mut i = interp_with(stack());
+    let card = ObjRef::Card(lock(&i.world).card_id);
+    set_script(&i, card, "on mouseUp\n  put field\nend mouseUp");
+    let errors = |i: &mut Interp, message: &str| {
+        i.handle_event(Event::Send { target: card, message: message.into(), args: vec![] });
+        let mut w = lock(&i.world);
+        w.requests.drain(..).filter(|r| matches!(r, UiRequest::ScriptError { .. })).count()
+    };
+    // The card's script doesn't parse. The first mouseWithin reports it; the
+    // ones after don't, so the error doesn't reopen while it's being fixed.
+    assert_eq!(errors(&mut i, "mouseWithin"), 1);
+    assert_eq!(errors(&mut i, "mouseWithin"), 0);
+    assert_eq!(errors(&mut i, "idle"), 0);
+    // A click is the user's doing, so it's reported again.
+    assert_eq!(errors(&mut i, "mouseUp"), 1);
+    assert_eq!(errors(&mut i, "mouseWithin"), 1);
+}

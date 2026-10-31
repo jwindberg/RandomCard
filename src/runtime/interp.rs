@@ -18,6 +18,9 @@ use super::world::{Dialog, DialogReply, Event, KeyAction, ObjRef, Shared, UiRequ
 
 const MAX_DEPTH: usize = 128;
 
+/// Messages RandomCard sends by itself, over and over, while the user works.
+const REPEATING_MESSAGES: &[&str] = &["idle", "mousewithin", "mousestilldown", "mouseenter", "mouseleave"];
+
 /// System messages that are silently ignored when no script handles them.
 const SYSTEM_MESSAGES: &[&str] = &[
     "mouseup", "mousedown", "mousestilldown", "mouseenter", "mouseleave", "mousewithin", "mousedoubleclick",
@@ -100,6 +103,9 @@ pub struct Interp {
     dialog_rx: Option<Receiver<DialogReply>>,
     pub globals: HashMap<String, String>,
     scripts: HashMap<ScriptKey, (u64, Result<Rc<Script>, String>)>,
+    /// The last error from a message RandomCard sends over and over (idle,
+    /// mouseWithin…), so it's reported once rather than many times a second.
+    repeating_error: Option<String>,
     pub frames: Vec<Frame>,
     pub result: String,
     pub item_delimiter: String,
@@ -141,6 +147,7 @@ impl Interp {
             dialog_rx,
             globals: HashMap::new(),
             scripts: HashMap::new(),
+            repeating_error: None,
             frames: Vec::new(),
             result: String::new(),
             item_delimiter: ",".into(),
@@ -226,6 +233,7 @@ impl Interp {
             // The click that started this handler doesn't count for `the mouseClick`.
             w.mouse.clicked = false;
         }
+        let repeating = matches!(&ev, Event::Send { message, .. } if REPEATING_MESSAGES.contains(&message.to_ascii_lowercase().as_str()));
         let outcome = match ev {
             Event::Startup => self.open_stack_messages(),
             Event::OpenFile(path) => match { self.w().find_other("", Some(&path)) } {
@@ -262,7 +270,19 @@ impl Interp {
             }
         };
         if let Err(Ctl::Error(e)) = outcome {
-            self.w().requests.push(UiRequest::ScriptError { msg: e.msg, obj: e.obj, line: e.line });
+            // A script that fails on idle or mouseWithin would fail again a
+            // moment later, reopening the error faster than anyone could fix
+            // it. Report it once, until something the user does runs again.
+            let key = format!("{}|{:?}", e.msg, e.line);
+            if !(repeating && self.repeating_error.as_deref() == Some(key.as_str())) {
+                self.w().requests.push(UiRequest::ScriptError { msg: e.msg, obj: e.obj, line: e.line });
+            }
+            if repeating {
+                self.repeating_error = Some(key);
+            }
+        }
+        if !repeating {
+            self.repeating_error = None;
         }
         // HyperCard resets these when all handlers finish.
         self.item_delimiter = ",".into();

@@ -189,9 +189,14 @@ container), click functions in locked fields, and autoSelect list fields.
 ## HyperTalk
 
 **Today:** see the README for what's implemented. All 268 scripts in the
-sample stacks parse.
+sample stacks parse; of 3,016 scripts in Apple's developer stacks
+(`examples/apple`), 480 don't yet, for the reasons below.
 
 **Missing:**
+- **Forms found in Apple's developer stacks:** `do` followed by a command
+  (`do ShowCategory CardNum`), `there is a window "…"`, `answer … with
+  "No", "Yes"` (with commas), `doMenu` with an unquoted item (`domenu copy
+  button`), variables named `times` or `to`, and `size of this stack`.
 - **Keyboard gaps:** keyboard messages and interceptable commands are done
   (see the README). Still missing: `controlKey`; `keyDown` for editing keys
   such as Backspace and the arrows inside a field; a separate Enter key
@@ -337,9 +342,12 @@ Next, ranked by what people who built HyperCard stacks will need first:
    unknown commands. Run against a collection of real stacks, it shows
    which commands, styles and XCMDs matter most, and picks the first
    built-in externals below.
-4. **Externals: XCMDs and XFCNs in Rust.** A framework where anyone can add
-   commands and functions in Rust, as HyperCard developers once did in
-   Pascal, C or assembly:
+4. **Externals: XCMDs and XFCNs in Rust.** [XCMDS.md](XCMDS.md) lists every
+   external found in real stacks and decides each one: built into RandomCard,
+   kept as an external, stubbed, or still unknown. Most become RandomCard
+   features. For the rest, a framework where anyone can add commands and
+   functions in Rust, as HyperCard developers once did in Pascal, C or
+   assembly:
    - **One interface.** An external is a Rust type with a name, saying
      whether it's a command or a function. It gets its arguments as text,
      and a context for calling back into RandomCard: evaluating an
