@@ -72,7 +72,7 @@ impl Interp {
         }
     }
 
-    fn emit(&mut self, name: &str, pdf: Vec<u8>) -> R<()> {
+    pub(super) fn emit(&mut self, name: &str, pdf: Vec<u8>) -> R<()> {
         let path = print::save(name, &pdf).or_else(err)?;
         if self.open_documents {
             print::open_in_viewer(&path).or_else(err)?;

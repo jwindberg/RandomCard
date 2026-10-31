@@ -331,7 +331,8 @@ guides:
 
 - [WyldCard](https://github.com/defano/wyldcard), Matt DeFano's Java
   reproduction of HyperCard. Its ANTLR HyperTalk grammar was the main
-  reference for syntax.
+  reference for syntax, and HyperCard's 216 built-in icons
+  (`src/import/hypercard_icons.txt`) come from its copies of them.
 - [ViperCard](https://github.com/moltenform/vipercard), a HyperCard
   reimplementation for the web.
 - [HyperCardPreview](https://github.com/PierreLorenzi/HyperCardPreview),

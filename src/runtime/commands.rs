@@ -104,11 +104,12 @@ impl Interp {
             }
             Cmd::AnswerFile(prompt) | Cmd::AskFile { prompt, .. } => {
                 let title = self.eval(prompt)?;
-                let mut dialog = rfd::FileDialog::new().set_title(&title);
-                if let Cmd::AskFile { default: Some(d), .. } = c {
-                    dialog = dialog.set_file_name(self.eval(d)?);
-                }
-                let picked = if matches!(c, Cmd::AnswerFile(_)) { dialog.pick_file() } else { dialog.save_file() };
+                let kind = match c {
+                    Cmd::AskFile { default: Some(d), .. } => super::externals::FileDialog::Save(self.eval(d)?),
+                    Cmd::AskFile { .. } => super::externals::FileDialog::Save(String::new()),
+                    _ => super::externals::FileDialog::Open,
+                };
+                let picked = self.file_dialog(&title, kind);
                 match picked {
                     Some(p) => {
                         self.set_var("it", p.display().to_string());
@@ -553,7 +554,12 @@ impl Interp {
 
     fn show_hide(&mut self, what: &ShowHide, show: bool, at: Option<String>) -> R<()> {
         match what {
-            ShowHide::MsgBox => self.w().msg_visible = show,
+            ShowHide::MsgBox => {
+                if let Some(at) = at {
+                    self.move_msg(&at)?;
+                }
+                self.w().msg_visible = show;
+            }
             ShowHide::MessageWatcher => self.w().requests.push(UiRequest::MessageWatcher(show)),
             ShowHide::VariableWatcher => self.w().requests.push(UiRequest::VariableWatcher(show)),
             ShowHide::MenuBar => self.w().menubar_visible = show,

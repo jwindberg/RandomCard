@@ -314,9 +314,11 @@ else can be colored.
   `RANDOMCARD_HC_SAMPLES` is set (see the README). Those samples contain no
   sound resources, so `snd` decoding is only tested with constructed data;
   real stacks with sounds should be added.
-- Scripts in imported stacks are parsed but not all executed. A harness
-  that sends `openStack`, then `mouseUp` to every button, and records script
-  errors would show which language gaps matter most in practice.
+- `exercise_stack` runs a real stack with no UI: it opens the stack, goes to
+  every card, clicks every visible button, and prints each script error
+  once (`RANDOMCARD_EXERCISE=path/to/stack cargo test exercise_stack --
+  --ignored --nocapture`). HIN Stack 1.4 runs with no errors. It doesn't
+  type into dialogs or choose menu items yet.
 - The UI has no automated tests; checks so far were manual.
 
 ## Suggested order
@@ -372,7 +374,13 @@ Next, ranked by what people who built HyperCard stacks will need first:
      against the same interface. They should be the rare exception, and
      they're low priority: how they're packaged for each platform (inside
      a stack, beside it, or in `~/.config/randomcard/externals/`) is
-     decided when the first one is needed.
+     decided when the first one is needed. Many of Apple's own externals
+     were shortcuts for features HyperCard lacked; the real need is
+     custom work such as robots or unusual hardware.
+   - **An example, and a stack for it.** RandomCard ships one example
+     external, with a stack of its own that shows how to write and use
+     one. That's the only stack that uses an external: stacks that show
+     ordinary features, the Tour among them, never do.
    - **Imported stacks.** The importer lists the XCMDs and XFCNs in a
      stack's resource fork. A call to one that has no Rust version says
      "This stack uses the XCMD 'X', which RandomCard doesn't have", and

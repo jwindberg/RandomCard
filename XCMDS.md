@@ -32,7 +32,8 @@ Each external gets one of four decisions:
   its behavior isn't clear from the stacks that use it. Needs research
   before a decision.
 
-The **Status** column says whether it's planned or done.
+The **Status** column says whether it's planned or done. HIN Stack 1.4's
+externals were done first, since it uses no others.
 
 ## Externals found
 
@@ -59,13 +60,13 @@ they never call.
 
 | Name | Kind | Found in | What it did | Decision | RandomCard | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| FileExists | XFCN | 27 stacks, called in 26 | Whether a file exists. Two different versions exist: one answers 0 or not 0, the other true or false. | Built in | As `there is a file`, answering in whichever style the stack expects | Planned |
+| FileExists | XFCN | 27 stacks, called in 26 | Whether a file exists. Two different versions exist: one answers 0 or not 0, the other true or false. | Built in | As `there is a file`, answering in whichever style the stack expects | Done |
 | KrsFileExists | XFCN | 1 stack, called in 1 | Whether a file exists (from HyperKRS). | Built in | Same as FileExists | Planned |
-| FileName | XFCN | 26 stacks, called in 24 | Shows a file dialog and returns the chosen file's path. | Built in | As `answer file` | Planned |
+| FileName | XFCN | 26 stacks, called in 24 | Shows a file dialog and returns the chosen file's path. | Built in | As `answer file` | Done |
 | KrsGetFile | XCMD | 2 stacks, called in 1 | Shows a file dialog for one file type (HyperKRS). | Built in | As `answer file … of type …` | Planned |
-| FolderName | XFCN | 17 stacks, called in 17 | Shows a dialog to choose a folder and returns its path. | Built in | As a folder dialog (`answer folder`) | Planned |
+| FolderName | XFCN | 17 stacks, called in 17 | Shows a dialog to choose a folder and returns its path. | Built in | As a folder dialog (`answer folder`) | Done |
 | folderPath | XFCN | 2 stacks, called in 2 | Shows a dialog to choose a folder (by David Fry). | Built in | As a folder dialog | Planned |
-| SFPutFile | XFCN | 25 stacks, called in 11 | Shows a Save dialog and returns the chosen path. | Built in | As `ask file` | Planned |
+| SFPutFile | XFCN | 25 stacks, called in 11 | Shows a Save dialog and returns the chosen path. | Built in | As `ask file` | Done |
 | DeleteFile | XFCN | 4 stacks, called in 4 | Deletes a file. | Built in | As a new `delete file` command | Planned |
 | RemoveFile | XCMD | 2 stacks, called in 2 | Deletes a file. | Built in | As `delete file` | Planned |
 | FileCopy | XCMD | 2 stacks, called in 2 | Copies a file to a folder (by Frédéric Rinaldi). | Built in | As a new `copy file` command | Planned |
@@ -79,7 +80,7 @@ they never call.
 | DiskSpaceAvail | XFCN | 3 stacks, called in 3 | Free space on a disk. | Built in | As `the diskSpace` of a volume | Planned |
 | VolumeList | XFCN | 2 stacks, called in 2 | Lists the mounted disks. | Built in | As a list of mounted volumes | Planned |
 | SystemFolder | XFCN | 2 stacks, called in 2 | The path of the System Folder. | Built in | As the folder for application data on each system | Planned |
-| SysPrefs | XFCN | 22 stacks, called in 22 | Finds or creates a file in the Preferences folder, and returns its path. | Built in | With the system's preferences folder (`~/.config` on Linux, Application Support on a Mac) | Planned |
+| SysPrefs | XFCN | 22 stacks, called in 22 | Finds or creates a file in the Preferences folder, and returns its path. | Built in | With RandomCard's settings folder (`~/.config/randomcard`) | Done |
 | CompressFiles | XCMD | 2 stacks, called in 2 | Compresses files into an AppleLink package. | Built in | As commands for zip archives; AppleLink's own format isn't documented | Planned |
 | UncompressFiles | XCMD | 2 stacks, called in 2 | Expands an AppleLink package. | Built in | As CompressFiles | Planned |
 | CompressedFileInfo | XFCN | 2 stacks, called in 2 | Describes an AppleLink package. | Built in | As CompressFiles | Planned |
@@ -110,7 +111,7 @@ they never call.
 
 | Name | Kind | Found in | What it did | Decision | RandomCard | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| Dialog | XFCN | 9 stacks, called in 9 | An alert with chosen buttons and font: `dialog(msg, "OK", 1, Chicago, Plain, 12)`. | Built in | As `answer` | Planned |
+| Dialog | XFCN | 9 stacks, called in 9 | An alert with chosen buttons and font: `dialog(msg, "OK", 1, Chicago, Plain, 12)`. | Built in | As `answer` | Done |
 | ListSelect | XFCN | 2 stacks, called in 2 | A dialog for choosing one line from a list (by Frédéric Rinaldi). | Built in | As a new list-choosing dialog | Planned |
 | XScrollBox | XFCN | 3 stacks, called in 3 | A dialog with a scrolling list to choose from (Dartmouth, 1989). | Built in | As the list-choosing dialog | Planned |
 | PopUpMenu | XFCN | 3 stacks, called in 3 | A popup menu at a point, returning the chosen item. | Built in | As a popup menu function, using popup buttons' menus | Planned |
@@ -127,9 +128,9 @@ they never call.
 | KrsShowMenu | XCMD | 1 stack, called in 1 | Shows a menu (HyperKRS). | Built in | As the menus RandomCard draws | Planned |
 | Prompt | XCMD | 2 stacks, called in 2 | Shows a "please wait" message (`prompt 1, "…"`) and hides it (`prompt 3`) (by Frédéric Rinaldi). | Built in | As a status message | Planned |
 | TEXWindow | XCMD | 2 stacks, called in 2 | Shows text in a window of its own. | Built in | As a text window (with roadmap item 8, windows) | Planned |
-| TNPict | XCMD | 9 stacks, called in 9 | Shows a picture file in a window (Technical Notes stacks). | Built in | As HyperCard 2's `picture` command | Planned |
-| SelectLineXCMD | XCMD | 8 stacks, called in 8 | Selects a line in a field. | Built in | As `select line … of field`, which RandomCard has | Planned |
-| SpinAbout | XCMD | 8 stacks, called in 8 | An animated About box (by Andrew Shebanow, Apple, 1989). | Stub | A bit of fun from 1989; it can do nothing | Planned |
+| TNPict | XCMD | 9 stacks, called in 9 | Shows a picture file in a window (Technical Notes stacks). | Built in | As HyperCard 2's `picture` command | Part done: no PICT pictures yet |
+| SelectLineXCMD | XCMD | 8 stacks, called in 8 | Selects a line in a field. | Built in | As `select line … of field`, which RandomCard has | Done |
+| SpinAbout | XCMD | 8 stacks, called in 8 | An animated About box (by Andrew Shebanow, Apple, 1989). | Stub | A bit of fun from 1989; it can do nothing | Done |
 | Alert | XCMD | 1 stack, called in 1 | An alert with chosen icon, buttons and sound. | Built in | As `answer` | Planned |
 | DialogList | XFCN | 1 stack, called in 1 | A dialog for choosing from a list. | Built in | As the list-choosing dialog | Planned |
 | DoList | XCMD | 1 stack, called in 1 | A dialog for choosing from a list, with chosen buttons. | Built in | As the list-choosing dialog | Planned |
@@ -156,7 +157,7 @@ they never call.
 
 | Name | Kind | Found in | What it did | Decision | RandomCard | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| PrintOut | XCMD | 9 stacks, called in 9 | Prints text in a chosen font, size and style. | Built in | As `print` with text settings | Planned |
+| PrintOut | XCMD | 9 stacks, called in 9 | Prints text in a chosen font, size and style. | Built in | As `print` with text settings | Done |
 | PrintDoc | XCMD | 3 stacks, called in 3 | Prints a document, with a prompt. | Built in | As `print` | Planned |
 | PrintClip | XCMD | 1 stack, called in 0 | Prints the clipboard (not called). | Stub | Copy into a field and `print` instead | Planned |
 | ResetPrinter | XCMD | 1 stack, called in 0 | Resets the printer (not called). | Stub | Means nothing with PDF printing | Planned |
@@ -165,9 +166,9 @@ they never call.
 
 | Name | Kind | Found in | What it did | Decision | RandomCard | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| StringWidth | XFCN | 8 stacks, called in 8 | The width of text in pixels. | Built in | From RandomCard's HyperCard text metrics | Planned |
-| isnum | XFCN | 26 stacks, called in 13 | Whether a value is a number. | Built in | As `is a number` | Planned |
-| Main | XFCN | 9 stacks, called in 9 | ROT13: `main("Ner jr ybfg va gur jrrqf?")` is "Are we lost in the weeds?", an easter egg. | Built in | As a small text function, so the Technical Notes stacks run | Planned |
+| StringWidth | XFCN | 8 stacks, called in 8 | The width of text in pixels. | Built in | From RandomCard's HyperCard text metrics | Done |
+| isnum | XFCN | 26 stacks, called in 13 | Whether a value is a number. | Built in | As `is a number`, except that empty counts (so a script asking until it gets a number stops on Cancel) | Done |
+| Main | XFCN | 9 stacks, called in 9 | ROT13: `main("Ner jr ybfg va gur jrrqf?")` is "Are we lost in the weeds?", an easter egg. | Built in | As a small text function, so the Technical Notes stacks run | Done |
 | String2Index | XFCN | 2 stacks, called in 2 | Turns a cross-reference into an index (SpInside Macintosh). | Unknown | Specific to SpInside Macintosh; needs reading its scripts | Research |
 | eval | XFCN | 17 stacks, called in 4 | Not clear: no calls found that pass arguments. | Unknown | Possibly like `value()`; needs research | Research |
 | trans | XFCN | 17 stacks, called in 4 | Not clear: no calls found that pass arguments. | Unknown | Needs research | Research |
@@ -199,8 +200,8 @@ they never call.
 
 | Name | Kind | Found in | What it did | Decision | RandomCard | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| SysEnv | XFCN | 28 stacks, called in 15 | The Mac's system environment: machine, system version and so on. | Stub | Answers in its format with values describing the modern system, once the format is known | Planned |
-| sysEnvironment | XFCN | 4 stacks, called in 3 | The system environment (another version). | Stub | As SysEnv | Planned |
+| SysEnv | XFCN | 28 stacks, called in 15 | The Mac's system environment: machine, system version and so on. | Stub | Answers machine, system version and processor in the format stacks read | Done |
+| sysEnvironment | XFCN | 4 stacks, called in 3 | The system environment (another version). | Stub | As SysEnv | Done |
 | TotalRAM | XFCN | 4 stacks, called in 4 | Total memory. | Stub | Answers the real amount | Planned |
 | MaxApplZone | XFCN | 2 stacks, called in 1 | Grows HyperCard's memory zone. | Stub | Means nothing today | Planned |
 | BoardInfo | XFCN | 2 stacks, called in 2 | The NuBus cards installed. | Stub | Answers none | Planned |

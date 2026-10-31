@@ -390,6 +390,24 @@ impl App {
         w.focus = None;
     }
 
+    /// A file dialog starting in the folder a stack was last opened from.
+    fn stack_dialog(&self) -> rfd::FileDialog {
+        let dialog = rfd::FileDialog::new();
+        match self.settings.stack_folder.as_ref().filter(|d| d.is_dir()) {
+            Some(dir) => dialog.set_directory(dir),
+            None => dialog,
+        }
+    }
+
+    /// Remember the folder of a stack just chosen, for the next dialog.
+    fn remember_stack_folder(&mut self, path: &std::path::Path) {
+        let folder = path.parent().map(|d| d.to_path_buf());
+        if folder.is_some() && folder != self.settings.stack_folder {
+            self.settings.stack_folder = folder;
+            self.settings.save();
+        }
+    }
+
     // ----- requests from scripts -----
 
     fn handle_requests(&mut self, ctx: &egui::Context) {
@@ -397,29 +415,34 @@ impl App {
         for r in requests {
             match r {
                 UiRequest::OpenStack => {
-                    if let Some(path) = rfd::FileDialog::new()
+                    if let Some(path) = self
+                        .stack_dialog()
                         .add_filter("RandomCard stack", &[STACK_EXT])
                         .add_filter("All files", &["*"])
                         .set_title("Open Stack")
                         .pick_file()
                     {
+                        self.remember_stack_folder(&path);
                         self.open_stack_path(&path);
                     }
                 }
                 UiRequest::ImportStack => {
                     // HyperCard stacks usually have no extension, so offer every file.
-                    if let Some(path) = rfd::FileDialog::new().set_title("Import HyperCard Stack").pick_file() {
+                    if let Some(path) = self.stack_dialog().set_title("Import HyperCard Stack").pick_file() {
+                        self.remember_stack_folder(&path);
                         self.open_stack_path(&path);
                     }
                 }
                 UiRequest::NewStack => {
-                    if let Some(path) = rfd::FileDialog::new()
+                    if let Some(path) = self
+                        .stack_dialog()
                         .add_filter("RandomCard stack", &[STACK_EXT])
                         .set_title("New Stack")
                         .set_file_name("Untitled.rcstack")
                         .save_file()
                     {
                         let path = with_ext(path);
+                        self.remember_stack_folder(&path);
                         let name = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
                         let mut stack = Stack::new(&name);
                         if let Err(e) = stack.save(&path) {

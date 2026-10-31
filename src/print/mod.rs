@@ -46,8 +46,12 @@ pub fn cards_pdf(stack: &Stack, cards: &[Id], alone: bool, area: Option<Rect>) -
 /// A document of plain text (`print "..."`, `print field 1`), wrapped and
 /// paginated.
 pub fn text_pdf(text: &str) -> Vec<u8> {
-    let setting =
-        layout::Setting { font: "Geneva", size: 10, style: "plain", align: TextAlign::Left, wrap: true, line_height: None };
+    text_pdf_in(text, "Geneva", 10, "plain")
+}
+
+/// A document of plain text in one font, size and style.
+pub fn text_pdf_in(text: &str, font: &str, size: u32, style: &str) -> Vec<u8> {
+    let setting = layout::Setting { font, size, style, align: TextAlign::Left, wrap: true, line_height: None };
     let lines = layout::layout(text, &[], &setting, PAGE_WIDTH - 2.0 * MARGIN);
     let mut doc = Document::new();
     let page_height = PAGE_HEIGHT - 2.0 * MARGIN;

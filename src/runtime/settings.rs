@@ -14,12 +14,15 @@ pub struct Settings {
     pub user_level: u8,
     /// Whether the tool panel is shown (when the user level allows tools).
     pub show_tools: bool,
+    /// The folder a stack was last opened, imported or made in, where the
+    /// next Open Stack dialog starts.
+    pub stack_folder: Option<PathBuf>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         // Like the full HyperCard: scripting level, tools at hand.
-        Settings { user_level: 5, show_tools: true }
+        Settings { user_level: 5, show_tools: true, stack_folder: None }
     }
 }
 

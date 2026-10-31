@@ -307,6 +307,9 @@ pub struct World {
     pub edit_bg: bool,
     pub msg: String,
     pub msg_visible: bool,
+    /// Where scripts have put the message box. It's drawn under the card
+    /// whatever this says, but scripts read back what they set.
+    pub msg_rect: crate::model::Rect,
     pub history: Vec<Id>,
     pub history_pos: usize,
     /// Cards visited, each once, most recent last, for the Recent dialog.
@@ -441,6 +444,8 @@ pub struct LoadedStack {
 impl World {
     pub fn new(stack: Stack) -> World {
         let card_id = stack.cards[0].id;
+        let (width, height) = (stack.width as i32, stack.height as i32);
+        let msg_rect = crate::model::Rect::new(0, height, width, height + 30);
         // An imported HyperCard stack hasn't been saved in RandomCard's format yet.
         let dirty = stack.imported_from.is_some() && stack.path.is_none();
         World {
@@ -450,6 +455,7 @@ impl World {
             edit_bg: false,
             msg: String::new(),
             msg_visible: false,
+            msg_rect,
             history: vec![card_id],
             history_pos: 0,
             recent: vec![card_id],
@@ -503,6 +509,7 @@ impl World {
     pub fn replace_stack(&mut self, stack: Stack) {
         let mut fresh = World::new(stack);
         fresh.msg_visible = self.msg_visible;
+        fresh.msg_rect = self.msg_rect;
         fresh.msg = std::mem::take(&mut self.msg);
         fresh.user_level = self.user_level;
         fresh.others = std::mem::take(&mut self.others);

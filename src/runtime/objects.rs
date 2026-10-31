@@ -647,6 +647,12 @@ impl Interp {
             ObjRef::MsgBox => match name {
                 "visible" => bool_str(w.msg_visible),
                 "contents" | "text" => w.msg.clone(),
+                "rect" | "rectangle" => {
+                    let r = w.msg_rect;
+                    format!("{},{},{},{}", r.left, r.top, r.right, r.bottom)
+                }
+                // A window's loc is its top left corner.
+                "loc" | "location" => format!("{},{}", w.msg_rect.left, w.msg_rect.top),
                 _ => {
                     drop(w);
                     return err(format!("The message box has no property \"{name}\""));
@@ -694,7 +700,24 @@ impl Interp {
                 if name == "icon" {
                     // By id or by name; empty or 0 removes the icon.
                     let mut w = self.w();
-                    let icon = if v.trim().is_empty() { Some(0) } else { w.stack.find_icon(v) };
+                    let in_stack = |w: &super::world::World| match v.trim().parse::<i32>() {
+                        Ok(id) => w.stack.icons.contains_key(&id).then_some(id),
+                        Err(_) => w.stack.find_icon(v),
+                    };
+                    // Not in the stack: one of HyperCard's own icons, which
+                    // then joins the stack's. Any number is accepted, as it
+                    // always was, even with no icon to show.
+                    let icon = if v.trim().is_empty() {
+                        Some(0)
+                    } else {
+                        in_stack(&w)
+                            .or_else(|| {
+                                let (id, icon) = crate::import::hypercard_icon(v)?;
+                                w.stack.icons.insert(id, icon);
+                                Some(id)
+                            })
+                            .or_else(|| v.trim().parse::<i32>().ok())
+                    };
                     let Some(icon) = icon else {
                         drop(w);
                         return err(format!("No such icon \"{v}\""));
@@ -818,13 +841,27 @@ impl Interp {
                 match name {
                     "visible" => self.w().msg_visible = to_bool(v)?,
                     "contents" | "text" => self.w().msg = v.to_string(),
-                    "rect" | "loc" | "location" | "textfont" | "textsize" => {}
+                    "rect" | "rectangle" => match parse_rect(v) {
+                        Some((l, t, r, b)) => self.w().msg_rect = Rect::new(l, t, r, b),
+                        None => return err(format!("Expected a rectangle, not \"{v}\"")),
+                    },
+                    "loc" | "location" => self.move_msg(v)?,
+                    "textfont" | "textsize" => {}
                     _ => return err(format!("Can't set the {name} of the message box")),
                 }
                 Ok(())
             }
             ObjRef::HyperCard => self.set_global_property(name, v),
         }
+    }
+
+    /// Move the message box so its top left corner is at a point.
+    pub(super) fn move_msg(&mut self, v: &str) -> R<()> {
+        let Some((x, y)) = parse_point(v) else { return err(format!("Expected a point, not \"{v}\"")) };
+        let mut w = self.w();
+        let r = w.msg_rect;
+        w.msg_rect = Rect::new(x, y, x + r.width(), y + r.bottom - r.top);
+        Ok(())
     }
 
     pub fn part_at(&self, x: i32, y: i32) -> Option<ObjRef> {

@@ -196,6 +196,38 @@ pub fn decode_icon(data: &[u8], name: &str) -> Option<Icon> {
     Some(Icon { name: name.to_string(), picture: pic })
 }
 
+/// HyperCard's built-in icons, from the HyperCard application and its Home
+/// stack, by id. Stacks used them freely, since every copy of HyperCard had
+/// them; they're the last place an icon is looked for.
+pub fn hypercard_icons() -> &'static BTreeMap<i32, Icon> {
+    static ICONS: std::sync::OnceLock<BTreeMap<i32, Icon>> = std::sync::OnceLock::new();
+    ICONS.get_or_init(|| {
+        include_str!("hypercard_icons.txt")
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .filter_map(|l| {
+                let mut f = l.split('\t');
+                let id = f.next()?.parse().ok()?;
+                let name = f.next()?;
+                let hex = f.next()?;
+                let bits: Vec<u8> =
+                    (0..hex.len() / 2).filter_map(|i| u8::from_str_radix(hex.get(i * 2..i * 2 + 2)?, 16).ok()).collect();
+                Some((id, decode_icon(&bits, name)?))
+            })
+            .collect()
+    })
+}
+
+/// One of HyperCard's built-in icons, by id or name (ignoring case).
+pub fn hypercard_icon(id_or_name: &str) -> Option<(i32, Icon)> {
+    let t = id_or_name.trim();
+    let icons = hypercard_icons();
+    if let Ok(id) = t.parse::<i32>() {
+        return icons.get(&id).map(|i| (id, i.clone()));
+    }
+    icons.iter().find(|(_, i)| i.name.eq_ignore_ascii_case(t)).map(|(id, i)| (*id, i.clone()))
+}
+
 /// All the 'ICON' resources in a resource fork.
 pub fn icons(fork: &[u8]) -> BTreeMap<i32, Icon> {
     parse(fork)

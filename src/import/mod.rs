@@ -10,6 +10,8 @@
 
 mod addcolor;
 mod resources;
+
+pub use resources::{hypercard_icon, hypercard_icons};
 mod woba;
 
 use std::collections::{HashMap, HashSet};
@@ -82,21 +84,31 @@ pub fn import_bytes(bytes: &[u8], path: &Path, password: Option<&str>) -> Result
     Ok(stack)
 }
 
-/// Fetch icons the stack's buttons use, and sounds its scripts name, from
-/// further along the resource chain when the stack's own fork lacks them.
+/// Fetch icons the stack's buttons use, and icons and sounds its scripts
+/// name, from further along the resource chain when the stack's own fork
+/// lacks them, and finally from HyperCard's built-in icons.
 fn add_chain_resources(stack: &mut Stack, path: &Path) {
     let all_parts = stack.cards.iter().flat_map(|c| &c.parts).chain(stack.backgrounds.iter().flat_map(|b| &b.parts));
     let mut missing_icons: HashSet<i32> = all_parts.map(|p| p.icon).filter(|i| *i != 0).collect();
     missing_icons.retain(|i| !stack.icons.contains_key(i));
     let scripts = all_scripts(stack).to_lowercase();
     let mut have_sounds: HashSet<String> = stack.sounds.values().map(|s| s.name.to_lowercase()).collect();
-    for fork in resources::chain_forks(path) {
-        for (id, icon) in resources::icons(&fork) {
-            if missing_icons.remove(&id) {
+    let mut have_icons: HashSet<String> = stack.icons.values().map(|i| i.name.to_lowercase()).collect();
+    let forks = resources::chain_forks(path);
+    let chain = forks.iter().map(|f| resources::icons(f)).chain(std::iter::once(resources::hypercard_icons().clone()));
+    for icons in chain {
+        for (id, icon) in icons {
+            let name = icon.name.to_lowercase();
+            // Scripts name icons in quotes: set icon of me to "Home".
+            let named = !name.is_empty() && !have_icons.contains(&name) && scripts.contains(&format!("\"{name}\""));
+            if missing_icons.remove(&id) || (named && !stack.icons.contains_key(&id)) {
+                have_icons.insert(name);
                 stack.icons.insert(id, icon);
             }
         }
-        for (id, sound) in resources::sounds(&fork) {
+    }
+    for fork in &forks {
+        for (id, sound) in resources::sounds(fork) {
             let name = sound.name.to_lowercase();
             // Scripts name sounds in quotes: play "boing".
             if !name.is_empty() && !have_sounds.contains(&name) && scripts.contains(&format!("\"{name}\"")) {

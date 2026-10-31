@@ -100,7 +100,7 @@ enum ScriptKey {
 pub struct Interp {
     pub world: Shared,
     pub abort: Arc<AtomicBool>,
-    dialog_rx: Option<Receiver<DialogReply>>,
+    pub(super) dialog_rx: Option<Receiver<DialogReply>>,
     pub globals: HashMap<String, String>,
     scripts: HashMap<ScriptKey, (u64, Result<Rc<Script>, String>)>,
     /// The last error from a message RandomCard sends over and over (idle,
@@ -123,6 +123,9 @@ pub struct Interp {
     /// Names of all message handlers in the stack's scripts, gathered when a
     /// command first needs them during an event.
     handler_names: Option<HashSet<String>>,
+    /// Whether the stack treats FileExists as answering error codes,
+    /// worked out on first use in each event.
+    pub(super) fileexists_codes: Option<bool>,
     /// Commands from the debugger UI.
     pub debug_rx: Option<Receiver<super::world::DebugCmd>>,
     pub stepping: super::debugger::Stepping,
@@ -162,6 +165,7 @@ impl Interp {
             canned_answers: Vec::new(),
             audio: crate::sound::Player::silent(),
             handler_names: None,
+            fileexists_codes: None,
             debug_rx: None,
             stepping: super::debugger::Stepping::Run,
             pause_next: false,
@@ -227,6 +231,7 @@ impl Interp {
     pub fn handle_event(&mut self, ev: Event) {
         self.abort.store(false, Ordering::SeqCst);
         self.handler_names = None;
+        self.fileexists_codes = None;
         {
             let mut w = self.w();
             w.busy = true;
@@ -507,13 +512,44 @@ impl Interp {
         path
     }
 
+    /// HyperCard's dynamic path: a message or function a handler uses by
+    /// name goes along the static path of `target`, and if that misses the
+    /// current card (the handler went to another card, or runs in the stack
+    /// script), through the current card and its background before the
+    /// stack.
+    pub fn dynamic_path(&self, target: ObjRef) -> Vec<ObjRef> {
+        let mut path = self.message_path(target);
+        if matches!(target, ObjRef::OtherStack(_) | ObjRef::HyperCard) {
+            return path;
+        }
+        let Some(at) = path.iter().position(|o| *o == ObjRef::Stack) else { return path };
+        let current = self.w().card_id;
+        let mut extra = Vec::new();
+        if !path.contains(&ObjRef::Card(current)) {
+            extra.push(ObjRef::Card(current));
+        }
+        if let Some(bg) = self.w().stack.card(current).map(|c| ObjRef::Background(c.background))
+            && !path.contains(&bg)
+        {
+            extra.push(bg);
+        }
+        path.splice(at..at, extra);
+        path
+    }
+
     /// Send a message along the path starting at `target`. Returns whether a
     /// handler took it (without passing it on).
     pub fn send_message(&mut self, target: ObjRef, name: &str, args: &[String]) -> R<bool> {
+        let path = self.message_path(target);
+        self.send_along(path, target, name, args)
+    }
+
+    /// Send a message along a path, to `target`.
+    fn send_along(&mut self, path: Vec<ObjRef>, target: ObjRef, name: &str, args: &[String]) -> R<bool> {
         let lname = name.to_ascii_lowercase();
         let watched = self.watch_message(name);
         let mut handled = false;
-        for obj in self.message_path(target) {
+        for obj in path {
             let Some(script) = self.script_for(obj)? else { continue };
             let Some(handler) = script.handlers.get(&lname) else { continue };
             match self.run_handler(handler, obj, target, name, args) {
@@ -569,7 +605,7 @@ impl Interp {
     pub fn call_function(&mut self, name: &str, args: Vec<String>) -> R<String> {
         let lname = name.to_ascii_lowercase();
         let me = self.frame().me;
-        for obj in self.message_path(me) {
+        for obj in self.dynamic_path(me) {
             let Some(script) = self.script_for(obj)? else { continue };
             let Some(f) = script.functions.get(&lname) else { continue };
             let target = self.frame().target;
@@ -578,6 +614,9 @@ impl Interp {
                 Err(Ctl::Pass) => continue,
                 Err(e) => return Err(e),
             }
+        }
+        if let Some(r) = self.external_function(&lname, &args) {
+            return r;
         }
         self.builtin(&lname, NameLength::Default, args)
     }
@@ -718,7 +757,8 @@ impl Interp {
             _ => vec![args.to_string()],
         };
         let me = self.frame().me;
-        self.send_message(me, name, &params)
+        let path = self.dynamic_path(me);
+        self.send_along(path, me, name, &params)
     }
 
     /// Every handler name defined anywhere in the stack (lowercase).
@@ -758,7 +798,8 @@ impl Interp {
             vals.push(self.eval(a)?);
         }
         let target = if from_msgbox { self.current_card_ref() } else { self.frame().me };
-        if self.send_message(target, name, &vals)? {
+        let path = self.dynamic_path(target);
+        if self.send_along(path, target, name, &vals)? {
             return Ok(());
         }
         let lname = name.to_ascii_lowercase();
@@ -775,6 +816,9 @@ impl Interp {
                 w.msg = v;
                 return Ok(());
             }
+        }
+        if let Some(r) = self.external_command(&lname, &vals) {
+            return r;
         }
         err(format!("Can't understand \"{name}\""))
     }

@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use super::interp::Interp;
 use super::world::{DialogReply, Event, ObjRef, UiRequest, World, lock};
-use crate::model::{Card, Layer, Part, Picture, Rect, Stack};
+use crate::model::{Card, Id, Layer, Part, Picture, Rect, Stack};
 
 /// A stack with three cards on one background, a background field "Name",
 /// and a card button "Go" on the first card.
@@ -409,6 +409,24 @@ fn icons_by_id_or_name() {
     assert_eq!(run(&mut i, "set the icon of button 1 to \"star\"\nput the icon of button 1"), "128");
     assert_eq!(run(&mut i, "set the icon of button 1 to 0\nput the icon of button 1"), "0");
     assert!(run(&mut i, "set the icon of button 1 to \"Nope\"").starts_with("ERROR: No such icon"));
+    // HyperCard's own icons, by name or id, join the stack's.
+    assert_eq!(run(&mut i, "set the icon of button 1 to \"black return arrow\"\nput the icon of button 1"), "7417");
+    assert_eq!(lock(&i.world).stack.icons.get(&7417).map(|i| i.name.as_str()), Some("Black Return Arrow"));
+    assert_eq!(run(&mut i, "set the icon of button 1 to 1012\nput the icon of button 1"), "1012");
+    assert!(lock(&i.world).stack.icons.contains_key(&1012));
+    // A number is accepted even with no icon behind it.
+    assert_eq!(run(&mut i, "set the icon of button 1 to 31999\nput the icon of button 1"), "31999");
+}
+
+#[test]
+fn hypercard_icons_are_built_in() {
+    let icons = crate::import::hypercard_icons();
+    assert_eq!(icons.len(), 216);
+    let arrow = &icons[&7417];
+    assert_eq!(arrow.name, "Black Return Arrow");
+    assert_eq!((arrow.picture.width, arrow.picture.height), (32, 32));
+    assert!(arrow.picture.pixels.iter().any(|p| *p == crate::model::Pixel::Black));
+    assert_eq!(icons[&11645].name, "Bill's Rolo");
 }
 
 #[test]
@@ -991,3 +1009,133 @@ fn repeating_messages_report_an_error_once() {
     assert_eq!(errors(&mut i, "mouseUp"), 1);
     assert_eq!(errors(&mut i, "mouseWithin"), 1);
 }
+
+/// Exercises a real stack: opens it, then goes to every card and clicks
+/// every visible button, printing each script error once. A click that
+/// waits for typing that never comes is stopped after two seconds. Run it on any stack with
+/// RANDOMCARD_EXERCISE=path/to/stack cargo test exercise_stack -- --ignored --nocapture
+#[test]
+#[ignore]
+fn exercise_stack() {
+    let Ok(path) = std::env::var("RANDOMCARD_EXERCISE") else { return };
+    let stack = crate::import::load_any(std::path::Path::new(&path), None).expect("can't open the stack");
+    let name = stack.name.clone();
+    let original = stack.clone();
+    let mut i = interp_with(stack);
+    let abort = i.abort.clone();
+    let mut seen = std::collections::BTreeMap::<String, usize>::new();
+    let mut step = |i: &mut Interp, what: String, ev: Event| {
+        // A click waiting on something that never comes (a loop until the
+        // user types a number) is stopped after two seconds.
+        let done = Arc::new(AtomicBool::new(false));
+        let (d, a) = (done.clone(), abort.clone());
+        let watchdog = std::thread::spawn(move || {
+            for _ in 0..40 {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                if d.load(std::sync::atomic::Ordering::SeqCst) {
+                    return;
+                }
+            }
+            a.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+        let start = std::time::Instant::now();
+        i.handle_event(ev);
+        done.store(true, std::sync::atomic::Ordering::SeqCst);
+        let _ = watchdog.join();
+        if start.elapsed() > std::time::Duration::from_secs(2) {
+            println!("STOPPED after 2s: {what}");
+        }
+        let mut w = lock(&i.world);
+        for r in w.requests.drain(..) {
+            if let UiRequest::ScriptError { msg, obj, line } = r {
+                let key = format!("{msg} ({obj:?} line {line:?})");
+                let n = seen.entry(key.clone()).or_default();
+                if *n == 0 {
+                    println!("ERROR on {what}: {key}");
+                }
+                *n += 1;
+            }
+        }
+        if w.stack.name != name {
+            println!("  ({what} went to stack \"{}\"; going back)", w.stack.name);
+            w.replace_stack(original.clone());
+        }
+    };
+    step(&mut i, "openStack".into(), Event::Startup);
+    let cards: Vec<(Id, Id)> = lock(&i.world).stack.cards.iter().map(|c| (c.id, c.background)).collect();
+    for (n, (card, bg)) in cards.iter().enumerate() {
+        step(&mut i, format!("going to card {}", n + 1), Event::MsgBox(format!("go to card id {card}")));
+        let buttons: Vec<(Rect, String)> = {
+            let w = lock(&i.world);
+            let b = w.stack.background(*bg).map(|b| b.parts.clone()).unwrap_or_default();
+            let c = w.stack.card(*card).map(|c| c.parts.clone()).unwrap_or_default();
+            b.into_iter()
+                .map(|p| (Layer::Background, p))
+                .chain(c.into_iter().map(|p| (Layer::Card, p)))
+                .filter(|(_, p)| p.kind == crate::model::PartKind::Button && p.visible && p.enabled && !p.script.trim().is_empty())
+                .map(|(_, p)| (p.rect, p.name))
+                .collect()
+        };
+        // Clicks land on whatever is on top, as a real click does.
+        for (rect, bname) in buttons {
+            let what = format!("card {} button \"{bname}\"", n + 1);
+            step(&mut i, what.clone(), Event::MsgBox(format!("go to card id {card}")));
+            let (x, y) = ((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2);
+            step(&mut i, what, Event::MsgBox(format!("click at {x},{y}")));
+        }
+    }
+    println!("{} distinct errors", seen.len());
+}
+
+
+#[test]
+fn externals_done_by_randomcard() {
+    assert_eq!(eval("isnum(12.5)"), "true");
+    assert_eq!(eval("isnum(\"12a\")"), "false");
+    assert_eq!(eval("isnum(empty)"), "true");
+    assert_eq!(eval("main(\"Ner jr ybfg va gur jrrqf?\")"), "Are we lost in the weeds?");
+    assert_eq!(eval("stringwidth(\"Hi\")"), eval("stringwidth(\"H\") + stringwidth(\"i\")"));
+    assert_eq!(eval("item 3 of sysEnv()"), std::env::consts::ARCH);
+    assert_eq!(eval("item 1 of line 2 of sysEnv()"), usize::BITS.to_string());
+    // With no UI, file dialogs are canceled.
+    assert_eq!(eval("filename(\"STAK\", \"Choose\")"), "");
+    // FileExists answers true or false, unless the stack tests it against 0.
+    assert_eq!(eval("fileExists(\"/no/such/file\")"), "false");
+    let mut i = interp_with(stack());
+    set_script(&i, ObjRef::Stack, "on check\n  if fileExists(\"/\") = 0 then put \"there\"\nend check");
+    assert_eq!(run(&mut i, "put fileExists(\"/no/such/file\")"), "-43");
+    assert_eq!(run(&mut i, "check"), "there");
+    // A handler with the same name wins.
+    set_script(&i, ObjRef::Stack, "function isnum x\n  return \"mine\"\nend isnum");
+    assert_eq!(run(&mut i, "put isnum(1)"), "mine");
+    // Commands: selectLineXCMD selects a line; spinAbout does nothing.
+    let mut i = interp_with(stack());
+    run(&mut i, "put \"a\" & return & \"b\" into bg field \"Name\"");
+    assert_eq!(run(&mut i, "spinAbout"), "");
+    run(&mut i, "selectLineXCMD the name of bg field \"Name\", 2");
+    assert_eq!(run(&mut i, "put the selectedText"), "b");
+    run(&mut i, "TNPict \"pic\",1,0");
+    assert!(run(&mut i, "put the result").starts_with("Error"));
+}
+
+#[test]
+fn message_box_keeps_its_place_for_scripts() {
+    let mut i = interp_with(stack());
+    let out = run(&mut i, "get the loc of msg\nshow msg at -32767,-32767\nput the loc of msg into x\nset the loc of msg to it\nput x && the loc of msg");
+    assert!(out.starts_with("-32767,-32767 "), "{out}");
+    assert!(!out.ends_with("-32767,-32767"), "{out}");
+}
+
+#[test]
+fn dynamic_path_reaches_the_current_card() {
+    let mut i = interp_with(stack());
+    let two = lock(&i.world).stack.cards[1].id;
+    set_script(&i, ObjRef::Card(two), "on cardTwoOnly\n  put \"card two\"\nend cardTwoOnly\nfunction twoFn\n  return 2\nend twoFn");
+    set_script(&i, ObjRef::Stack, "on tryIt\n  go card 2\n  cardTwoOnly\n  put twoFn() after msg\nend tryIt");
+    assert_eq!(run(&mut i, "tryIt"), "card two2");
+    // Without going there, card two's handlers aren't in the path.
+    run(&mut i, "go card 1");
+    assert!(run(&mut i, "cardTwoOnly").contains("Can't understand"));
+}
+
+

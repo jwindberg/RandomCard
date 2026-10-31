@@ -132,6 +132,9 @@ pub struct Textures {
     color_maps: HashMap<u64, TextureHandle>,
     /// Icon textures, normal and inverted (for hilited buttons).
     icons: HashMap<i32, (Icon, TextureHandle, TextureHandle)>,
+    /// Pictures with black and white swapped, for the cards on screen that
+    /// have a button that can invert them (see `inverts`).
+    inverted: HashMap<(Layer, Id, u64), (u64, TextureHandle)>,
 }
 
 pub fn picture_image(p: &Picture) -> egui::ColorImage {
@@ -202,6 +205,53 @@ impl Textures {
             };
             self.map.insert((layer, id, ck), (rev, handle));
         }
+        self.refresh_inverted(ctx, w, scene);
+    }
+
+    /// Inverted copies of the scene's pictures, if a button on it can invert
+    /// them. AddColor's colors aren't inverted: they show as plain white.
+    fn refresh_inverted(&mut self, ctx: &egui::Context, w: &World, scene: &Scene) {
+        if !scene.parts.iter().any(|pv| can_invert(&pv.part)) {
+            return;
+        }
+        let rev = w.picture_rev;
+        let ck = scene.color_key;
+        if self.inverted.len() > 4 {
+            self.inverted.retain(|(l, id, _), _| (*l, *id) == (Layer::Background, scene.bg) || (*l, *id) == (Layer::Card, scene.card));
+        }
+        for (layer, id) in [(Layer::Background, scene.bg), (Layer::Card, scene.card)] {
+            if self.inverted.get(&(layer, id, ck)).is_some_and(|(r, _)| *r == rev) {
+                continue;
+            }
+            let pic = match layer {
+                Layer::Background => w.stack.background(id).map(|b| &b.picture),
+                Layer::Card => w.stack.card(id).map(|c| &c.picture),
+            };
+            let Some(pic) = pic.filter(|p| !p.is_blank()) else { continue };
+            let mut img = picture_image(pic);
+            for px in &mut img.pixels {
+                *px = invert_color(*px);
+            }
+            let handle = ctx.load_texture(format!("pict-{layer:?}-{id}-{ck}-inv"), img, TextureOptions::NEAREST);
+            self.inverted.insert((layer, id, ck), (rev, handle));
+        }
+    }
+
+    /// Each texture with an inverted copy, mapped to that copy.
+    fn inverse_ids(&self) -> HashMap<egui::TextureId, egui::TextureId> {
+        let mut ids = HashMap::new();
+        for (key, (rev, inv)) in &self.inverted {
+            if let Some((r, Some(h))) = self.map.get(key)
+                && r == rev
+            {
+                ids.insert(h.id(), inv.id());
+            }
+        }
+        for (_, n, i) in self.icons.values() {
+            ids.insert(n.id(), i.id());
+            ids.insert(i.id(), n.id());
+        }
+        ids
     }
 
     fn icon(&self, id: i32, inverted: bool) -> Option<&TextureHandle> {
@@ -376,18 +426,117 @@ pub fn draw_scene(painter: &Painter, tex: &Textures, scene: &Scene, origin: Pos2
         painter.image(t.id(), card_rect, uv, WHITE);
     }
     let mut card_pict_drawn = false;
-    for pv in &scene.parts {
+    for (i, pv) in scene.parts.iter().enumerate() {
         let is_card = matches!(pv.obj, ObjRef::Part { layer: Layer::Card, .. });
         if is_card && !card_pict_drawn {
             card_pict_drawn = true;
             draw_card_picture(painter, tex, scene, card_rect, uv);
         }
         if pv.part.visible {
+            if can_invert(&pv.part) && (pv.hilite || pressed == Some(pv.obj)) {
+                invert_under(painter, tex, scene, i, origin, live);
+            }
             draw_part(painter, tex, pv, origin, pressed == Some(pv.obj), scene.highlight(pv.obj), live);
         }
     }
     if !card_pict_drawn {
         draw_card_picture(painter, tex, scene, card_rect, uv);
+    }
+}
+
+/// Whether a button inverts what's under it when hilited: in HyperCard a
+/// hilited transparent button with no icon reverses black and white in its
+/// rectangle, so stacks laid one over text to show it white on black.
+fn can_invert(p: &Part) -> bool {
+    p.visible && p.kind == PartKind::Button && p.style == PartStyle::Transparent && p.icon == 0
+}
+
+/// Draw what's under part `i` again, inside its rectangle, with black and
+/// white reversed: the pictures and the parts below it, but not those above.
+fn invert_under(painter: &Painter, tex: &Textures, scene: &Scene, i: usize, origin: Pos2, live: bool) {
+    let rect = part_rect(&scene.parts[i].part, origin);
+    let painter = painter.with_clip_rect(rect.intersect(painter.clip_rect()));
+    let card_rect = Rect::from_min_size(origin, Vec2::new(scene.width as f32, scene.height as f32));
+    let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+    let layer = painter.layer_id();
+    let start = painter.ctx().graphics_mut(|g| g.entry(layer).next_idx().0);
+    painter.rect_filled(card_rect, 0.0, WHITE);
+    if scene.show_bg_pict
+        && let Some(t) = tex.get(Layer::Background, scene.bg, scene.color_key)
+    {
+        painter.image(t.id(), card_rect, uv, WHITE);
+    }
+    let mut card_pict_drawn = false;
+    for pv in &scene.parts[..i] {
+        let is_card = matches!(pv.obj, ObjRef::Part { layer: Layer::Card, .. });
+        if is_card && !card_pict_drawn {
+            card_pict_drawn = true;
+            draw_card_picture(&painter, tex, scene, card_rect, uv);
+        }
+        if pv.part.visible {
+            draw_part(&painter, tex, pv, origin, false, scene.highlight(pv.obj), live);
+        }
+    }
+    let end = painter.ctx().graphics_mut(|g| g.entry(layer).next_idx().0);
+    let swap = tex.inverse_ids();
+    painter.ctx().graphics_mut(|g| {
+        let list = g.entry(layer);
+        for idx in start..end {
+            list.mutate_shape(egui::layers::ShapeIdx(idx), |cs| invert_shape(&mut cs.shape, &swap));
+        }
+    });
+}
+
+/// Black for white, keeping transparency.
+fn invert_color(c: Color32) -> Color32 {
+    let a = c.a();
+    Color32::from_rgba_premultiplied(a - c.r().min(a), a - c.g().min(a), a - c.b().min(a), a)
+}
+
+/// Reverse a shape's colors; a picture or icon changes to its inverted copy.
+fn invert_shape(shape: &mut egui::Shape, swap: &HashMap<egui::TextureId, egui::TextureId>) {
+    use egui::Shape;
+    use egui::epaint::ColorMode;
+    let path_stroke = |s: &mut egui::epaint::PathStroke| {
+        if let ColorMode::Solid(c) = &mut s.color {
+            *c = invert_color(*c);
+        }
+    };
+    match shape {
+        Shape::Vec(v) => v.iter_mut().for_each(|s| invert_shape(s, swap)),
+        Shape::Circle(c) => (c.fill, c.stroke.color) = (invert_color(c.fill), invert_color(c.stroke.color)),
+        Shape::Ellipse(e) => (e.fill, e.stroke.color) = (invert_color(e.fill), invert_color(e.stroke.color)),
+        Shape::LineSegment { stroke, .. } => stroke.color = invert_color(stroke.color),
+        Shape::Rect(r) => (r.fill, r.stroke.color) = (invert_color(r.fill), invert_color(r.stroke.color)),
+        Shape::Band(b) => (b.fill, b.stroke.color) = (invert_color(b.fill), invert_color(b.stroke.color)),
+        Shape::Path(p) => {
+            p.fill = invert_color(p.fill);
+            path_stroke(&mut p.stroke);
+        }
+        Shape::QuadraticBezier(q) => {
+            q.fill = invert_color(q.fill);
+            path_stroke(&mut q.stroke);
+        }
+        Shape::CubicBezier(c) => {
+            c.fill = invert_color(c.fill);
+            path_stroke(&mut c.stroke);
+        }
+        Shape::Text(t) => {
+            let color = t.override_text_color.unwrap_or_else(|| {
+                t.galley.job.sections.first().map(|s| s.format.color).filter(|c| *c != Color32::PLACEHOLDER).unwrap_or(t.fallback_color)
+            });
+            t.override_text_color = Some(invert_color(color));
+        }
+        Shape::Mesh(m) => {
+            if let Some(to) = swap.get(&m.texture_id) {
+                std::sync::Arc::make_mut(m).texture_id = *to;
+            } else if m.texture_id == egui::TextureId::default() {
+                for v in &mut std::sync::Arc::make_mut(m).vertices {
+                    v.color = invert_color(v.color);
+                }
+            }
+        }
+        _ => {}
     }
 }
 
@@ -441,11 +590,8 @@ fn draw_button(painter: &Painter, tex: &Textures, pv: &PartView, rect: Rect, pre
     let fg = if p.enabled { fg } else { GRAY };
     let stroke = Stroke::new(1.0, BLACK);
     match p.style {
-        PartStyle::Transparent => {
-            if inverted && !has_icon {
-                painter.rect_filled(rect, 0.0, BLACK);
-            }
-        }
+        // A hilited one reverses what's under it (see `invert_under`).
+        PartStyle::Transparent => {}
         PartStyle::Opaque => {
             painter.rect_filled(rect, 0.0, bg);
         }

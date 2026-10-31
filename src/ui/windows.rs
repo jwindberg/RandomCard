@@ -209,6 +209,12 @@ impl App {
                 };
                 let hilite = w.stack.hilite(card, layer, id);
                 let icons: Vec<(i32, String)> = w.stack.icons.iter().map(|(i, icon)| (*i, icon.name.clone())).collect();
+                // Then HyperCard's own icons, as its icon picker offered them.
+                let builtin: Vec<(i32, String)> = crate::import::hypercard_icons()
+                    .iter()
+                    .filter(|(i, _)| !w.stack.icons.contains_key(i))
+                    .map(|(i, icon)| (*i, icon.name.clone()))
+                    .collect();
                 let text = w.stack.field_text(card, layer, id);
                 let Some(p) = w.stack.part_mut(card, layer, id) else {
                     ui.label("This object no longer exists.");
@@ -302,7 +308,7 @@ impl App {
                             changed |= ui.add(egui::DragValue::new(&mut p.title_width).range(0..=width)).changed();
                         } else {
                             ui.label("Icon:");
-                            let label = |id: i32| match icons.iter().find(|(i, _)| *i == id) {
+                            let label = |id: i32| match icons.iter().chain(&builtin).find(|(i, _)| *i == id) {
                                 _ if id == 0 => "None".to_string(),
                                 Some((_, name)) if !name.is_empty() => format!("{id} {name}"),
                                 _ => id.to_string(),
@@ -311,6 +317,13 @@ impl App {
                                 changed |= ui.selectable_value(&mut p.icon, 0, "None").changed();
                                 for (i, _) in &icons {
                                     changed |= ui.selectable_value(&mut p.icon, *i, label(*i)).changed();
+                                }
+                                if !builtin.is_empty() {
+                                    ui.separator();
+                                    ui.label(RichText::new("HyperCard's icons").weak());
+                                    for (i, _) in &builtin {
+                                        changed |= ui.selectable_value(&mut p.icon, *i, label(*i)).changed();
+                                    }
                                 }
                             });
                         }
@@ -347,6 +360,14 @@ impl App {
                 ui.label(RichText::new(format!("rect: {},{},{},{}", r.left, r.top, r.right, r.bottom)).weak());
                 if scripting && ui.button("Script…").clicked() {
                     script = Some(obj);
+                }
+                // A HyperCard icon chosen for the button joins the stack's.
+                let icon = p.icon;
+                if icon != 0
+                    && !w.stack.icons.contains_key(&icon)
+                    && let Some(i) = crate::import::hypercard_icons().get(&icon)
+                {
+                    w.stack.icons.insert(icon, i.clone());
                 }
             }
             InfoTarget::Card(id) => {
