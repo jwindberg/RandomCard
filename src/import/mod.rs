@@ -9,6 +9,7 @@
 //! fork when one can be found; other resources (XCMDs, PICTs) aren't used.
 
 mod addcolor;
+mod pict;
 mod resources;
 
 pub use resources::{hypercard_icon, hypercard_icons};
@@ -37,8 +38,12 @@ pub fn load_any(path: &Path, password: Option<&str>) -> Result<Stack, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("Can't open {}: {e}", path.display()))?;
     if is_hypercard_stack(&bytes) {
         import_bytes(&bytes, path, password)
-    } else {
+    } else if bytes.trim_ascii_start().starts_with(b"{") && std::str::from_utf8(&bytes).is_ok() {
+        // RandomCard's own stacks are JSON.
         Stack::load(path)
+    } else {
+        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        Err(format!("\"{name}\" isn't a stack. RandomCard opens HyperCard stacks and its own."))
     }
 }
 
@@ -77,6 +82,7 @@ pub fn import_bytes(bytes: &[u8], path: &Path, password: Option<&str>) -> Result
     if let Some(fork) = resources::find_resource_fork(path, bytes) {
         stack.icons = resources::icons(&fork);
         stack.sounds = resources::sounds(&fork);
+        stack.palettes = resources::palettes(&fork);
         addcolor::apply(&mut stack, &resources::parse(&fork));
     }
     add_chain_resources(&mut stack, path);
@@ -108,6 +114,14 @@ fn add_chain_resources(stack: &mut Stack, path: &Path) {
         }
     }
     for fork in &forks {
+        for (id, palette) in resources::palettes(fork) {
+            // Scripts name palettes in quotes: palette "Navigator".
+            let name = palette.name.to_lowercase();
+            let had = stack.palettes.values().any(|p| p.name.eq_ignore_ascii_case(&name));
+            if !name.is_empty() && !had && !stack.palettes.contains_key(&id) && scripts.contains(&format!("\"{name}\"")) {
+                stack.palettes.insert(id, palette);
+            }
+        }
         for (id, sound) in resources::sounds(fork) {
             let name = sound.name.to_lowercase();
             // Scripts name sounds in quotes: play "boing".
@@ -834,6 +848,21 @@ fn convert_part(p: &PartRec, fonts: &HashMap<i16, String>) -> Part {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn files_that_arent_stacks() {
+        // A VideoWorks movie from Apple's Developer CD, say: not UTF-8, not a stack.
+        let dir = std::env::temp_dir().join(format!("randomcard-notstack-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("OVERVIEW");
+        std::fs::write(&path, [0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0, 0xd2]).unwrap();
+        let e = load_any(&path, None).unwrap_err();
+        assert_eq!(e, "\"OVERVIEW\" isn't a stack. RandomCard opens HyperCard stacks and its own.");
+        // A damaged stack whose bytes happen to start like JSON.
+        std::fs::write(&path, [b'{', b'{', b'z', 0x8a, 0x80]).unwrap();
+        assert!(load_any(&path, None).unwrap_err().contains("isn't a stack"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn mac_roman_text() {

@@ -181,6 +181,7 @@ impl Interp {
                     size,
                     visible: false,
                     dirty: false,
+                    palette: None,
                 });
                 String::new()
             }
@@ -297,12 +298,60 @@ impl Interp {
                     size,
                     visible: true,
                     dirty: false,
+                    palette: None,
                 };
                 let mut w = self.w();
                 w.script_windows
                     .retain(|t| !t.name.eq_ignore_ascii_case(&window.name));
                 w.script_windows.push(window);
                 Ok(())
+            }
+            // palette name, point: HyperCard 2's palettes, a picture of buttons
+            // in a floating window, from the stack's 'PLTE' resources. The
+            // point is the palette's top left on the card; without one, it
+            // goes back where it was, or to 10,20. Opening one sends
+            // openPalette name, id to the card.
+            "palette" => {
+                let name = arg(0).trim().to_string();
+                let found = self.w().stack.find_palette(&name).map(|(id, p)| (id, std::sync::Arc::new(p.clone())));
+                let Some((id, palette)) = found else {
+                    return Some(super::interp::err(format!("Can't find palette \"{name}\"")));
+                };
+                let key = palette.name.to_lowercase();
+                let at = if arg(1).trim().is_empty() {
+                    None
+                } else {
+                    match parse_point(&arg(1)) {
+                        Some(p) => Some(p),
+                        None => return Some(super::interp::err(format!("Expected a point, not \"{}\"", arg(1)))),
+                    }
+                };
+                let mut w = self.w();
+                let (x, y) = at.or_else(|| w.palette_locs.get(&key).copied()).unwrap_or((10, 20));
+                w.palette_locs.insert(key, (x, y));
+                let (pw, ph) = (palette.picture.width as i32, palette.picture.height as i32);
+                let rect = crate::model::Rect::new(x, y, x + pw, y + ph);
+                // Already open: move it there and show it.
+                if let Some(win) = w.script_windows.iter_mut().find(|t| t.name.eq_ignore_ascii_case(&palette.name)) {
+                    win.rect = rect;
+                    win.visible = true;
+                    return Some(Ok(()));
+                }
+                let pname = palette.name.clone();
+                w.script_windows.push(super::world::ScriptWindow {
+                    name: pname.clone(),
+                    kind: super::world::WindowKind::Palette { id, hilited: -1 },
+                    text: String::new(),
+                    rect,
+                    font: String::new(),
+                    size: 12,
+                    visible: true,
+                    dirty: false,
+                    palette: Some(palette),
+                });
+                drop(w);
+                let card = self.current_card_ref();
+                self.send_message(card, "openPalette", &[pname, id.to_string()]).map(|_| ())
             }
             // INITFinder how, "noDialog": the running INITs, in the result.
             "initfinder" => {

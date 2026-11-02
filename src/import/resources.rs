@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use super::mac_roman;
-use crate::model::{Icon, Picture, Pixel, Sound};
+use crate::model::{Icon, Palette, PaletteButton, Picture, Pixel, Rect, Sound};
 
 const APPLE_SINGLE: u32 = 0x0005_1600;
 const APPLE_DOUBLE: u32 = 0x0005_1607;
@@ -244,6 +244,41 @@ pub fn sounds(fork: &[u8]) -> BTreeMap<i32, Sound> {
         .filter(|r| &r.kind == b"snd ")
         .filter_map(|r| Some((r.id as i32, decode_snd(r.data, &r.name)?)))
         .collect()
+}
+
+/// All the palettes in a resource fork: each 'PLTE' with the 'PICT' it names.
+pub fn palettes(fork: &[u8]) -> BTreeMap<i32, Palette> {
+    let res = parse(fork);
+    res.iter()
+        .filter(|r| &r.kind == b"PLTE")
+        .filter_map(|r| {
+            let pict_id = be16(r.data, 8)? as i16;
+            let pict = res.iter().find(|p| &p.kind == b"PICT" && p.id == pict_id)?;
+            Some((r.id as i32, decode_palette(r.data, &r.name, pict.data)?))
+        })
+        .collect()
+}
+
+/// Decode a 'PLTE' and its picture. The layout: a header (flags, the PICT's
+/// id, and the picture frame's top left), the button count at 22, then each
+/// button's rect (top, left, bottom, right, in the picture's coordinates),
+/// two flag bytes, and its message as a Pascal string, padded to even.
+pub fn decode_palette(data: &[u8], name: &str, pict: &[u8]) -> Option<Palette> {
+    let pict = super::pict::decode(pict)?;
+    let count = be16(data, 22)? as usize;
+    let mut at = 24;
+    let mut buttons = Vec::with_capacity(count);
+    for _ in 0..count {
+        let v = |i: usize| be16(data, at + i).map(|v| v as i16 as i32);
+        let (top, left, bottom, right) = (v(0)?, v(2)?, v(4)?, v(6)?);
+        let len = *data.get(at + 10)? as usize;
+        let message = mac_roman(data.get(at + 11..at + 11 + len)?).trim().to_string();
+        let rect = Rect::new(left - pict.left, top - pict.top, right - pict.left, bottom - pict.top);
+        buttons.push(PaletteButton { rect, message });
+        at += 11 + len;
+        at += at % 2;
+    }
+    Some(Palette { name: name.to_string(), picture: pict.to_picture(), buttons })
 }
 
 const SOUND_CMD: u16 = 80;
@@ -517,6 +552,33 @@ pub mod tests {
         assert_eq!(icon.picture.get(0, 0), Pixel::Clear);
         assert_eq!(icon.picture.get(8, 8), Pixel::Black);
         assert_eq!(icon.picture.get(15, 15), Pixel::White);
+    }
+
+    #[test]
+    fn palette_resources() {
+        // A 16×2 picture at 20,10, and a PLTE naming it, with two buttons;
+        // the first message's odd length takes a pad byte.
+        let mut pict = vec![0, 0, 0, 10, 0, 20, 0, 12, 0, 36, 0x11, 0x01, 0x90, 0, 2];
+        for _ in 0..3 {
+            pict.extend([0, 10, 0, 20, 0, 12, 0, 36]);
+        }
+        pict.extend([0, 0, 0xff, 0x00, 0x00, 0xff, 0xff]);
+        let mut plte = vec![0, 0, 8, 4, 0xff, 0xff, 0, 0, 0, 7, 0, 10, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2];
+        plte.extend([0, 10, 0, 20, 0, 12, 0, 28, 0, 0, 6]);
+        plte.extend(b"  ones");
+        plte.push(0x82);
+        plte.extend([0, 10, 0, 28, 0, 12, 0, 36, 0, 0, 3]);
+        plte.extend(b"two");
+        let fork = make_fork(&[(b"PLTE", 7, "Tools", plte), (b"PICT", 7, "Tools", pict)]);
+        let palettes = palettes(&fork);
+        let p = &palettes[&7];
+        assert_eq!(p.name, "Tools");
+        assert_eq!((p.picture.width, p.picture.height), (16, 2));
+        assert_eq!(p.picture.get(0, 0), Pixel::Black);
+        assert_eq!(p.picture.get(8, 0), Pixel::White);
+        assert_eq!(p.buttons.len(), 2);
+        assert_eq!((p.buttons[0].rect, p.buttons[0].message.as_str()), (Rect::new(0, 0, 8, 2), "ones"));
+        assert_eq!((p.buttons[1].rect, p.buttons[1].message.as_str()), (Rect::new(8, 0, 16, 2), "two"));
     }
 
     #[test]

@@ -206,8 +206,8 @@ of its script works.
 - **Menus:** the `textStyle` of menu items and `the markChar` beyond a
   check mark are accepted but not shown. Submenus and hierarchical menus
   (HyperCard 2.2's popup-style items) aren't supported.
-- **Windows and palettes:** `palette`, `picture`, `close window`, and
-  `the visible of window`.
+- **Windows and palettes:** `picture`. (`palette`, `close window` and
+  `the visible of window` are done.)
 - **`edit script` with a line.** The debugger is done; it lacks
   evaluating expressions in the message box while stopped (HyperCard ran
   them in the stopped handler's context), and checkpoints don't move when
@@ -276,7 +276,9 @@ resources) for buttons, fields and rectangles.
 - **XCMDs and XFCNs.** These are 68k/PowerPC code and can't run directly.
   See item 4 of the suggested order: a framework for externals written in
   Rust, starting with versions of the common ones.
-- **PICT resources** and `picture`/`palette` windows.
+- **PICT resources:** bitmaps decode (src/import/pict.rs); QuickDraw's
+  drawing opcodes (lines, shapes, text) don't yet. Palettes use it;
+  `picture` windows will.
 - **Checksum validation** of LIST and PAGE blocks, for clearer errors on
   damaged stacks.
 
@@ -419,8 +421,9 @@ can be re-run. What's missing, by feature (details there):
 
 - **HyperCard 2 windows:** global rect and loc, the card window's scroll
   (hBarLoc, vBarLoc), zoom, hide and show window, moveWindow and sizeWindow.
-- **Palettes and picture windows:** the `palette` and `picture` commands and
-  their messages.
+- **Picture windows:** the `picture` command and its messages. Palettes are
+  done, except HyperCard's own Navigator palette (`palette "Navigator"`)
+  and color palette pictures, which are kept in black and white.
 - **AppleEvents and other programs:** `request`, `reply`, `answer program`,
   appleEvent, and opening or printing documents with another application.
   Needs design: what they mean on today's systems.

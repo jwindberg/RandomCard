@@ -385,6 +385,26 @@ pub struct Icon {
     pub picture: Picture,
 }
 
+/// A HyperCard 2 palette: a picture with buttons that send messages, shown
+/// in a floating window by the `palette` command (a 'PLTE' resource and its
+/// 'PICT' in HyperCard).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Palette {
+    pub name: String,
+    pub picture: Picture,
+    pub buttons: Vec<PaletteButton>,
+}
+
+/// A palette button: where it is in the palette's picture, and the message
+/// it sends to the current card.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PaletteButton {
+    pub rect: Rect,
+    pub message: String,
+}
+
 /// A sampled sound, as played by HyperTalk's `play` command.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -471,6 +491,9 @@ pub struct Stack {
     pub icons: BTreeMap<i32, Icon>,
     /// Sounds by resource id; scripts play them by name.
     pub sounds: BTreeMap<i32, Sound>,
+    /// Palettes by resource id, for the `palette` command.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub palettes: BTreeMap<i32, Palette>,
     /// The paint pattern palette: 40 patterns of 8 rows, numbered from 1.
     #[serde(default = "default_patterns")]
     pub patterns: Vec<[u8; 8]>,
@@ -510,6 +533,7 @@ impl Stack {
             protection: Protection::default(),
             icons: BTreeMap::new(),
             sounds: BTreeMap::new(),
+            palettes: BTreeMap::new(),
             patterns: default_patterns(),
             path: None,
             imported_from: None,
@@ -541,6 +565,16 @@ impl Stack {
             .values()
             .find(|s| s.name.eq_ignore_ascii_case(t))
             .or_else(|| t.parse::<i32>().ok().and_then(|id| self.sounds.get(&id)))
+    }
+
+    /// Find a palette by name (case-insensitively) or id.
+    pub fn find_palette(&self, name: &str) -> Option<(i32, &Palette)> {
+        let t = name.trim();
+        self.palettes
+            .iter()
+            .find(|(_, p)| p.name.eq_ignore_ascii_case(t))
+            .or_else(|| t.parse::<i32>().ok().and_then(|id| self.palettes.get_key_value(&id)))
+            .map(|(id, p)| (*id, p))
     }
 
     /// Pattern `n` (numbered from 1), or black if there's no such pattern.

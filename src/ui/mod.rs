@@ -129,6 +129,11 @@ pub struct App {
     recent_open: bool,
     /// A popup button's menu, while it's open.
     popup: Option<popup::PopupMenu>,
+    /// Palette pictures, normal and inverted, by window name, with the
+    /// palette each was made from.
+    palette_tex: std::collections::HashMap<String, (std::sync::Arc<crate::model::Palette>, egui::TextureHandle, egui::TextureHandle)>,
+    /// The palette button being pressed: its window and number (from 0).
+    palette_press: Option<(String, usize)>,
     /// The native menu bar, and the items chosen from it.
     #[cfg(target_os = "macos")]
     native_menus: native_menu::NativeMenus,
@@ -218,6 +223,8 @@ impl App {
             msg_cursor: None,
             recent_open: false,
             popup: None,
+            palette_tex: std::collections::HashMap::new(),
+            palette_press: None,
             #[cfg(target_os = "macos")]
             native_menus: native_menu::NativeMenus::new(),
             #[cfg(target_os = "macos")]

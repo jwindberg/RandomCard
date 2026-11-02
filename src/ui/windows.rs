@@ -629,6 +629,7 @@ impl App {
                             ui.add(egui::ProgressBar::new(fraction as f32));
                         });
                 }
+                WindowKind::Palette { hilited, .. } => self.palette_window(ctx, &t, at, hilited),
                 WindowKind::Text => {
                     let mut open = true;
                     let mut text = t.text.clone();
@@ -665,6 +666,104 @@ impl App {
                     }
                 }
             }
+        }
+    }
+
+    /// A palette: a windoid with a striped title bar and close box, showing
+    /// its picture. A button inverts while the mouse is down on it and sends
+    /// its message when the mouse comes up inside it.
+    fn palette_window(&mut self, ctx: &egui::Context, t: &crate::runtime::world::ScriptWindow, at: egui::Pos2, hilited: i32) {
+        use egui::{Rect, Sense, Stroke, StrokeKind, pos2, vec2};
+        let Some(palette) = t.palette.clone() else { return };
+        let fresh = self.palette_tex.get(&t.name).is_none_or(|(p, _, _)| !std::sync::Arc::ptr_eq(p, &palette));
+        if fresh {
+            let normal = super::render::picture_image(&palette.picture);
+            let mut inverted = normal.clone();
+            for px in &mut inverted.pixels {
+                *px = if *px == Color32::BLACK { Color32::WHITE } else { Color32::BLACK };
+            }
+            let opts = egui::TextureOptions::NEAREST;
+            let n = ctx.load_texture(format!("palette-{}", t.name), normal, opts);
+            let i = ctx.load_texture(format!("palette-{}-inv", t.name), inverted, opts);
+            self.palette_tex.insert(t.name.clone(), (palette.clone(), n, i));
+        }
+        let (_, normal, inverted) = self.palette_tex[&t.name].clone();
+        const BAR: f32 = 11.0;
+        let size = vec2(palette.picture.width as f32, palette.picture.height as f32);
+        let id = egui::Id::unique(("palette", t.name.as_str()));
+        let mut moved = None;
+        let mut close = false;
+        let mut clicked = None;
+        egui::Area::new(id)
+            .order(egui::Order::Foreground)
+            .fixed_pos(at - vec2(1.0, BAR + 1.0))
+            .show(ctx, |ui| {
+                let (outer, _) = ui.allocate_exact_size(size + vec2(2.0, BAR + 2.0), Sense::hover());
+                let painter = ui.painter();
+                painter.rect_filled(outer, 0.0, Color32::WHITE);
+                painter.rect_stroke(outer, 0.0, Stroke::new(1.0, Color32::BLACK), StrokeKind::Inside);
+                let bar = Rect::from_min_size(outer.min + vec2(1.0, 1.0), vec2(size.x, BAR));
+                let line = Stroke::new(1.0, Color32::BLACK);
+                for y in (2..BAR as i32 - 1).step_by(2) {
+                    let y = bar.top() + y as f32 + 0.5;
+                    painter.hline(bar.left() + 1.0..=bar.right() - 1.0, y, line);
+                }
+                painter.hline(bar.x_range(), bar.bottom() - 0.5, line);
+                let close_box = Rect::from_min_size(bar.min + vec2(6.0, 1.0), vec2(9.0, 9.0));
+                painter.rect_filled(close_box.expand(1.0), 0.0, Color32::WHITE);
+                painter.rect_stroke(close_box, 0.0, line, StrokeKind::Inside);
+                let picture = Rect::from_min_size(pos2(bar.left(), bar.bottom()), size);
+                let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+                painter.image(normal.id(), picture, uv, Color32::WHITE);
+
+                let bar_resp = ui.interact(bar, id.with("bar"), Sense::click_and_drag());
+                if bar_resp.clicked() && bar_resp.interact_pointer_pos().is_some_and(|p| close_box.expand(2.0).contains(p)) {
+                    close = true;
+                } else if bar_resp.dragged() {
+                    moved = Some(bar_resp.drag_delta());
+                }
+                let resp = ui.interact(picture, id.with("picture"), Sense::click_and_drag());
+                let pointer = ctx.input(|i| i.pointer.latest_pos());
+                let button_at = |p: egui::Pos2| {
+                    let (x, y) = ((p.x - picture.left()) as i32, (p.y - picture.top()) as i32);
+                    palette.buttons.iter().position(|b| b.rect.contains(x, y))
+                };
+                if resp.is_pointer_button_down_on() && ctx.input(|i| i.pointer.primary_pressed()) {
+                    self.palette_press = pointer.and_then(button_at).map(|n| (t.name.clone(), n));
+                }
+                let pressed = self.palette_press.as_ref().filter(|(w, _)| *w == t.name).map(|(_, n)| *n);
+                let over = pressed.filter(|n| pointer.and_then(button_at) == Some(*n));
+                if ctx.input(|i| i.pointer.primary_released()) && pressed.is_some() {
+                    clicked = over;
+                    self.palette_press = None;
+                }
+                // The pressed button, and the one a script highlighted.
+                let shown = [over, usize::try_from(hilited - 1).ok()];
+                for n in shown.into_iter().flatten() {
+                    let Some(b) = palette.buttons.get(n) else { continue };
+                    let r = b.rect;
+                    let cell = Rect::from_min_max(
+                        picture.min + vec2(r.left as f32, r.top as f32),
+                        picture.min + vec2(r.right as f32, r.bottom as f32),
+                    )
+                    .intersect(picture);
+                    let uv = Rect::from_min_max(
+                        pos2((cell.left() - picture.left()) / size.x, (cell.top() - picture.top()) / size.y),
+                        pos2((cell.right() - picture.left()) / size.x, (cell.bottom() - picture.top()) / size.y),
+                    );
+                    ui.painter().image(inverted.id(), cell, uv, Color32::WHITE);
+                }
+            });
+        if let Some(d) = moved {
+            let mut w = lock(&self.rt.world);
+            if let Some(win) = w.script_windows.iter_mut().find(|x| x.name == t.name) {
+                win.rect = win.rect.translate(d.x.round() as i32, d.y.round() as i32);
+            }
+        }
+        if close {
+            self.send(Event::CloseWindow(t.name.clone()));
+        } else if let Some(n) = clicked {
+            self.send(Event::PaletteButton(t.name.clone(), n));
         }
     }
 

@@ -149,14 +149,14 @@ fn house(p: &mut Picture) {
 const STACK_SCRIPT: &str = r#"-- A menu of the stack's own. Its items arrive as doMenu messages.
 on openStack
   if there is no menu "Tour" then create menu "Tour"
-  put "Contents,Basics,Dice,Drawing,Animation,Sound,Keys,Fields,Print & Find,Icons,Debugging,-,Address Book" into menu "Tour"
+  put "Contents,Basics,Dice,Drawing,Animation,Sound,Keys,Fields,Print & Find,Icons,Debugging,Palettes,-,Address Book" into menu "Tour"
 end openStack
 
 on doMenu what
   if what is "Address Book" then
     visual effect zoom open
     go to first card of background "Address"
-  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation,Sound,Keys,Fields,Print & Find,Icons,Debugging," then
+  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation,Sound,Keys,Fields,Print & Find,Icons,Debugging,Palettes," then
     visual effect dissolve
     go to card what
   else
@@ -193,6 +193,31 @@ on openCard
   put the number of this card - others && "of" && the number of cards of this background into field "Count"
 end openCard
 "#;
+
+/// The Tour's palette: four buttons in a grid, drawn here instead of read
+/// from a 'PLTE' resource.
+fn tour_palette() -> super::Palette {
+    let (cell_w, cell_h) = (72, 24);
+    let (w, h) = (cell_w * 2 + 1, cell_h * 2 + 1);
+    let mut pic = Picture::new(w as u32, h as u32);
+    for y in 0..h {
+        for x in 0..w {
+            pic.set(x, y, Pixel::White);
+        }
+    }
+    frame(&mut pic, 0, 0, w - 1, h - 1);
+    hline(&mut pic, 0, w - 1, cell_h);
+    vline(&mut pic, cell_w, 0, h - 1);
+    let cells = [("Prev", "go to previous card"), ("Next", "go to next card"), ("Contents", "go to card \"Contents\""), ("Beep", "beep")];
+    let mut buttons = Vec::new();
+    for (i, (label, message)) in cells.iter().enumerate() {
+        let (l, t) = ((i as i32 % 2) * cell_w, (i as i32 / 2) * cell_h);
+        crate::paint::draw_text(&mut pic, l + 10, t + 5, label, 12, "Geneva", "bold");
+        let rect = Rect::new(l + 1, t + 1, l + cell_w, t + cell_h);
+        buttons.push(super::PaletteButton { rect, message: message.to_string() });
+    }
+    super::Palette { name: "Tour Palette".into(), picture: pic, buttons }
+}
 
 pub fn build() -> Stack {
     let mut s = Stack::new("Tour");
@@ -254,13 +279,14 @@ pub fn build() -> Stack {
         ("Print & Find", "on mouseUp\n  visual effect scroll left\n  go to card \"Print & Find\"\nend mouseUp"),
         ("Icons", "on mouseUp\n  visual effect zoom open\n  go to card \"Icons\"\nend mouseUp"),
         ("Debugging", "on mouseUp\n  visual effect iris open\n  go to card \"Debugging\"\nend mouseUp"),
+        ("Palettes", "on mouseUp\n  visual effect wipe right\n  go to card \"Palettes\"\nend mouseUp"),
         ("Address Book", "on mouseUp\n  visual effect zoom open\n  go to first card of background \"Address\"\nend mouseUp"),
     ];
     for (i, (name, script)) in buttons.iter().enumerate() {
         let (col, row) = ((i % 3) as i32, (i / 3) as i32);
         let x = 36 + col * 150;
-        let y = 150 + row * 38;
-        let p = b.button(name, Rect::new(x, y, x + 140, y + 28), script);
+        let y = 142 + row * 32;
+        let p = b.button(name, Rect::new(x, y, x + 140, y + 26), script);
         b.card_part(c, p);
     }
 
@@ -706,6 +732,32 @@ end square"#,
     let mut answer = b.label("Answer", Rect::new(20, 132, 492, 156), "", 14);
     answer.text_align = TextAlign::Center;
     b.card_part(c, answer);
+
+    // ----- Palettes -----
+    let c = b.card(main, "Palettes");
+    let t = b.label("Heading", Rect::new(20, 10, 492, 36), "Palettes", 20);
+    b.card_part(c, t);
+    let about = b.label(
+        "About",
+        Rect::new(20, 42, 492, 90),
+        "A palette floats over the cards, and each of its buttons sends a message. HyperCard stacks keep theirs as resources, and RandomCard brings them along. Show this one, then go to another card: it stays.",
+        12,
+    );
+    b.card_part(c, about);
+    b.stack.palettes.insert(1, tour_palette());
+    let palette_buttons = [
+        ("Show Palette", "on mouseUp\n  palette \"Tour Palette\", \"330,110\"\nend mouseUp"),
+        ("Close Palette", "on mouseUp\n  if there is a window \"Tour Palette\" then close window \"Tour Palette\"\nend mouseUp"),
+    ];
+    for (i, (name, script)) in palette_buttons.iter().enumerate() {
+        let y = 110 + i as i32 * 38;
+        let p = b.button(name, Rect::new(36, y, 176, y + 28), script);
+        b.card_part(c, p);
+    }
+    let mut said = b.label("Said", Rect::new(36, 200, 476, 222), "", 12);
+    said.text_style = "italic".into();
+    b.card_part(c, said);
+    b.stack.cards[c].script = "on openPalette name, id\n  put \"openPalette\" && name && id into field \"Said\"\nend openPalette\n\non closePalette name\n  put \"closePalette\" && name into field \"Said\"\nend closePalette".into();
 
     // ----- Address book: a second background with per-card field text -----
     let addr = b.background("Address", ADDRESS_BG_SCRIPT);

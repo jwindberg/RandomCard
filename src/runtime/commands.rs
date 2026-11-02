@@ -309,9 +309,8 @@ impl Interp {
             }
             Cmd::CloseWindow(e) => {
                 let name = self.eval(e)?;
+                self.close_script_window(name.trim(), false)?;
                 let mut w = self.w();
-                w.script_windows
-                    .retain(|t| !t.name.eq_ignore_ascii_case(name.trim()));
                 if name.trim().eq_ignore_ascii_case("message")
                     || name.trim().eq_ignore_ascii_case("message box")
                 {
@@ -645,7 +644,14 @@ impl Interp {
                 {
                     return self.show_hide(&ShowHide::ToolWindow, show, at);
                 }
+                if ["patterns", "pattern window"].iter().any(|m| m.eq_ignore_ascii_case(name)) {
+                    return self.show_hide(&ShowHide::PatternWindow, show, at);
+                }
                 let mut w = self.w();
+                // The card window, by its stack's name: it's already showing.
+                if name.eq_ignore_ascii_case(&w.stack.name) || name.eq_ignore_ascii_case("card window") {
+                    return Ok(());
+                }
                 let Some(win) = w
                     .script_windows
                     .iter_mut()

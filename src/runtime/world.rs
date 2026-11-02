@@ -1,5 +1,6 @@
 //! State shared between the UI thread and the script thread.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -219,6 +220,8 @@ pub struct ScriptWindow {
     pub visible: bool,
     /// Whether the user has changed the text.
     pub dirty: bool,
+    /// A palette window's palette.
+    pub palette: Option<std::sync::Arc<crate::model::Palette>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -228,6 +231,9 @@ pub enum WindowKind {
     /// A label over a progress bar, filled to a fraction from 0 to 1
     /// (ProgressWindoid).
     Progress(f64),
+    /// A palette (the `palette` command): its id, and the button that
+    /// stays highlighted (from 1), or -1 for none.
+    Palette { id: i32, hilited: i32 },
 }
 
 impl ScriptWindow {
@@ -247,11 +253,25 @@ impl ScriptWindow {
             "textsize" => self.size.to_string(),
             "fraction" => match self.kind {
                 WindowKind::Progress(f) => crate::hypertalk::value::format_number(f, "0.######"),
-                WindowKind::Text => return None,
+                _ => return None,
+            },
+            "id" => match self.kind {
+                WindowKind::Palette { id, .. } => id.to_string(),
+                _ => return None,
+            },
+            "buttoncount" => self.palette.as_ref()?.buttons.len().to_string(),
+            "commands" => {
+                let p = self.palette.as_ref()?;
+                p.buttons.iter().map(|b| b.message.as_str()).collect::<Vec<_>>().join("\n")
+            }
+            "hilitedbutton" => match self.kind {
+                WindowKind::Palette { hilited, .. } => hilited.to_string(),
+                _ => return None,
             },
             "properties" => match self.kind {
                 WindowKind::Progress(_) => "width,text,fraction,textFont,textSize".into(),
                 WindowKind::Text => "text,textFont,textSize".into(),
+                WindowKind::Palette { .. } => "buttonCount,commands,hilitedButton,properties".into(),
             },
             _ => return None,
         })
@@ -299,7 +319,16 @@ impl ScriptWindow {
                         .map_err(|_| format!("Expected a number, not \"{v}\""))?;
                     self.kind = WindowKind::Progress(f.clamp(0.0, 1.0));
                 }
-                WindowKind::Text => return Ok(false),
+                _ => return Ok(false),
+            },
+            // Highlights a palette button without sending its message.
+            "hilitedbutton" => match &mut self.kind {
+                WindowKind::Palette { hilited, .. } => {
+                    let n = int(v)?;
+                    let count = self.palette.as_ref().map_or(0, |p| p.buttons.len()) as i32;
+                    *hilited = if (1..=count).contains(&n) { n } else { -1 };
+                }
+                _ => return Ok(false),
             },
             _ => return Ok(false),
         }
@@ -415,6 +444,8 @@ pub enum Event {
     /// TEXWindowClosing name, changed, while the window can still be read,
     /// and then it closes.
     CloseWindow(String),
+    /// The user clicked button `n` (from 0) of the named palette.
+    PaletteButton(String, usize),
     Shutdown,
 }
 
@@ -458,6 +489,9 @@ pub struct World {
     pub requests: Vec<UiRequest>,
     /// Text windows scripts have opened (TEXWindow), in front last.
     pub script_windows: Vec<ScriptWindow>,
+    /// Where each palette was last shown, by lowercased name, so the
+    /// `palette` command without a point puts it back there.
+    pub palette_locs: HashMap<String, (i32, i32)>,
     pub dialog: Option<Dialog>,
     /// A script is running.
     pub busy: bool,
@@ -605,6 +639,7 @@ impl World {
             picture_rev: 0,
             requests: Vec::new(),
             script_windows: Vec::new(),
+            palette_locs: HashMap::new(),
             dialog: None,
             busy: false,
             found: None,

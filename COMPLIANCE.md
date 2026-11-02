@@ -49,8 +49,9 @@ HyperCard; the stacks in BUGHUNT.md test that.
 window` for named windows; the moveWindow and sizeWindow messages. A start was
 made with TEXWindow's text windows (`the text of window`, `close window`).
 
-**Palettes and picture windows.** The `palette` command and the openPalette
-and closePalette messages; the `picture` command (Apple's Picture XCMD, built
+**Picture windows.** (Palettes are done: the `palette` command, openPalette
+and closePalette, and the buttonCount, commands and hilitedButton of a
+palette; HyperCard's own Navigator palette isn't there yet.) The `picture` command (Apple's Picture XCMD, built
 into 2.x), with the openPicture, closePicture, mouseDownInPicture and
 mouseUpInPicture messages and the `dithering` and `zoom` properties.
 
@@ -84,8 +85,7 @@ properties` (lists of what's available) are also missing.
   group-style text isn't drawn.
 - `ask file … with default name`.
 - `doMenu … with` modifier keys.
-- `the selectedButton of family N` (the function form works), `the
-  hilitedButton`, `the buttonCount`.
+- `the selectedButton of family N` (the function form works).
 - `the dialingTime` and `dialingVolume`, for `dial`.
 - `enterInField`, `enterKey`, `returnInField`, `returnKey`, `tabKey` and
   `help` used as commands parse but do nothing; each should do what its key or

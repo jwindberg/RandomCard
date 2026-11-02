@@ -311,13 +311,13 @@ fn click(i: &mut Interp, card_name: &str, button: &str) -> Option<String> {
 fn demo_stack_runs() {
     let mut i = interp_with(Stack::demo());
     i.handle_event(Event::Startup);
-    assert_eq!(run(&mut i, "put field \"Page\""), "Card 1 of 14");
+    assert_eq!(run(&mut i, "put field \"Page\""), "Card 1 of 15");
     let current = |i: &Interp| {
         let w = lock(&i.world);
         w.stack.card(w.card_id).unwrap().name.clone()
     };
     // The stack's own Tour menu.
-    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "13");
+    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "14");
     i.handle_event(Event::DoMenu("Dice".into()));
     assert_eq!(current(&i), "Dice");
     i.handle_event(Event::DoMenu("First".into()));
@@ -330,6 +330,17 @@ fn demo_stack_runs() {
     i.canned_answers.push(DialogReply::Text(Some("Dan".into())));
     i.canned_answers.push(DialogReply::Button("OK".into()));
     assert_eq!(click(&mut i, "Basics", "Say Hello"), None);
+    // The palette floats over every card, and says when it opens and closes.
+    assert_eq!(click(&mut i, "Contents", "Palettes"), None);
+    assert_eq!(click(&mut i, "Palettes", "Show Palette"), None);
+    assert_eq!(run(&mut i, "put field \"Said\" of card \"Palettes\""), "openPalette Tour Palette 1");
+    i.handle_event(Event::PaletteButton("Tour Palette".into(), 1));
+    assert_eq!(current(&i), "Grace Hopper");
+    i.handle_event(Event::PaletteButton("Tour Palette".into(), 2));
+    assert_eq!(current(&i), "Contents");
+    run(&mut i, "go to card \"Palettes\"");
+    assert_eq!(click(&mut i, "Palettes", "Close Palette"), None);
+    assert_eq!(run(&mut i, "put field \"Said\" of card \"Palettes\""), "closePalette Tour Palette");
     assert_eq!(click(&mut i, "Contents", "Dice & Effects"), None);
     assert_eq!(click(&mut i, "Dice", "Roll"), None);
     assert!(run(&mut i, "put field \"Result\" of card \"Dice\"").starts_with("You rolled"));
@@ -418,7 +429,7 @@ fn demo_stack_runs() {
     assert_eq!(run(&mut i, "put the number of cards of this background"), "4");
     i.canned_answers.push(DialogReply::Button("Delete".into()));
     assert_eq!(click(&mut i, "", "Delete"), None);
-    assert_eq!(run(&mut i, "put the number of cards"), "14");
+    assert_eq!(run(&mut i, "put the number of cards"), "15");
     assert_eq!(click(&mut i, "Grace Hopper", "Contents"), None);
     assert_eq!(current(&i), "Contents");
     assert_eq!(run(&mut i, "put the userLevel"), "5");
@@ -1646,6 +1657,71 @@ fn script_windows_from_scripts() {
     assert_eq!(run(&mut i, "put there is a window \"Notes\""), "false");
     run(&mut i, "TEXWindow \"Notes\", \"Again\"\nclose window \"Notes\"");
     assert_eq!(run(&mut i, "put there is a window \"Notes\""), "false");
+}
+
+#[test]
+fn palettes() {
+    // As Apple's Info Island stacks use them: a navigation palette whose
+    // buttons send messages to the card, opened at a point and closed by
+    // the stack's scripts.
+    use crate::model::{Palette, PaletteButton, Picture, Rect};
+    let mut i = interp_with(stack());
+    let buttons = vec![
+        PaletteButton { rect: Rect::new(0, 0, 50, 20), message: "menuNavigation \"Stack Map\"".into() },
+        PaletteButton { rect: Rect::new(50, 0, 100, 20), message: "showMarker".into() },
+    ];
+    let palette = Palette { name: "mainMenu".into(), picture: Picture::new(100, 20), buttons };
+    lock(&i.world).stack.palettes.insert(25263, palette);
+    let card = lock(&i.world).card_id;
+    set_script(
+        &i,
+        ObjRef::Card(card),
+        "on openPalette n, id\n  put n && id into msg\nend openPalette\n\
+         on closePalette n\n  put \"closed\" && n into msg\nend closePalette\n\
+         on menuNavigation where\n  put where into msg\nend menuNavigation",
+    );
+    run(&mut i, "palette \"MAINMENU\",\"327,184\"");
+    assert_eq!(lock(&i.world).msg, "mainMenu 25263");
+    assert_eq!(run(&mut i, "put there is a window \"mainMenu\""), "true");
+    assert_eq!(run(&mut i, "put the loc of window \"mainMenu\""), "327,184");
+    assert_eq!(run(&mut i, "put the buttonCount of window \"mainMenu\""), "2");
+    assert_eq!(run(&mut i, "put line 2 of the commands of window \"mainMenu\""), "showMarker");
+    assert_eq!(run(&mut i, "put the hilitedButton of window \"mainMenu\""), "-1");
+    run(&mut i, "set the hilitedButton of window \"mainMenu\" to 2");
+    assert_eq!(run(&mut i, "put the hilitedButton of window \"mainMenu\""), "2");
+    i.handle_event(Event::PaletteButton("mainMenu".into(), 0));
+    assert_eq!(lock(&i.world).msg, "Stack Map");
+    run(&mut i, "close window \"mainMenu\"");
+    assert_eq!(lock(&i.world).msg, "closed mainMenu");
+    assert_eq!(run(&mut i, "put there is a window \"mainMenu\""), "false");
+    // Without a point it goes back where it was.
+    run(&mut i, "palette \"mainMenu\"");
+    assert_eq!(run(&mut i, "put the loc of window \"mainMenu\""), "327,184");
+    assert!(run(&mut i, "palette \"nothing\"").contains("Can't find palette"));
+}
+
+#[test]
+fn the_windows_name_the_card_window_by_its_stack() {
+    // The develop stacks build a Windows menu from the windows with
+    // "develop" in their names, and check its fifth item: the stack's own.
+    let mut s = stack();
+    s.name = "develop Index".into();
+    let mut i = interp_with(s);
+    run(&mut i, "TEXWindow \"Notes\", \"Hi\"");
+    assert_eq!(run(&mut i, "put line 1 to 2 of the windows"), "Notes\ndevelop Index");
+    assert_eq!(run(&mut i, "put there is a window \"develop index\""), "true");
+    assert_eq!(run(&mut i, "put there is a window \"card window\""), "true");
+    let script = "create menu \"Windows\"\n\
+        put the windows into all\n\
+        repeat with i = the number of lines in all down to 1\n\
+        if \"develop\" is not in line i of all then delete line i of all\n\
+        end repeat\n\
+        put \"Show Page Snapshots\" & return & \"-\" & return & \"Show All Issues\" & return & \"-\" & return & all into menu \"Windows\"\n\
+        set checkmark of menuitem 5 of menu \"Windows\" to true\n\
+        show window \"develop Index\"\n\
+        show window \"Patterns\"\n\
+        put menuitem 5 of menu \"Windows\"";
+    assert_eq!(run(&mut i, script), "develop Index");
 }
 
 #[test]

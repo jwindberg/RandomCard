@@ -257,32 +257,23 @@ impl Interp {
                 // An item with a menuMessage sends it instead of doMenu.
                 let message = super::menus::find_item(&self.w().menus, &item).map(|i| i.message.clone());
                 match message.filter(|m| !m.is_empty()) {
-                    Some(m) => self.send_text(&m, card),
+                    Some(m) => self.send_text_top(&m, card),
                     None => self.dispatch_top(card, "doMenu", vec![item]),
                 }
             }
             Event::Key { target, message, args, default } => self.key_message(target, &message, args, default),
-            Event::CloseWindow(name) => {
+            Event::CloseWindow(name) => self.close_script_window(&name, true),
+            Event::PaletteButton(name, n) => {
                 let card = ObjRef::Card(self.w().card_id);
-                let (text, dirty) = {
+                let message = {
                     let w = self.w();
                     let t = w.script_windows.iter().find(|t| t.name == name);
-                    (
-                        t.is_some_and(|t| t.kind == super::world::WindowKind::Text),
-                        t.is_some_and(|t| t.dirty),
-                    )
+                    t.and_then(|t| t.palette.as_ref()).and_then(|p| p.buttons.get(n)).map(|b| b.message.clone())
                 };
-                let r = if text {
-                    self.dispatch_top(
-                        card,
-                        "TEXWindowClosing",
-                        vec![name.clone(), dirty.to_string()],
-                    )
-                } else {
-                    Ok(())
-                };
-                self.w().script_windows.retain(|t| t.name != name);
-                r
+                match message {
+                    Some(m) if !m.is_empty() => self.send_text_top(&m, card),
+                    _ => Ok(()),
+                }
             }
             Event::Shutdown => Ok(()),
         };
@@ -318,6 +309,19 @@ impl Interp {
         let mut w = self.w();
         w.lock_screen = false;
         w.busy = false;
+    }
+
+    /// Send a menu item's or palette button's message from outside any
+    /// handler: it may be a built-in command (`go next`), which needs a frame.
+    fn send_text_top(&mut self, text: &str, target: ObjRef) -> R<()> {
+        let card = self.current_card_ref();
+        self.frames.push(Frame::new(card, target, "", Vec::new()));
+        let r = self.send_text(text, target);
+        self.frames.pop();
+        match r {
+            Err(Ctl::ExitToHyperCard) => Ok(()),
+            r => r,
+        }
     }
 
     fn dispatch_top(&mut self, target: ObjRef, message: &str, args: Vec<String>) -> R<()> {
@@ -478,6 +482,39 @@ impl Interp {
                 Err(Ctl::Error(ScriptError { msg, obj: Some(obj), line }))
             }
         }
+    }
+
+    /// Close a window a script opened. A text window the user closes tells
+    /// the card with TEXWindowClosing name, changed (its text still there to
+    /// read); a palette sends closePalette name, id.
+    pub fn close_script_window(&mut self, name: &str, by_user: bool) -> R<()> {
+        let card = self.current_card_ref();
+        let Some(t) = self.w().script_windows.iter().find(|t| t.name.eq_ignore_ascii_case(name)).cloned() else {
+            return Ok(());
+        };
+        let r = match t.kind {
+            super::world::WindowKind::Text if by_user => {
+                self.dispatch_top(card, "TEXWindowClosing", vec![t.name.clone(), t.dirty.to_string()])
+            }
+            _ => Ok(()),
+        };
+        {
+            let mut w = self.w();
+            w.script_windows.retain(|x| !x.name.eq_ignore_ascii_case(name));
+            if t.palette.is_some() {
+                w.palette_locs.insert(t.name.to_lowercase(), (t.rect.left, t.rect.top));
+            }
+        }
+        r?;
+        if let super::world::WindowKind::Palette { id, .. } = t.kind {
+            let args = vec![t.name.clone(), id.to_string()];
+            if by_user {
+                self.dispatch_top(card, "closePalette", args)?;
+            } else {
+                self.send_message(card, "closePalette", &args)?;
+            }
+        }
+        Ok(())
     }
 
     pub fn current_card_ref(&self) -> ObjRef {

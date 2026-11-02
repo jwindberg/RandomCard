@@ -202,7 +202,9 @@ impl Interp {
                     .rev()
                     .map(|t| t.name.clone())
                     .collect();
-                list.extend(["card window".to_string(), "message box".to_string()]);
+                // The card window goes by its stack's name, as in HyperCard.
+                list.push(w.stack.name.clone());
+                list.extend(["Message", "Tools", "Patterns"].map(String::from));
                 list.join("\n")
             }
             // The text, rect or name of a window a script opened.
@@ -238,7 +240,13 @@ impl Interp {
             // `there is a window "…"`: one of the windows `the windows` lists.
             "__windowexists" => {
                 let windows = self.builtin("windows", NameLength::Default, vec![])?;
-                bool_str(windows.lines().any(|w| w.eq_ignore_ascii_case(arg(0).trim())))
+                let name = arg(0);
+                let name = name.trim();
+                let other_names = ["card window", "message box", "msg", "message window", "tool window", "pattern window"];
+                bool_str(
+                    windows.lines().any(|w| w.eq_ignore_ascii_case(name))
+                        || other_names.iter().any(|w| w.eq_ignore_ascii_case(name)),
+                )
             }
             _ => return err(format!("No such function \"{name}\"")),
         })
