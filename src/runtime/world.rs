@@ -435,6 +435,9 @@ pub struct World {
     /// The card window's scroll, as scripts set it (HyperCard 2 scrolled a
     /// card bigger than its window). RandomCard always shows the whole card.
     pub card_scroll: String,
+    /// Command-Shift-E has shown the card window's size box: the next click
+    /// drags it.
+    pub size_box: bool,
     /// The main screen, for `the screenRect`. The UI fills it in.
     pub screen_rect: crate::model::Rect,
     pub history: Vec<Id>,
@@ -587,6 +590,7 @@ impl World {
             msg_rect,
             window_origin: (0, 0),
             card_scroll: "0,0".into(),
+            size_box: false,
             screen_rect: crate::model::Rect::new(0, 0, 1920, 1080),
             history: vec![card_id],
             history_pos: 0,

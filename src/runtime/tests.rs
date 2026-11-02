@@ -1788,6 +1788,13 @@ fn forms_from_apples_develop_stacks() {
     let mut i = interp_with(stack());
     run(&mut i, "select char 2 to 4 of field 1\nput the selectedChunk into c\nselect empty\nselect c");
     assert_eq!(run(&mut i, "put the selection"), "ppl");
+    // develop's resize button: Command-Shift-E, then a click on the button
+    // itself, which goes to the window's size box, not back to the button.
+    let card = lock(&i.world).card_id;
+    set_script(&i, ObjRef::Part { layer: Layer::Card, id: 11, card }, "on mouseDown\n  type \"e\" with commandKey, shiftKey\n  click at 50,75\nend mouseDown");
+    assert!(!run(&mut i, "click at 50,75").starts_with("ERROR"));
+    // develop: `select ""` clears the selection.
+    assert_eq!(run(&mut i, "select \"\"\nput the selection"), "");
     // `the card window`, and its scroll.
     let mut i = interp_with(stack());
     run(&mut i, "set the rect of the card window to 0,40,512,382");

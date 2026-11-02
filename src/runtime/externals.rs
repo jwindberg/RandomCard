@@ -88,9 +88,19 @@ impl Interp {
                 Err(e) => return Some(Err(e)),
             },
             // PopUpMenu(items, checked item, top, left): a pop-up menu,
-            // answering the chosen item's number, or 0.
+            // answering the chosen item's number, or 0. Top and left are on
+            // the screen.
             "popupmenu" => {
-                let at = self.menu_point(args.get(3), args.get(2));
+                // Andrew Gilmartin's PopUpMenu took a point on the screen, as
+                // the Mac's pop-up menus did: stacks add the card window's
+                // loc to the button's. With no point, the menu is at the mouse.
+                let at = if args.len() > 3 {
+                    let (x, y) = self.menu_point(args.get(3), args.get(2));
+                    let (wx, wy) = self.w().window_origin;
+                    (x - wx, y - wy)
+                } else {
+                    self.menu_point(None, None)
+                };
                 match self.menu_choice(menu_items(&arg(0)), at, to_int(&arg(1)).unwrap_or(0)) {
                     Ok(n) => n.unwrap_or(0).to_string(),
                     Err(e) => return Some(Err(e)),

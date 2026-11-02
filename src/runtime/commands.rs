@@ -416,6 +416,13 @@ impl Interp {
                 // … `select c`) selects that text, as in HyperCard.
                 if !matches!(e, Expr::Object(_)) {
                     let text = self.eval(e)?;
+                    // `select ""` is `select empty`, as in HyperCard.
+                    if text.trim().is_empty() {
+                        let mut w = self.w();
+                        w.focus = None;
+                        w.set_selection(None);
+                        return Ok(());
+                    }
                     let t = text.trim().to_ascii_lowercase();
                     if ["char ", "character ", "word ", "line ", "item "].iter().any(|w| t.starts_with(w)) {
                         let stmts = parse_statements(&format!("select {}", text.trim())).or_else(err)?;
@@ -457,9 +464,18 @@ impl Interp {
                 }
                 Ok(())
             }
-            Cmd::Type(e) => {
+            Cmd::Type(e, keys) => {
                 let text = self.eval(e)?;
                 let mut w = self.w();
+                let held = |k: &str| keys.iter().any(|x| x == k || x.trim_end_matches("key") == k.trim_end_matches("key"));
+                // Command-Shift-E shows the card window's size box; the next
+                // click drags it (the develop stacks resize their window this
+                // way). RandomCard shows the whole card, so the drag changes
+                // nothing, but the click goes to the box, not the card.
+                if held("commandkey") && held("shiftkey") && text.eq_ignore_ascii_case("e") {
+                    w.size_box = true;
+                    return Ok(());
+                }
                 // With the text tool, type paints text where `click at` put the cursor.
                 if w.tool == Tool::Text
                     && let Some((x, y)) = w.text_point
@@ -1154,6 +1170,10 @@ impl Interp {
             let mut w = self.w();
             w.mouse.click_x = x;
             w.mouse.click_y = y;
+        }
+        // A click right after Command-Shift-E drags the size box.
+        if std::mem::take(&mut self.w().size_box) {
+            return Ok(());
         }
         let target = self.part_at(x, y).unwrap_or_else(|| self.current_card_ref());
         // With the button or field tool a click selects a part and sends no

@@ -361,7 +361,8 @@ pub enum Cmd {
     ClickAt(Expr),
     /// `drag from 10,10 to 100,100`: paints with the current paint tool.
     Drag { from: Expr, to: Expr },
-    Type(Expr),
+    /// `type "e" with commandKey, shiftKey`: the text, and the keys held.
+    Type(Expr, Vec<String>),
     Convert { value: Expr, to: String },
     /// `play "harpsichord" tempo 200 "c4 e g"`
     Play { sound: Expr, tempo: Option<Expr>, notes: Vec<Expr> },

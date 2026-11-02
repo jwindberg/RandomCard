@@ -1093,10 +1093,16 @@ impl Parser {
             }
             "type" => {
                 let e = self.expr()?;
+                let mut keys = Vec::new();
                 if self.accept("with") {
-                    self.list_expr()?;
+                    while !self.at_stmt_end() {
+                        if let Some(w) = self.word() {
+                            keys.push(w.to_ascii_lowercase());
+                        }
+                        self.advance();
+                    }
                 }
-                Cmd::Type(e)
+                Cmd::Type(e, keys)
             }
             "convert" => {
                 let value = self.expr()?;

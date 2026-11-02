@@ -294,7 +294,8 @@ fn font_id(font: &str, size: u32) -> FontId {
 }
 
 /// How text in a font, size and style looks. Bold is drawn as a second,
-/// offset pass (see `field_job`); outline and shadow aren't drawn.
+/// offset pass, and outline and shadow as edges under white letters (see
+/// `field_job`).
 fn format_for(font: &str, size: u32, style: &str, color: Color32) -> TextFormat {
     let mut f = TextFormat { font_id: font_id(font, size), color, ..Default::default() };
     f.italics = styles::has_style(style, "italic");
@@ -792,7 +793,7 @@ pub fn field_text_rect(p: &Part, rect: Rect) -> Rect {
 
 /// Lay out field text with its style runs, optionally hiliting a range of
 /// characters. The built-in fonts have no bold weight, so bold text is drawn
-/// twice: `bold_pass` lays out the same text with only the bold runs
+/// twice: `Pass::Bold` lays out the same text with only the bold runs
 /// visible, to draw again slightly to the right.
 pub fn field_job(
     ctx: &egui::Context,
@@ -801,7 +802,7 @@ pub fn field_job(
     runs: &[StyleRun],
     width: f32,
     hl: Option<(usize, usize)>,
-    bold_pass: bool,
+    pass: Pass,
 ) -> LayoutJob {
     let mut job = LayoutJob::default();
     let bytes: Vec<usize> = text.char_indices().map(|(i, _)| i).chain(std::iter::once(text.len())).collect();
@@ -819,14 +820,19 @@ pub fn field_job(
         let style = run.style.as_deref().unwrap_or(&p.text_style);
         let lit = hl.is_some_and(|(s, e)| a >= s && a < e);
         let ink = if lit { WHITE } else { BLACK };
-        let color = match bold_pass {
-            false => ink,
-            true if styles::has_style(style, "bold") => ink,
-            true => Color32::TRANSPARENT,
+        let edged = styles::has_style(style, "outline") || styles::has_style(style, "shadow");
+        let color = match pass {
+            Pass::Plain => ink,
+            // Outline and shadow letters are white, over their black edges.
+            Pass::Shown if edged => if lit { BLACK } else { WHITE },
+            Pass::Shown => ink,
+            Pass::Bold if styles::has_style(style, "bold") => ink,
+            Pass::Edge if edged => ink,
+            Pass::Bold | Pass::Edge => Color32::TRANSPARENT,
         };
         let (font, size) = (run.font.as_deref().unwrap_or(&p.text_font), run.size.unwrap_or(p.text_size));
         let mut fmt = format_for(font, size, style, color);
-        if lit && !bold_pass {
+        if lit && matches!(pass, Pass::Plain | Pass::Shown) {
             fmt.background = BLACK;
         }
         let m = metrics::metrics(font, size, style);
@@ -850,17 +856,51 @@ pub fn field_job(
     job
 }
 
-/// Whether any of a field's text is bold.
-pub fn has_bold(p: &Part, runs: &[StyleRun]) -> bool {
-    let bold = |s: &str| styles::has_style(s, "bold");
-    runs.iter().any(|r| r.style.style.as_deref().map_or(bold(&p.text_style), bold)) || (bold(&p.text_style) && runs.first().is_none_or(|r| r.start > 0))
+/// Which drawing of a field's text a layout is for.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Pass {
+    /// Every run in its ink: for editing, and for finding characters.
+    Plain,
+    /// As shown on the card: outline and shadow letters in white.
+    Shown,
+    /// Only the bold runs, drawn again a little to the right.
+    Bold,
+    /// Only the outline and shadow runs, drawn around their letters.
+    Edge,
 }
 
-/// Draw a field's laid-out text at `pos`, thickening its bold runs.
+/// Whether any of a field's text has a style.
+fn has_style_in(p: &Part, runs: &[StyleRun], name: &str) -> bool {
+    let has = |s: &str| styles::has_style(s, name);
+    runs.iter().any(|r| r.style.style.as_deref().map_or(has(&p.text_style), has)) || (has(&p.text_style) && runs.first().is_none_or(|r| r.start > 0))
+}
+
+/// Whether any of a field's text is bold.
+pub fn has_bold(p: &Part, runs: &[StyleRun]) -> bool {
+    has_style_in(p, runs, "bold")
+}
+
+/// Draw a field's laid-out text (`Pass::Shown`) at `pos`, thickening its
+/// bold runs. Outline and shadow text is drawn as QuickDraw drew it: the
+/// letters in black a pixel out each way (and, for shadow, a pixel further
+/// down and right), then the letters themselves in white. On a black bar
+/// that's white lettering.
 pub fn paint_field_text(painter: &Painter, pv: &PartView, galley: std::sync::Arc<egui::Galley>, pos: Pos2, width: f32, hl: Option<(usize, usize)>) {
+    let outline = has_style_in(&pv.part, &pv.styles, "outline");
+    let shadow = has_style_in(&pv.part, &pv.styles, "shadow");
+    if outline || shadow {
+        let edge = painter.layout_job(field_job(painter.ctx(), &pv.part, &pv.text, &pv.styles, width, hl, Pass::Edge));
+        let mut offsets: Vec<(f32, f32)> = vec![(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0), (-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)];
+        if shadow {
+            offsets.extend([(2.0, 1.0), (1.0, 2.0), (2.0, 2.0)]);
+        }
+        for (dx, dy) in offsets {
+            painter.galley(pos + Vec2::new(dx, dy), edge.clone(), BLACK);
+        }
+    }
     painter.galley(pos, galley, BLACK);
     if has_bold(&pv.part, &pv.styles) {
-        let bold = painter.layout_job(field_job(painter.ctx(), &pv.part, &pv.text, &pv.styles, width, hl, true));
+        let bold = painter.layout_job(field_job(painter.ctx(), &pv.part, &pv.text, &pv.styles, width, hl, Pass::Bold));
         painter.galley(pos + Vec2::new(0.6, 0.0), bold, BLACK);
     }
 }
@@ -885,7 +925,7 @@ fn field_text_origin(p: &Part, text_rect: Rect) -> Pos2 {
 pub fn field_char_at(painter: &Painter, pv: &PartView, origin: Pos2, pos: Pos2) -> Option<usize> {
     let p = &pv.part;
     let text_rect = field_text_rect(p, part_rect(p, origin));
-    let galley = painter.layout_job(field_job(painter.ctx(), p, &pv.text, &pv.styles, text_rect.width(), None, false));
+    let galley = painter.layout_job(field_job(painter.ctx(), p, &pv.text, &pv.styles, text_rect.width(), None, Pass::Plain));
     let rel = pos - field_text_origin(p, text_rect);
     if rel.y > galley.size().y {
         return None;
@@ -901,7 +941,7 @@ pub fn field_char_at(painter: &Painter, pv: &PartView, origin: Pos2, pos: Pos2) 
 pub fn field_char_point(painter: &Painter, pv: &PartView, at: usize) -> Pos2 {
     let p = &pv.part;
     let text_rect = field_text_rect(p, part_rect(p, Pos2::ZERO));
-    let galley = painter.layout_job(field_job(painter.ctx(), p, &pv.text, &pv.styles, text_rect.width(), None, false));
+    let galley = painter.layout_job(field_job(painter.ctx(), p, &pv.text, &pv.styles, text_rect.width(), None, Pass::Plain));
     field_text_origin(p, text_rect) + galley.pos_from_cursor(egui::text::CCursor::new(at)).left_bottom().to_vec2()
 }
 
@@ -944,7 +984,7 @@ fn draw_field(painter: &Painter, pv: &PartView, rect: Rect, highlight: Option<(u
         return;
     }
     let text_rect = field_text_rect(p, rect);
-    let job = field_job(painter.ctx(), p, &pv.text, &pv.styles, text_rect.width(), highlight, false);
+    let job = field_job(painter.ctx(), p, &pv.text, &pv.styles, text_rect.width(), highlight, Pass::Shown);
     let galley = painter.layout_job(job);
     // Clip to the whole field so large text isn't cut by the margins.
     let clip_rect = if p.style == PartStyle::Scrolling { text_rect } else { rect.shrink(1.0) };
