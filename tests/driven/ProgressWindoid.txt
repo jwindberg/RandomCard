@@ -1,0 +1,25 @@
+# ProgressWindoid demo (Chris Thorman, Apple, 1990). Its buttons only make
+# sense in order: create the window before showing, filling or reading it.
+path: ADC Developer CD (Volume 09 - "Code Warriors")_mdf/Development Platforms (Moof!)/HyperCard Related/XCMDs & XFCNs/ProgressWindoid/ProgressWindoid
+path: ADC Developer CD (Volume 09 - "Code Warriors")_mdf/Development Platforms (Moof!)/HyperCard Related/XCMDs & XFCNs/Progress Windoid — C/ProgressWindoid
+path: ADC Developer CD (1993-03) ("Other People's Memory")_iso/Development Platforms/HyperCard Related/XCMDs & XFCNs/ProgressWindoid—C/ProgressWindoid
+send mouseUp to card button "Create"
+send mouseUp to card button "Show"
+send mouseDown to card button "Simple Loop Test"
+send mouseUp to card button id 55
+send mouseUp to card button id 70
+send mouseUp to card button id 71
+send mouseUp to card button id 72
+send mouseUp to card button id 73
+send mouseUp to card button id 74
+send mouseUp to card button id 75
+send mouseUp to card button id 81
+send mouseUp to card button id 82
+send mouseUp to card button id 83
+send mouseUp to card button id 84
+send mouseUp to card button id 85
+send mouseUp to card button "Hide"
+send mouseUp to card button "Show"
+send mouseUp to card button "Close"
+go next card
+go first card

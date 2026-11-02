@@ -204,17 +204,107 @@ pub struct FieldRange {
     pub end: usize,
 }
 
-/// A window of text a script opened, which the user can edit.
+/// A window a script opened, as HyperCard 2's externals did: scripts refer
+/// to it by name (`the text of window "Notes"`, `show window "Notes"`).
 #[derive(Clone, Debug)]
-pub struct TextWindow {
+pub struct ScriptWindow {
     pub name: String,
+    pub kind: WindowKind,
+    /// A text window's text, or a progress window's label.
     pub text: String,
-    /// Where on the card it opens.
+    /// Where on the card it is.
     pub rect: crate::model::Rect,
     pub font: String,
     pub size: u32,
+    pub visible: bool,
     /// Whether the user has changed the text.
     pub dirty: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum WindowKind {
+    /// Editable text (TEXWindow).
+    Text,
+    /// A label over a progress bar, filled to a fraction from 0 to 1
+    /// (ProgressWindoid).
+    Progress(f64),
+}
+
+impl ScriptWindow {
+    /// A property, as `the fraction of window "Progress"` reads it.
+    pub fn property(&self, name: &str) -> Option<String> {
+        let r = self.rect;
+        Some(match name {
+            "name" | "short name" => self.name.clone(),
+            "text" | "contents" => self.text.clone(),
+            "rect" | "rectangle" => format!("{},{},{},{}", r.left, r.top, r.right, r.bottom),
+            // A window's loc is its top left corner.
+            "loc" | "location" | "topleft" => format!("{},{}", r.left, r.top),
+            "width" => r.width().to_string(),
+            "height" => r.height().to_string(),
+            "visible" => self.visible.to_string(),
+            "textfont" => self.font.clone(),
+            "textsize" => self.size.to_string(),
+            "fraction" => match self.kind {
+                WindowKind::Progress(f) => crate::hypertalk::value::format_number(f, "0.######"),
+                WindowKind::Text => return None,
+            },
+            "properties" => match self.kind {
+                WindowKind::Progress(_) => "width,text,fraction,textFont,textSize".into(),
+                WindowKind::Text => "text,textFont,textSize".into(),
+            },
+            _ => return None,
+        })
+    }
+
+    /// Set a property; false if the window has no such property, Err if the
+    /// value won't do.
+    pub fn set_property(&mut self, name: &str, v: &str) -> Result<bool, String> {
+        let int = |v: &str| {
+            v.trim()
+                .parse::<f64>()
+                .map(|n| n as i32)
+                .map_err(|_| format!("Expected a number, not \"{v}\""))
+        };
+        let point = |v: &str| {
+            crate::hypertalk::value::parse_point(v)
+                .ok_or_else(|| format!("Expected a point, not \"{v}\""))
+        };
+        let r = self.rect;
+        match name {
+            "text" | "contents" => {
+                self.text = v.to_string();
+                self.dirty = false;
+            }
+            "rect" | "rectangle" => {
+                let Some((l, t, rt, b)) = crate::hypertalk::value::parse_rect(v) else {
+                    return Err(format!("Expected a rectangle, not \"{v}\""));
+                };
+                self.rect = crate::model::Rect::new(l, t, rt, b);
+            }
+            "loc" | "location" | "topleft" => {
+                let (x, y) = point(v)?;
+                self.rect = r.translate(x - r.left, y - r.top);
+            }
+            "width" => self.rect.right = r.left + int(v)?.max(0),
+            "height" => self.rect.bottom = r.top + int(v)?.max(0),
+            "visible" => self.visible = v.trim().eq_ignore_ascii_case("true"),
+            "textfont" => self.font = v.to_string(),
+            "textsize" => self.size = int(v)?.clamp(1, 127) as u32,
+            "fraction" => match self.kind {
+                WindowKind::Progress(_) => {
+                    let f = v
+                        .trim()
+                        .parse::<f64>()
+                        .map_err(|_| format!("Expected a number, not \"{v}\""))?;
+                    self.kind = WindowKind::Progress(f.clamp(0.0, 1.0));
+                }
+                WindowKind::Text => return Ok(false),
+            },
+            _ => return Ok(false),
+        }
+        Ok(true)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -302,6 +392,8 @@ pub enum UiRequest {
     ToolWindow(bool),
     /// Move the window so the card's top left corner is at this point on screen.
     MoveWindow(i32, i32),
+    /// Open a URL, such as a `mailto:` message, in the program that handles it.
+    OpenUrl(String),
     /// A key's message wasn't handled: do what the key does by default.
     Key(ObjRef, KeyAction),
 }
@@ -359,7 +451,7 @@ pub struct World {
     pub picture_rev: u64,
     pub requests: Vec<UiRequest>,
     /// Text windows scripts have opened (TEXWindow), in front last.
-    pub text_windows: Vec<TextWindow>,
+    pub script_windows: Vec<ScriptWindow>,
     pub dialog: Option<Dialog>,
     /// A script is running.
     pub busy: bool,
@@ -504,7 +596,7 @@ impl World {
             dirty,
             picture_rev: 0,
             requests: Vec::new(),
-            text_windows: Vec::new(),
+            script_windows: Vec::new(),
             dialog: None,
             busy: false,
             found: None,
@@ -548,7 +640,7 @@ impl World {
         fresh.msg_visible = self.msg_visible;
         fresh.msg_rect = self.msg_rect;
         fresh.window_origin = self.window_origin;
-        fresh.text_windows = std::mem::take(&mut self.text_windows);
+        fresh.script_windows = std::mem::take(&mut self.script_windows);
         fresh.screen_rect = self.screen_rect;
         fresh.msg = std::mem::take(&mut self.msg);
         fresh.user_level = self.user_level;

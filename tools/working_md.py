@@ -2,6 +2,7 @@
 in RandomCard, from the results of the click_every_button test.
 
 usage: working_md.py DEVCDS_DIR OUT.md RESULTS.tsv [MORE.tsv ...] [--fixes FIXES.tsv]
+                     [--driven DRIVEN.tsv]
 
 Results files are read in order, and a later row for the same stack replaces
 an earlier one, so a recheck after a fix goes last. Names and descriptions
@@ -10,6 +11,10 @@ come from DEVCDS_DIR/INDEX.tsv. Links are relative to OUT.md.
 FIXES.tsv, if given, lists stacks that work once fix steps are applied to our
 copy: a path (relative to DEVCDS_DIR) and the fix steps, tab-separated. They
 get a section of their own.
+
+DRIVEN.tsv, if given, is the driven_checks test's results: stacks run through
+hand-written steps (tests/driven) because clicking every button in card order
+can't work for them. One that passes counts as working, marked ‡.
 """
 import csv
 import os
@@ -48,12 +53,21 @@ def main():
                 path, _, steps = line.rstrip('\n').partition('\t')
                 fixes[path] = steps
         del args[i : i + 2]
+    driven = {}
+    if '--driven' in args:
+        i = args.index('--driven')
+        driven = {r['path']: r for r in read(args[i + 1]) if r['result'] == 'driven clean'}
+        del args[i : i + 2]
     devcds, out_path, *results = args
     index = {r['path']: r for r in read(os.path.join(devcds, 'INDEX.tsv'))}
     latest = {}
     for f in results:
         for r in read(f):
             latest[r['path']] = r
+    # A stack the click test failed but its driven steps pass counts, as ‡.
+    for path, d in driven.items():
+        if latest.get(path, {}).get('result') != 'every click clean':
+            latest[path] = {'path': path, 'result': 'every click clean', 'clicks': f'{d["steps"]} steps', 'stopped': '0'}
     clean = [r for r in latest.values() if r['result'] == 'every click clean']
     working = [r for r in clean if r['path'] not in fixes]
     fixed = [r for r in clean if r['path'] in fixes]
@@ -72,6 +86,8 @@ def main():
         waits = ' (waited out)' if r.get('stopped', '0') != '0' else ''
         stubs = stubs_called(os.path.join(devcds, r['path']))
         mark = '*' if r['path'] in fixes else ''
+        if r['path'] in driven:
+            mark += '‡'
         about = cell(info.get('about', ''))
         if stubs:
             stubbed += 1
@@ -102,9 +118,13 @@ def main():
         '  own section below, with their fix steps. Fix steps are always small.',
         '- **†** works, but some Mac-only details answer empty: the stack calls a stub',
         '  (named after its description), such as INITFinder, which lists the Mac system',
-        '  extensions running, and there are none on a computer today.', '',
+        '  extensions running, and there are none on a computer today.',
+        '- **‡** works, checked by running it through hand-written steps (in',
+        '  `tests/driven`) instead of clicking every button in card order, which can\'t',
+        '  work for it: a "Show" button that comes before the "Create" it needs.', '',
         f'**{len(clean)} stacks** work fully, of {len(latest)} tested so far: {len(working)} straight off the',
-        f'disc and {len(fixed)} with fix steps. {stubbed} of them use stubs (†).', '',
+        f'disc and {len(fixed)} with fix steps. {stubbed} of them use stubs (†), and {len(driven)} are',
+        'checked by driven steps (‡).', '',
         '| Stack | Clicks | What it is | Where |', '| --- | --- | --- | --- |',
     ]
     out += rows

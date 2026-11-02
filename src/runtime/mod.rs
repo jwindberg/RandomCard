@@ -3,6 +3,7 @@
 mod builtins;
 mod commands;
 mod externals;
+mod files;
 pub mod debugger;
 pub mod dates;
 pub mod interp;

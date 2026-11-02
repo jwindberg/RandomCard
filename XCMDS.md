@@ -143,6 +143,13 @@ they never call.
 | ListSelect | XFCN | 2 stacks, called in 2 | A dialog for choosing one line from a list (by Frédéric Rinaldi). | Built in | As a new list-choosing dialog | Planned |
 | XScrollBox | XFCN | 3 stacks, called in 3 | A dialog with a scrolling list to choose from (Dartmouth, 1989). | Built in | As the list-choosing dialog | Planned |
 | PopUpMenu | XFCN | 3 stacks, called in 3 | A popup menu at a point, returning the chosen item's number. | Built in | As a popup menu function, using popup buttons' menus | Done |
+| MakeSendMe5 | XCMD | Q & A stacks | Sends an AppleLink message (to, cc, subject, text); MakeSendMe4 is the older version. | Built in | A new message in the user's mail program | Done |
+| GetVol | XFCN | 3 Developer CD stacks | The mounted volumes, one per line. | Built in | The computer's mounted volumes, as paths | Done |
+| ProgressWindoid | XFCN | 3 Developer CD stacks | A floating window with a label over a progress bar (by Chris Thorman, Apple, 1990), managed through HyperCard 2's window commands and properties. | Built in | As a progress window, with `show`/`hide`/`close window` and `set … of window` | Done |
+| FileCopy, EraseFile, FullMove, FullRename | XCMD | Rinaldi collection | Copy, delete, move and rename files and folders. | Built in | src/runtime/files.rs, by the same names | Done |
+| GetDir, GetFInfo, FullSFPut, GetBootVol, GetSysFolder | XFCN | Rinaldi collection | List a folder (with filters and layouts), a file's details, a Save dialog, the startup disk, the System Folder. | Built in | src/runtime/files.rs; Mac type and creator answer "????" | Done |
+| LeafName, FileN, FolderPath, SelectDir | XFCN | Rinaldi demos | The last part of a path; an Open dialog; folder dialogs. | Built in | | Done |
+| FileToRes, ResToFile (FileMaker) | XCMD | Rinaldi collection | Keep a file in a stack's resource fork, and make it again. | Built in, later | Needs somewhere in a stack to keep files | Planned |
 | PopMenu | XFCN | 5 Developer CD stacks | Appropriate Technology's popup menu: (top, left, checked, items), answering "true,item,menu". Another PopMenu takes (point, lines) and answers a line number. | Built in | With PopUpMenu's menu; hierarchical menus are shown flat | Done |
 | FilePath | XFCN | Rinaldi collection | An Open dialog, answering the file's path. | Built in | As FileName | Done |
 | MacType | XFCN | Rinaldi collection | The kind of computer. | Stub | SysEnv's first item | Done |

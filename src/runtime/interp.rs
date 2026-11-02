@@ -264,9 +264,24 @@ impl Interp {
             Event::Key { target, message, args, default } => self.key_message(target, &message, args, default),
             Event::CloseWindow(name) => {
                 let card = ObjRef::Card(self.w().card_id);
-                let dirty = { self.w().text_windows.iter().find(|t| t.name == name).is_some_and(|t| t.dirty) };
-                let r = self.dispatch_top(card, "TEXWindowClosing", vec![name.clone(), dirty.to_string()]);
-                self.w().text_windows.retain(|t| t.name != name);
+                let (text, dirty) = {
+                    let w = self.w();
+                    let t = w.script_windows.iter().find(|t| t.name == name);
+                    (
+                        t.is_some_and(|t| t.kind == super::world::WindowKind::Text),
+                        t.is_some_and(|t| t.dirty),
+                    )
+                };
+                let r = if text {
+                    self.dispatch_top(
+                        card,
+                        "TEXWindowClosing",
+                        vec![name.clone(), dirty.to_string()],
+                    )
+                } else {
+                    Ok(())
+                };
+                self.w().script_windows.retain(|t| t.name != name);
                 r
             }
             Event::Shutdown => Ok(()),

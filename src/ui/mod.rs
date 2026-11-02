@@ -545,6 +545,11 @@ impl App {
                 // Put the card's corner where the script said. Some window
                 // systems (Wayland) don't let programs move windows; then
                 // scripts still read back the place they set.
+                UiRequest::OpenUrl(url) => {
+                    if let Err(e) = crate::print::open_in_viewer(std::path::Path::new(&url)) {
+                        self.alert(e);
+                    }
+                }
                 UiRequest::MoveWindow(x, y) => {
                     if let Some((card, outer)) = self.card_on_screen {
                         let to = outer + (egui::pos2(x as f32, y as f32) - card);
@@ -1926,7 +1931,7 @@ impl eframe::App for App {
         self.recent_window(&ctx);
         self.popup_menu(&ctx);
         self.debugger(&ctx);
-        self.text_windows(&ctx);
+        self.script_windows(&ctx);
         self.show_dialog(&ctx);
         self.show_error(&ctx);
         self.show_preferences(&ctx);

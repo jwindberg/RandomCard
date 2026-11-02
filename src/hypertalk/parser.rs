@@ -698,9 +698,25 @@ impl Parser {
                 if matches!(prop.as_str(), "long" | "short" | "abbr" | "abbrev" | "abbreviated") {
                     prop = self.symbol()?;
                 }
-                let obj = if self.accept("of") || self.accept("in") { Some(self.term()?) } else { None };
-                self.expect("to")?;
-                Cmd::Set { prop, obj, value: self.list_expr()? }
+                let of = self.accept("of") || self.accept("in");
+                if of && self.is("window") && self.starts_term_at(1) {
+                    self.advance();
+                    let window = self.term()?;
+                    self.expect("to")?;
+                    Cmd::SetWindowProp {
+                        prop,
+                        window,
+                        value: self.list_expr()?,
+                    }
+                } else {
+                    let obj = if of { Some(self.term()?) } else { None };
+                    self.expect("to")?;
+                    Cmd::Set {
+                        prop,
+                        obj,
+                        value: self.list_expr()?,
+                    }
+                }
             }
             "add" => {
                 let value = self.expr()?;
@@ -1302,7 +1318,14 @@ impl Parser {
             self.pos += 2;
             return Ok(ShowHide::PatternWindow);
         }
-        for (word, which) in [("message", ShowHide::MessageWatcher), ("variable", ShowHide::VariableWatcher)] {
+        if self.is("window") && self.starts_term_at(1) {
+            self.advance();
+            return Ok(ShowHide::Window(self.expr()?));
+        }
+        for (word, which) in [
+            ("message", ShowHide::MessageWatcher),
+            ("variable", ShowHide::VariableWatcher),
+        ] {
             if self.is(word) && self.is_at(1, "watcher") {
                 self.pos += 2;
                 return Ok(which);

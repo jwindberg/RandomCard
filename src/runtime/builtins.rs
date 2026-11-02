@@ -195,26 +195,32 @@ impl Interp {
             }
             "windows" => {
                 let w = self.w();
-                let mut list: Vec<String> = w.text_windows.iter().rev().map(|t| t.name.clone()).collect();
+                // Hidden windows are still windows, and listed.
+                let mut list: Vec<String> = w
+                    .script_windows
+                    .iter()
+                    .rev()
+                    .map(|t| t.name.clone())
+                    .collect();
                 list.extend(["card window".to_string(), "message box".to_string()]);
                 list.join("\n")
             }
             // The text, rect or name of a window a script opened.
             "__windowprop" => {
                 let w = self.w();
-                let Some(t) = w.text_windows.iter().find(|t| t.name.eq_ignore_ascii_case(arg(1).trim())) else {
+                let Some(t) = w
+                    .script_windows
+                    .iter()
+                    .find(|t| t.name.eq_ignore_ascii_case(arg(1).trim()))
+                else {
                     drop(w);
                     return err(format!("No such window \"{}\"", arg(1)));
                 };
-                match arg(0).as_str() {
-                    "text" | "contents" => t.text.clone(),
-                    "name" | "short name" => t.name.clone(),
-                    "rect" | "rectangle" => format!("{},{},{},{}", t.rect.left, t.rect.top, t.rect.right, t.rect.bottom),
-                    "visible" => "true".into(),
-                    other => {
-                        let other = other.to_string();
+                match t.property(&arg(0)) {
+                    Some(v) => v,
+                    None => {
                         drop(w);
-                        return err(format!("Windows have no property \"{other}\""));
+                        return err(format!("Windows have no property \"{}\"", arg(0)));
                     }
                 }
             }

@@ -4,7 +4,9 @@
 use eframe::egui::{self, Color32, RichText};
 
 use crate::model::{Id, PartKind, PartStyle, TextAlign, shortcut};
-use crate::runtime::world::{Dialog, DialogReply, Event, ObjRef, World, lock, same_script};
+use crate::runtime::world::{
+    Dialog, DialogReply, Event, ObjRef, WindowKind, World, lock, same_script,
+};
 
 use super::App;
 
@@ -598,40 +600,70 @@ impl App {
         };
     }
 
-    /// Text windows scripts opened with TEXWindow: editable, and closing
-    /// one tells the card.
-    pub fn text_windows(&mut self, ctx: &egui::Context) {
-        let windows = lock(&self.rt.world).text_windows.clone();
-        for t in windows {
-            let mut open = true;
-            let mut text = t.text.clone();
+    /// Windows scripts opened (HyperCard 2's external windows): text
+    /// windows (TEXWindow), which the user edits and closing one tells the
+    /// card, and progress windows (ProgressWindoid), which scripts move and
+    /// fill.
+    pub fn script_windows(&mut self, ctx: &egui::Context) {
+        let windows = lock(&self.rt.world).script_windows.clone();
+        for t in windows.into_iter().filter(|t| t.visible) {
             let at = self.card_origin + egui::vec2(t.rect.left as f32, t.rect.top as f32);
-            let size = egui::vec2(t.rect.width().max(120) as f32, t.rect.height().max(60) as f32);
-            egui::Window::new(&t.name)
-                .id(egui::Id::unique(("text-window", t.name.as_str())))
-                .default_pos(at)
-                .default_size(size)
-                .open(&mut open)
-                .show(ctx, |ui| {
-                    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-                        let size = t.size as f32;
-                        let fixed = ["courier", "monaco"].contains(&t.font.to_lowercase().as_str());
-                        let font = if fixed { egui::FontId::monospace(size) } else { egui::FontId::proportional(size) };
-                        ui.add_sized(
-                            ui.available_size(),
-                            egui::TextEdit::multiline(&mut text).font(font).desired_width(f32::INFINITY),
-                        );
-                    });
-                });
-            if text != t.text {
-                let mut w = lock(&self.rt.world);
-                if let Some(tw) = w.text_windows.iter_mut().find(|x| x.name == t.name) {
-                    tw.text = text;
-                    tw.dirty = true;
+            let size = t.size as f32;
+            let fixed = ["courier", "monaco"].contains(&t.font.to_lowercase().as_str());
+            let font = if fixed {
+                egui::FontId::monospace(size)
+            } else {
+                egui::FontId::proportional(size)
+            };
+            match t.kind {
+                WindowKind::Progress(fraction) => {
+                    // A windoid: the script places it and sets its fraction.
+                    egui::Window::new(&t.name)
+                        .id(egui::Id::unique(("script-window", t.name.as_str())))
+                        .current_pos(at)
+                        .fixed_size(egui::vec2(t.rect.width().max(140) as f32 - 12.0, 0.0))
+                        .collapsible(false)
+                        .resizable(false)
+                        .show(ctx, |ui| {
+                            ui.label(RichText::new(&t.text).font(font));
+                            ui.add(egui::ProgressBar::new(fraction as f32));
+                        });
                 }
-            }
-            if !open {
-                self.send(Event::CloseWindow(t.name.clone()));
+                WindowKind::Text => {
+                    let mut open = true;
+                    let mut text = t.text.clone();
+                    let window_size = egui::vec2(
+                        t.rect.width().max(120) as f32,
+                        t.rect.height().max(60) as f32,
+                    );
+                    egui::Window::new(&t.name)
+                        .id(egui::Id::unique(("script-window", t.name.as_str())))
+                        .default_pos(at)
+                        .default_size(window_size)
+                        .open(&mut open)
+                        .show(ctx, |ui| {
+                            egui::ScrollArea::vertical()
+                                .auto_shrink(false)
+                                .show(ui, |ui| {
+                                    ui.add_sized(
+                                        ui.available_size(),
+                                        egui::TextEdit::multiline(&mut text)
+                                            .font(font)
+                                            .desired_width(f32::INFINITY),
+                                    );
+                                });
+                        });
+                    if text != t.text {
+                        let mut w = lock(&self.rt.world);
+                        if let Some(tw) = w.script_windows.iter_mut().find(|x| x.name == t.name) {
+                            tw.text = text;
+                            tw.dirty = true;
+                        }
+                    }
+                    if !open {
+                        self.send(Event::CloseWindow(t.name.clone()));
+                    }
+                }
             }
         }
     }

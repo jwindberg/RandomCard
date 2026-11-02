@@ -258,6 +258,8 @@ pub enum ShowHide {
     ToolWindow,
     /// `show pattern window`: the Patterns palette, part of the tool panel.
     PatternWindow,
+    /// `show window "Progress"`: a window a script opened, by name.
+    Window(Expr),
 }
 
 #[derive(Clone, Debug)]
@@ -292,7 +294,17 @@ pub enum Cmd {
     /// `messages` is for `put items into menu "X" with menuMessages msgs`.
     Put { value: Expr, prep: Prep, dest: Option<Expr>, messages: Option<Expr> },
     Get(Expr),
-    Set { prop: String, obj: Option<Expr>, value: Expr },
+    Set {
+        prop: String,
+        obj: Option<Expr>,
+        value: Expr,
+    },
+    /// `set the fraction of window "Progress" to 0.5`.
+    SetWindowProp {
+        prop: String,
+        window: Expr,
+        value: Expr,
+    },
     CreateMenu(Expr),
     /// `start using stack "Library"`.
     StartUsing(Expr),

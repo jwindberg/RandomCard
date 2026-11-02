@@ -24,8 +24,6 @@ pub enum FileDialog {
 }
 
 impl Interp {
-    /// Show a system file dialog. With no UI (scripts run in tests), it's
-    /// canceled straight away.
     /// Where a pop-up menu goes: the point given, or the mouse.
     fn menu_point(&self, left: Option<&String>, top: Option<&String>) -> (i32, i32) {
         let w = self.w();
@@ -47,6 +45,8 @@ impl Interp {
         })
     }
 
+    /// Show a system file dialog. With no UI (scripts run in tests), it's
+    /// canceled straight away.
     pub fn file_dialog(&self, title: &str, kind: FileDialog) -> Option<PathBuf> {
         self.dialog_rx.as_ref()?;
         let dialog = rfd::FileDialog::new().set_title(title);
@@ -59,6 +59,9 @@ impl Interp {
 
     /// An external function's value, or `None` if there's no such external.
     pub(super) fn external_function(&mut self, name: &str, args: &[String]) -> Option<R<String>> {
+        if let Some(v) = self.file_function(name, args) {
+            return Some(v);
+        }
         let arg = |i: usize| args.get(i).cloned().unwrap_or_default();
         let path = |p: Option<PathBuf>| p.map(|p| p.display().to_string()).unwrap_or_default();
         Some(Ok(match name {
@@ -104,7 +107,7 @@ impl Interp {
                         Err(e) => return Some(Err(e)),
                     }
                 } else {
-                    let at = self.menu_point(args.get(1), args.get(0));
+                    let at = self.menu_point(args.get(1), args.first());
                     match self.menu_choice(menu_items(&arg(3)), at, to_int(&arg(2)).unwrap_or(0)) {
                         Ok(Some(n)) => format!("true,{n},1"),
                         Ok(None) => String::new(),
@@ -120,6 +123,74 @@ impl Interp {
             // BoardInfo(): NuBus cards, between a heading and a last line.
             // There are none.
             "boardinfo" => "\n".into(),
+            // GetVol(): the mounted disks, one per line, as paths.
+            "getvol" => volumes().join("\n"),
+            // ProgressWindoid(name, loc, [width, text, fraction, font, size]):
+            // a small window with a label over a progress bar, opened hidden;
+            // scripts show it and set its fraction as work goes on. Answers
+            // empty, or an error message starting with "•".
+            "progresswindoid" => {
+                let name = arg(0).trim().to_string();
+                if name.is_empty() {
+                    return Some(Ok("• ProgressWindoid needs a window name.".into()));
+                }
+                if self
+                    .w()
+                    .script_windows
+                    .iter()
+                    .any(|t| t.name.eq_ignore_ascii_case(&name))
+                {
+                    return Some(Ok(format!("• There is already a window named {name}.")));
+                }
+                let Some((x, y)) = parse_point(&arg(1)) else {
+                    return Some(Ok(format!(
+                        "• \"{}\" isn't a point for the window's location.",
+                        arg(1)
+                    )));
+                };
+                let width = to_int(&arg(2)).map(|w| w.clamp(140, 1200)).unwrap_or(250) as i32;
+                let text = if args.len() > 3 {
+                    arg(3)
+                } else {
+                    "Progress:".into()
+                };
+                let fraction = arg(4).trim().parse::<f64>().unwrap_or(0.0).clamp(0.0, 1.0);
+                let font = if arg(5).trim().is_empty() {
+                    "Geneva".to_string()
+                } else {
+                    arg(5)
+                };
+                let size = to_int(&arg(6)).map(|s| s.clamp(1, 127)).unwrap_or(12) as u32;
+                let height = size as i32 + 34;
+                self.w().script_windows.push(super::world::ScriptWindow {
+                    name,
+                    kind: super::world::WindowKind::Progress(fraction),
+                    text,
+                    rect: crate::model::Rect::new(x, y, x + width, y + height),
+                    font,
+                    size,
+                    visible: false,
+                    dirty: false,
+                });
+                String::new()
+            }
+            // FileN(prompt), from the Rinaldi collection: an Open dialog.
+            "filen" => path(self.file_dialog(&arg(0), FileDialog::Open)),
+            // FolderPath(prompt) and SelectDir(prompt): a dialog for choosing
+            // a folder, answering its path with a separator at the end, as
+            // a Mac folder path ended in a colon.
+            "folderpath" | "selectdir" => match self.file_dialog(&arg(0), FileDialog::Folder) {
+                Some(p) => format!("{}{}", p.display(), std::path::MAIN_SEPARATOR),
+                None => String::new(),
+            },
+            // LeafName(path): the last part of a path, the file or folder's
+            // own name. A Mac path ("Disk:Folder:File") works too.
+            "leafname" => {
+                let p = arg(0);
+                let p = p.trim_end_matches(['/', '\\', ':']);
+                let sep: &[char] = if p.contains(['/', '\\']) { &['/', '\\'] } else { &[':'] };
+                p.rsplit(sep).next().unwrap_or_default().to_string()
+            }
             // FolderName(prompt): a dialog for choosing a folder.
             "foldername" => path(self.file_dialog(&arg(0), FileDialog::Folder)),
             // SFPutFile(name), or SFPutFile(prompt, name): a Save dialog.
@@ -191,6 +262,9 @@ impl Interp {
 
     /// Run an external command, or answer `None` if there's no such external.
     pub(super) fn external_command(&mut self, name: &str, args: &[String]) -> Option<R<()>> {
+        if let Some(r) = self.file_command(name, args) {
+            return Some(r);
+        }
         let arg = |i: usize| args.get(i).cloned().unwrap_or_default();
         Some(match name {
             // TEXWindow name, text, left, top, right, bottom, font, size,
@@ -202,10 +276,20 @@ impl Interp {
                 let rect = crate::model::Rect::new(n(2, 40), n(3, 40), n(4, 440), n(5, 300));
                 let font = if arg(6).trim().is_empty() { "Geneva".to_string() } else { arg(6) };
                 let size = to_int(&arg(7)).unwrap_or(12).clamp(6, 72) as u32;
-                let window = super::world::TextWindow { name: arg(0), text: arg(1), rect, font, size, dirty: false };
+                let window = super::world::ScriptWindow {
+                    name: arg(0),
+                    kind: super::world::WindowKind::Text,
+                    text: arg(1),
+                    rect,
+                    font,
+                    size,
+                    visible: true,
+                    dirty: false,
+                };
                 let mut w = self.w();
-                w.text_windows.retain(|t| !t.name.eq_ignore_ascii_case(&window.name));
-                w.text_windows.push(window);
+                w.script_windows
+                    .retain(|t| !t.name.eq_ignore_ascii_case(&window.name));
+                w.script_windows.push(window);
                 Ok(())
             }
             // INITFinder how, "noDialog": the running INITs, in the result.
@@ -218,6 +302,17 @@ impl Interp {
             "switchxroo" => {
                 let r = self.w().screen_rect;
                 self.result = format!("Main screen, {}x{}, millions of colors", r.width(), r.height());
+                Ok(())
+            }
+            // MakeSendMe5 to, cc, subject, text (and MakeSendMe4, its older
+            // version): an AppleLink message, from the Q & A stack. Now a new
+            // message in the user's own mail program, filled in, to send.
+            "makesendme5" | "makesendme4" => {
+                let url = mailto(&arg(0), &arg(1), &arg(2), &arg(3));
+                self.w()
+                    .requests
+                    .push(super::world::UiRequest::OpenUrl(url));
+                self.result = String::new();
                 Ok(())
             }
             // printOut text, font, size, style: print text in a font.
@@ -334,4 +429,71 @@ fn total_ram() -> u64 {
         return String::from_utf8_lossy(&out.stdout).lines().find_map(|l| l.trim().parse().ok()).unwrap_or(0);
     }
     0
+}
+
+/// A `mailto:` URL for a message, with every part encoded.
+fn mailto(to: &str, cc: &str, subject: &str, body: &str) -> String {
+    fn enc(s: &str) -> String {
+        s.replace("\r\n", "\n")
+            .replace('\r', "\n")
+            .bytes()
+            .map(|b| match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'@' => {
+                    (b as char).to_string()
+                }
+                b'\n' => "%0D%0A".to_string(),
+                _ => format!("%{b:02X}"),
+            })
+            .collect()
+    }
+    let mut parts = Vec::new();
+    for (key, value) in [("cc", cc), ("subject", subject), ("body", body)] {
+        if !value.trim().is_empty() {
+            parts.push(format!("{key}={}", enc(value)));
+        }
+    }
+    let query = if parts.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", parts.join("&"))
+    };
+    format!("mailto:{}{query}", enc(to.trim()))
+}
+
+/// The mounted disks: on a Mac the volumes in /Volumes; on Linux and the
+/// like the root and whatever is mounted under /media, /run/media and
+/// /mnt; on Windows the drive letters.
+fn volumes() -> Vec<String> {
+    let mut out = Vec::new();
+    let list = |dir: &str| -> Vec<String> {
+        let mut v: Vec<String> = std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .map(|p| p.display().to_string())
+            .collect();
+        v.sort();
+        v
+    };
+    if cfg!(target_os = "macos") {
+        out = list("/Volumes");
+    } else if cfg!(target_os = "windows") {
+        out = (b'A'..=b'Z')
+            .map(|c| format!("{}:\\", c as char))
+            .filter(|d| std::path::Path::new(d).exists())
+            .collect();
+    } else {
+        out.push("/".to_string());
+        let user = std::env::var("USER").unwrap_or_default();
+        for dir in [
+            format!("/media/{user}"),
+            format!("/run/media/{user}"),
+            "/mnt".to_string(),
+        ] {
+            out.extend(list(&dir));
+        }
+    }
+    out
 }

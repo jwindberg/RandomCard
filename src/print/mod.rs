@@ -84,7 +84,8 @@ pub fn save(name: &str, pdf: &[u8]) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-/// Open a document in the system's viewer, to print it from there.
+/// Open a document in the system's viewer, to print it from there. A URL
+/// (`mailto:`, `https:`) opens in the program that handles it.
 pub fn open_in_viewer(path: &std::path::Path) -> Result<(), String> {
     let mut cmd = if cfg!(target_os = "macos") {
         std::process::Command::new("open")

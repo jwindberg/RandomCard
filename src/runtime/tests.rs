@@ -448,7 +448,7 @@ fn hypercard_icons_are_built_in() {
     let arrow = &icons[&7417];
     assert_eq!(arrow.name, "Black Return Arrow");
     assert_eq!((arrow.picture.width, arrow.picture.height), (32, 32));
-    assert!(arrow.picture.pixels.iter().any(|p| *p == crate::model::Pixel::Black));
+    assert!(arrow.picture.pixels.contains(&crate::model::Pixel::Black));
     assert_eq!(icons[&11645].name, "Bill's Rolo");
 }
 
@@ -1198,10 +1198,10 @@ fn click_every_button() {
     drop(tx);
     let mut done = std::collections::HashSet::new();
     let clean = |s: &str| s.replace(['\t', '\n', '\r'], " ");
-    loop {
-        // A stack that runs for ten minutes is marked hung and left behind.
-        match rx.recv_timeout(std::time::Duration::from_secs(600)) {
-            Ok((p, r)) => {
+    // A stack that runs for ten minutes is marked hung and left behind.
+    while let Ok((p, r)) = rx.recv_timeout(std::time::Duration::from_secs(600)) {
+        {
+            {
                 let row = match r {
                     Some(r) => {
                         let result = if r.errors.first().is_some_and(|e| e.starts_with("doesn't import")) {
@@ -1223,7 +1223,6 @@ fn click_every_button() {
                 done.insert(p);
                 println!("{}/{total}", done.len());
             }
-            Err(mpsc::RecvTimeoutError::Timeout) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
     use std::io::Write;
@@ -1626,7 +1625,7 @@ fn pop_up_menus_for_scripts() {
 }
 
 #[test]
-fn text_windows_from_scripts() {
+fn script_windows_from_scripts() {
     // Apple's Bug Reporter opens its fields in TEXWindow windows and reads
     // them back as HyperCard 2 windows.
     let mut i = interp_with(stack());
@@ -1634,8 +1633,8 @@ fn text_windows_from_scripts() {
     assert_eq!(run(&mut i, "put there is a window \"Notes\""), "true");
     assert_eq!(run(&mut i, "put the text of window \"Notes\""), "Hello");
     assert_eq!(run(&mut i, "put line 1 of the windows"), "Notes");
-    lock(&i.world).text_windows[0].text = "Edited".into();
-    lock(&i.world).text_windows[0].dirty = true;
+    lock(&i.world).script_windows[0].text = "Edited".into();
+    lock(&i.world).script_windows[0].dirty = true;
     let card = lock(&i.world).card_id;
     set_script(&i, ObjRef::Card(card), "on TEXWindowClosing name, changed\n  put the text of window name && changed into msg\nend TEXWindowClosing");
     i.handle_event(Event::CloseWindow("Notes".into()));
@@ -1643,6 +1642,130 @@ fn text_windows_from_scripts() {
     assert_eq!(run(&mut i, "put there is a window \"Notes\""), "false");
     run(&mut i, "TEXWindow \"Notes\", \"Again\"\nclose window \"Notes\"");
     assert_eq!(run(&mut i, "put there is a window \"Notes\""), "false");
+}
+
+#[test]
+fn mail_and_volumes() {
+    let mut i = interp_with(stack());
+    i.handle_event(Event::MsgBox(
+        "MakeSendMe5 \"DEVSUPPORT\", \"\", \"Q&A 1\", \"Line one\" & return & \"Line two\"".into(),
+    ));
+    let urls: Vec<String> = lock(&i.world)
+        .requests
+        .drain(..)
+        .filter_map(|r| {
+            if let UiRequest::OpenUrl(u) = r {
+                Some(u)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(
+        urls,
+        vec!["mailto:DEVSUPPORT?subject=Q%26A%201&body=Line%20one%0D%0ALine%20two".to_string()]
+    );
+    assert!(!run(&mut i, "put GetVol()").is_empty());
+}
+
+#[test]
+fn progress_windows() {
+    // As Apple's ProgressWindoid stack drives one: create it hidden, show
+    // it, fill it, move it, read it back, close it.
+    let mut i = interp_with(stack());
+    assert_eq!(
+        run(
+            &mut i,
+            "put ProgressWindoid(\"Copying\", \"20,50\", 300, \"Copying files:\", 0.25)"
+        ),
+        ""
+    );
+    assert_eq!(
+        run(
+            &mut i,
+            "put there is a window \"Copying\" && the visible of window \"Copying\""
+        ),
+        "true false"
+    );
+    run(&mut i, "show window \"Copying\"");
+    assert_eq!(run(&mut i, "put the visible of window \"Copying\""), "true");
+    assert_eq!(
+        run(&mut i, "put the fraction of window \"Copying\""),
+        "0.25"
+    );
+    run(
+        &mut i,
+        "set the fraction of window \"Copying\" to 0.75\nset the text of window \"Copying\" to \"Almost\"",
+    );
+    assert_eq!(
+        run(
+            &mut i,
+            "put the fraction of window \"Copying\" && the text of window \"Copying\""
+        ),
+        "0.75 Almost"
+    );
+    run(&mut i, "set the loc of window \"Copying\" to 100,120");
+    assert_eq!(
+        run(
+            &mut i,
+            "put the loc of window \"Copying\" && the width of window \"Copying\""
+        ),
+        "100,120 300"
+    );
+    assert_eq!(
+        run(&mut i, "put the properties of window \"Copying\""),
+        "width,text,fraction,textFont,textSize"
+    );
+    assert!(run(&mut i, "put ProgressWindoid(\"Copying\", \"0,0\")").starts_with('•'));
+    run(&mut i, "hide window \"Copying\"");
+    assert_eq!(
+        run(&mut i, "put the visible of window \"Copying\""),
+        "false"
+    );
+    run(&mut i, "close window \"Copying\"");
+    assert!(run(&mut i, "put the fraction of window \"Copying\"").contains("No such window"));
+}
+
+#[test]
+fn files_and_folders() {
+    // Rinaldi's file externals, on real files in a scratch folder.
+    let dir = std::env::temp_dir().join(format!("randomcard-files-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("Sub")).unwrap();
+    std::fs::write(dir.join("Notes"), "hello").unwrap();
+    let d = dir.display().to_string();
+    let mut i = interp_with(stack());
+    let r = |i: &mut Interp, s: String| run(i, &s);
+    // Copy, and not over an existing file unless told to.
+    assert_eq!(r(&mut i, format!("FileCopy \"{d}/Notes\", \"{d}/Copy\"\nput the result")), "");
+    assert_eq!(std::fs::read_to_string(dir.join("Copy")).unwrap(), "hello");
+    assert_eq!(r(&mut i, format!("FileCopy \"{d}/Notes\", \"{d}/Copy\"\nput the result")), "Error : Duplicate file name");
+    assert_eq!(r(&mut i, format!("FileCopy \"{d}/Notes\", \"{d}/Copy\", replace\nput the result")), "");
+    assert_eq!(r(&mut i, format!("FileCopy \"{d}/Nothing\", \"{d}/X\"\nput the result")), "Error : File not found");
+    // List the folder: files, folders, both; with filters and a layout.
+    assert_eq!(r(&mut i, format!("put GetDir(\"{d}\")")), "Copy\nNotes\nSub");
+    assert_eq!(r(&mut i, format!("put GetDir(\"{d}\", \"F\")")), "Copy\nNotes");
+    assert_eq!(r(&mut i, format!("put GetDir(\"{d}\", \"D\")")), "Sub");
+    assert_eq!(r(&mut i, format!("put GetDir(\"{d}\", \"F\", \"n<No\", \"o=nd\")")), "Notes,5");
+    assert!(r(&mut i, format!("put GetDir(\"{d}\", \"F\", \"q=1\")")).starts_with("Error : First char"));
+    // Rename and move.
+    assert_eq!(r(&mut i, format!("FullRename \"{d}/Copy\", \"Copy 2\"\nput the result")), "");
+    assert_eq!(r(&mut i, format!("FullMove \"{d}/Copy 2\", \"{d}/Sub\"\nput the result")), "");
+    assert_eq!(r(&mut i, format!("put GetDir(\"{d}\", \"FR\", \"o=n\")")), "Notes\nCopy 2");
+    // Finder information: 23 items.
+    let info = r(&mut i, format!("put GetFInfo(\"{d}/Notes\")"));
+    let items: Vec<&str> = info.split(',').collect();
+    assert_eq!((items.len(), items[0], items[4], items[5]), (23, "????", "5", "5"));
+    // Delete.
+    assert_eq!(r(&mut i, format!("EraseFile \"{d}/Sub/Copy 2\"\nput the result")), "");
+    assert_eq!(r(&mut i, format!("EraseFile \"{d}/Sub/Copy 2\"\nput the result")), "Error : File not found");
+    // Each answers "?" with its syntax and "!" with its notice.
+    assert_eq!(run(&mut i, "put GetDir(\"?\")"), "GetDir(<folder>[, <mode>][, <filter 1>...[, <filter N>]])");
+    assert_eq!(run(&mut i, "FileCopy \"!\"\nput word 2 of the result"), "2.0");
+    assert!(!run(&mut i, "put GetBootVol()").is_empty());
+    assert_eq!(run(&mut i, "put leafName(\"/home/ada/Notes\") & \",\" & leafName(\"Disk:Stacks:Home\") & \",\" & leafName(\"/home/ada/\")"), "Notes,Home,ada");
+    assert_eq!(run(&mut i, "put selectDir(\"Which?\") & fileN(\"Which?\") & folderPath(\"Which?\")"), "");
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -1753,4 +1876,100 @@ fn command_forms_probe() {
             }
         }
     }
+}
+
+/// Open a stack and run message box lines in order (one per line of
+/// RANDOMCARD_SCRIPT), printing each line's result or error: for checking a
+/// stack in a sensible order, as a person would use it.
+#[test]
+#[ignore]
+fn drive_stack() {
+    let (Ok(path), Ok(script)) = (
+        std::env::var("RANDOMCARD_STACK"),
+        std::env::var("RANDOMCARD_SCRIPT"),
+    ) else {
+        return;
+    };
+    std::thread::Builder::new()
+        .stack_size(super::SCRIPT_STACK)
+        .spawn(move || {
+            let stack = crate::import::load_any(std::path::Path::new(&path), None)
+                .expect("can't open the stack");
+            let mut i = interp_with(stack);
+            i.handle_event(Event::Startup);
+            lock(&i.world).requests.clear();
+            for line in script.lines().filter(|l| !l.trim().is_empty()) {
+                println!("{line}  =>  {}", run(&mut i, line));
+            }
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+/// Run every steps file in RANDOMCARD_DRIVEN (tests/driven): each names its
+/// stacks with `path:` lines (relative to RANDOMCARD_DEVCDS) and lists
+/// message box lines to run in order. A stack passes if no line gives an
+/// error. Writes DRIVEN.tsv in RANDOMCARD_DEVCDS, for tools/working_md.py.
+#[test]
+#[ignore]
+fn driven_checks() {
+    let (Ok(dir), Ok(root)) = (
+        std::env::var("RANDOMCARD_DRIVEN"),
+        std::env::var("RANDOMCARD_DEVCDS"),
+    ) else {
+        return;
+    };
+    std::thread::Builder::new()
+        .stack_size(super::SCRIPT_STACK)
+        .spawn(move || {
+            let root = std::path::PathBuf::from(root);
+            let mut files: Vec<_> = std::fs::read_dir(&dir)
+                .unwrap()
+                .flatten()
+                .map(|e| e.path())
+                .collect();
+            files.sort();
+            let mut rows = vec!["path\tresult\tsteps\tfirst_error\tchecks".to_string()];
+            for file in files {
+                let text = std::fs::read_to_string(&file).unwrap();
+                let lines = text
+                    .lines()
+                    .map(str::trim)
+                    .filter(|l| !l.is_empty() && !l.starts_with('#'));
+                let (paths, steps): (Vec<&str>, Vec<&str>) =
+                    lines.partition(|l| l.starts_with("path:"));
+                let checks = file.file_name().unwrap().to_string_lossy().to_string();
+                for p in paths {
+                    let rel = p["path:".len()..].trim();
+                    let first_error = match crate::import::load_any(&root.join(rel), None) {
+                        Err(e) => Some(format!("doesn't import: {e}")),
+                        Ok(stack) => {
+                            let mut i = interp_with(stack);
+                            i.handle_event(Event::Startup);
+                            lock(&i.world).requests.clear();
+                            steps.iter().find_map(|s| {
+                                let r = run(&mut i, s);
+                                r.starts_with("ERROR").then(|| format!("{s}: {r}"))
+                            })
+                        }
+                    };
+                    let result = if first_error.is_some() {
+                        "errors"
+                    } else {
+                        "driven clean"
+                    };
+                    println!("{result}\t{rel}");
+                    rows.push(format!(
+                        "{rel}\t{result}\t{}\t{}\t{checks}",
+                        steps.len(),
+                        first_error.unwrap_or_default().replace(['\t', '\n'], " ")
+                    ));
+                }
+            }
+            std::fs::write(root.join("DRIVEN.tsv"), rows.join("\n") + "\n").unwrap();
+        })
+        .unwrap()
+        .join()
+        .unwrap();
 }

@@ -286,11 +286,35 @@ impl Interp {
                 self.files.insert(name, OpenFile { content, pos: 0, dirty: false });
                 Ok(())
             }
+            Cmd::SetWindowProp {
+                prop,
+                window,
+                value,
+            } => {
+                let name = self.eval(window)?;
+                let value = self.eval(value)?;
+                let mut w = self.w();
+                let Some(win) = w
+                    .script_windows
+                    .iter_mut()
+                    .find(|t| t.name.eq_ignore_ascii_case(name.trim()))
+                else {
+                    return err(format!("No such window \"{}\"", name.trim()));
+                };
+                match win.set_property(prop, &value) {
+                    Ok(true) => Ok(()),
+                    Ok(false) => err(format!("Can't set the {prop} of a window")),
+                    Err(e) => err(e),
+                }
+            }
             Cmd::CloseWindow(e) => {
                 let name = self.eval(e)?;
                 let mut w = self.w();
-                w.text_windows.retain(|t| !t.name.eq_ignore_ascii_case(name.trim()));
-                if name.trim().eq_ignore_ascii_case("message") || name.trim().eq_ignore_ascii_case("message box") {
+                w.script_windows
+                    .retain(|t| !t.name.eq_ignore_ascii_case(name.trim()));
+                if name.trim().eq_ignore_ascii_case("message")
+                    || name.trim().eq_ignore_ascii_case("message box")
+                {
                     w.msg_visible = false;
                 }
                 Ok(())
@@ -580,6 +604,34 @@ impl Interp {
                 self.w().msg_visible = show;
             }
             ShowHide::MessageWatcher => self.w().requests.push(UiRequest::MessageWatcher(show)),
+            ShowHide::Window(e) => {
+                let name = self.eval(e)?;
+                let name = name.trim();
+                if ["message", "message box", "msg", "message window"]
+                    .iter()
+                    .any(|m| m.eq_ignore_ascii_case(name))
+                {
+                    return self.show_hide(&ShowHide::MsgBox, show, at);
+                }
+                if ["tool", "tools", "tool window"]
+                    .iter()
+                    .any(|m| m.eq_ignore_ascii_case(name))
+                {
+                    return self.show_hide(&ShowHide::ToolWindow, show, at);
+                }
+                let mut w = self.w();
+                let Some(win) = w
+                    .script_windows
+                    .iter_mut()
+                    .find(|t| t.name.eq_ignore_ascii_case(name))
+                else {
+                    return err(format!("No such window \"{name}\""));
+                };
+                win.visible = show;
+                if let Some(at) = at {
+                    win.set_property("loc", &at).or_else(err)?;
+                }
+            }
             ShowHide::ToolWindow => self.w().requests.push(UiRequest::ToolWindow(show)),
             // Showing the patterns shows the tool panel they're in; hiding
             // them leaves the tools alone.
