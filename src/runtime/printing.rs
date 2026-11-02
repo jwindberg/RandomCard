@@ -2,12 +2,13 @@
 //! `close printing`. Documents are made as PDFs and opened in the system's
 //! viewer, which prints them.
 
-use crate::hypertalk::ast::PrintWhat;
+use crate::hypertalk::ast::{Expr, ObjSpec, PrintWhat};
 use crate::hypertalk::value::parse_point;
-use crate::model::{Id, Rect};
+use crate::model::{Id, PartKind, Rect};
 use crate::print;
 
 use super::interp::{Interp, R, err};
+use super::world::ObjRef;
 
 impl Interp {
     pub(super) fn print(&mut self, what: &PrintWhat) -> R<()> {
@@ -39,6 +40,12 @@ impl Interp {
                 w.stack.cards.iter().cycle().skip(w.card_index()).take(n.min(w.stack.cards.len())).map(|c| c.id).collect()
             }
             PrintWhat::Text(e) => {
+                // `print field 1` prints the field's text in its own font.
+                if matches!(e, Expr::Object(ObjSpec::Part { kind: Some(PartKind::Field), .. }))
+                    && let Ok(obj @ ObjRef::Part { .. }) = self.resolve_dynamic(e)
+                {
+                    return self.print_field(obj);
+                }
                 let text = self.eval(e)?;
                 let name = format!("{} text", self.w().stack.name);
                 return self.emit(&name, print::text_pdf(&text));
@@ -49,6 +56,18 @@ impl Interp {
     }
 
     /// Print cards, or add them to the document `open printing` started.
+    /// Print a field's text in its font, size and style (Print Field…).
+    pub(super) fn print_field(&mut self, obj: ObjRef) -> R<()> {
+        let ObjRef::Part { layer, id, card } = obj else { return err("Can only print a field") };
+        let (text, font, size, style, name) = {
+            let w = self.w();
+            let Some(p) = w.stack.part(card, layer, id) else { return err("No such field") };
+            (w.stack.field_text(card, layer, id), p.text_font.clone(), p.text_size, p.text_style.clone(), p.name.clone())
+        };
+        let doc = format!("{} {}", self.w().stack.name, if name.is_empty() { "field".to_string() } else { name });
+        self.emit(&doc, print::text_pdf_in(&text, &font, size.max(1), &style))
+    }
+
     pub(super) fn print_cards(&mut self, ids: Vec<Id>, alone: bool) -> R<()> {
         if let Some(job) = &mut self.print_job {
             job.extend(ids);

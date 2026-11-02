@@ -14,6 +14,9 @@ pub struct Script {
 pub struct Handler {
     pub params: Vec<String>,
     pub body: Vec<Stmt>,
+    /// A handler that didn't parse: the error, reported when it runs, as
+    /// HyperCard compiled and reported each handler only when it was used.
+    pub broken: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -251,6 +254,10 @@ pub enum ShowHide {
     PictureOf(Expr),
     MessageWatcher,
     VariableWatcher,
+    /// `show tool window`: HyperCard's Tools palette, RandomCard's tool panel.
+    ToolWindow,
+    /// `show pattern window`: the Patterns palette, part of the tool panel.
+    PatternWindow,
 }
 
 #[derive(Clone, Debug)]
@@ -326,6 +333,8 @@ pub enum Cmd {
     Unmark(MarkWhat),
     OpenFile(Expr),
     CloseFile(Expr),
+    /// `close window "Notes"`: a window a script opened.
+    CloseWindow(Expr),
     ReadFile { file: Expr, until: Option<Expr>, count: Option<Expr>, at: Option<Expr> },
     WriteFile { data: Expr, file: Expr, at: Option<Expr>, at_end: bool },
     Enable(Expr),

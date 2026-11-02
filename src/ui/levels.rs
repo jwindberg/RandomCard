@@ -196,9 +196,10 @@ impl App {
                 }
             }
             ui.separator();
-            let mut show = self.settings.show_tools;
+            let mut show = self.tools_shown();
             if ui.checkbox(&mut show, format!("Show the tool panel ({})", shortcut("T"))).changed() {
                 self.settings.show_tools = show;
+                self.tools_by_script = None;
                 self.settings.save();
             }
         });

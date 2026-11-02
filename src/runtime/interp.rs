@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use crate::hypertalk::ast::*;
 use crate::hypertalk::chunk::{self, Resolved};
-use crate::hypertalk::parser::{parse_expression, parse_object, parse_script, parse_statements};
+use crate::hypertalk::parser::{parse_expression, parse_object, parse_script_for_running, parse_statements};
 use crate::hypertalk::value::*;
 use crate::model::{Id, Layer, Stack};
 
@@ -262,6 +262,13 @@ impl Interp {
                 }
             }
             Event::Key { target, message, args, default } => self.key_message(target, &message, args, default),
+            Event::CloseWindow(name) => {
+                let card = ObjRef::Card(self.w().card_id);
+                let dirty = { self.w().text_windows.iter().find(|t| t.name == name).is_some_and(|t| t.dirty) };
+                let r = self.dispatch_top(card, "TEXWindowClosing", vec![name.clone(), dirty.to_string()]);
+                self.w().text_windows.retain(|t| t.name != name);
+                r
+            }
             Event::Shutdown => Ok(()),
         };
         self.frames.clear();
@@ -443,7 +450,7 @@ impl Interp {
         let parsed = match self.scripts.get(&key) {
             Some((h, parsed)) if *h == hash => parsed.clone(),
             _ => {
-                let parsed = parse_script(&text).map(Rc::new);
+                let parsed = parse_script_for_running(&text).map(Rc::new);
                 self.scripts.insert(key, (hash, parsed.clone()));
                 parsed
             }
@@ -581,6 +588,11 @@ impl Interp {
     ) -> R<Option<String>> {
         if self.frames.len() > MAX_DEPTH {
             return err("Too much recursion");
+        }
+        if let Some(e) = &h.broken {
+            let line = e.strip_prefix("line ").and_then(|r| r.split(':').next()).and_then(|n| n.parse().ok());
+            let msg = format!("Script error in {}: {}", self.object_name(me), e);
+            return Err(Ctl::Error(ScriptError { msg, obj: Some(me), line }));
         }
         let mut frame = Frame::new(me, target, name, args.to_vec());
         for (i, p) in h.params.iter().enumerate() {
@@ -825,6 +837,9 @@ impl Interp {
 
     fn repeat(&mut self, kind: &RepeatKind, body: &[Stmt]) -> R<()> {
         let run_body = |me: &mut Self| -> R<bool> {
+            // Checked on every pass, so ⌘-period stops even an empty loop
+            // like `repeat until the mouse is down`.
+            me.check_abort()?;
             match me.exec_block(body) {
                 Ok(()) | Err(Ctl::NextRepeat) => Ok(true),
                 Err(Ctl::ExitRepeat) => Ok(false),

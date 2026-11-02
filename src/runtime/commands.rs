@@ -220,7 +220,17 @@ impl Interp {
                 Ok(())
             }
             Cmd::PopCard(into) => {
-                let Some(id) = self.pushed_cards.pop() else { return Ok(()) };
+                // Popping more cards than were pushed gives the Home card, as
+                // in HyperCard; stacks test for it (`if it contains "Home"`).
+                let Some(id) = self.pushed_cards.pop() else {
+                    return match into {
+                        Some((prep, dest)) => {
+                            let name = self.home_card_name();
+                            self.put_into(dest, *prep, &name)
+                        }
+                        None => self.go_home(),
+                    };
+                };
                 match into {
                     Some((prep, dest)) => {
                         let name = self.name_of(ObjRef::Card(id), NameLength::Long);
@@ -274,6 +284,15 @@ impl Interp {
                 let name = self.eval(e)?;
                 let content = std::fs::read_to_string(&name).unwrap_or_default();
                 self.files.insert(name, OpenFile { content, pos: 0, dirty: false });
+                Ok(())
+            }
+            Cmd::CloseWindow(e) => {
+                let name = self.eval(e)?;
+                let mut w = self.w();
+                w.text_windows.retain(|t| !t.name.eq_ignore_ascii_case(name.trim()));
+                if name.trim().eq_ignore_ascii_case("message") || name.trim().eq_ignore_ascii_case("message box") {
+                    w.msg_visible = false;
+                }
                 Ok(())
             }
             Cmd::CloseFile(e) => {
@@ -561,6 +580,14 @@ impl Interp {
                 self.w().msg_visible = show;
             }
             ShowHide::MessageWatcher => self.w().requests.push(UiRequest::MessageWatcher(show)),
+            ShowHide::ToolWindow => self.w().requests.push(UiRequest::ToolWindow(show)),
+            // Showing the patterns shows the tool panel they're in; hiding
+            // them leaves the tools alone.
+            ShowHide::PatternWindow => {
+                if show {
+                    self.w().requests.push(UiRequest::ToolWindow(true));
+                }
+            }
             ShowHide::VariableWatcher => self.w().requests.push(UiRequest::VariableWatcher(show)),
             ShowHide::MenuBar => self.w().menubar_visible = show,
             ShowHide::TitleBar => {}
@@ -678,23 +705,65 @@ impl Interp {
         }
     }
 
-    /// A stack file by name or path: as given, then beside the current
-    /// stack, then beside Home.
+    /// A stack file by name or path, searched for as HyperCard's default
+    /// search paths did: as given, then in the current stack's folder and
+    /// its subfolders, then up to two folders up and their subfolders (so a
+    /// stack in Idea Stacks finds one in HyperCard Stacks beside it), one
+    /// level deeper from the top one, then beside Home. Names match without regard to case, as on a Mac, and a
+    /// Mac path ("Disk:Folder:Stack") is looked for by its last part.
     fn find_stack_file(&self, v: &str) -> Option<std::path::PathBuf> {
+        use std::path::{Path, PathBuf};
         let t = v.trim();
         let lower = t.to_ascii_lowercase();
         let name = if lower.starts_with("stack ") { t[6..].trim().trim_matches('"') } else { t.trim_matches('"') };
         if name.is_empty() {
             return None;
         }
-        let w = self.w();
-        let dirs = [w.stack.path.as_ref(), w.home_path.as_ref()].into_iter().flatten().filter_map(|p| p.parent());
-        let mut candidates = vec![std::path::PathBuf::from(name), std::path::PathBuf::from(format!("{name}.rcstack"))];
-        for dir in dirs {
-            candidates.push(dir.join(name));
-            candidates.push(dir.join(format!("{name}.rcstack")));
+        for p in [PathBuf::from(name), PathBuf::from(format!("{name}.rcstack"))] {
+            if p.is_file() {
+                return Some(p);
+            }
         }
-        candidates.into_iter().find(|p| p.is_file())
+        let leaf = name.rsplit(':').next().unwrap_or(name).trim();
+        if leaf.is_empty() || leaf.contains('/') {
+            return None;
+        }
+        let wanted = [leaf.to_lowercase(), format!("{}.rcstack", leaf.to_lowercase())];
+        let in_dir = |dir: &Path| -> Option<PathBuf> {
+            std::fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).find(|p| {
+                p.is_file() && p.file_name().is_some_and(|n| wanted.contains(&n.to_string_lossy().to_lowercase()))
+            })
+        };
+        let subfolders = |dir: &Path| -> Vec<PathBuf> {
+            let mut v: Vec<PathBuf> =
+                std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+            v.sort();
+            v
+        };
+        let (here, home) = {
+            let w = self.w();
+            let here = w.stack.path.clone().or_else(|| w.stack.imported_from.clone());
+            (here, w.home_path.clone())
+        };
+        let mut dirs: Vec<PathBuf> = Vec::new();
+        if let Some(dir) = here.as_deref().and_then(Path::parent) {
+            for up in dir.ancestors().take(3) {
+                dirs.push(up.to_path_buf());
+                dirs.extend(subfolders(up));
+            }
+            // HyperCard shipped on several floppies, copied into one folder:
+            // a stack on disk 3 looks for one in "HyperCard 1/HyperCard Stacks".
+            if let Some(top) = dir.ancestors().nth(2) {
+                for sub in subfolders(top) {
+                    dirs.extend(subfolders(&sub));
+                }
+            }
+        }
+        if let Some(dir) = home.as_deref().and_then(Path::parent) {
+            dirs.push(dir.to_path_buf());
+        }
+        let mut seen = std::collections::HashSet::new();
+        dirs.into_iter().filter(|d| seen.insert(d.clone())).find_map(|d| in_dir(&d))
     }
 
     /// The stack a name refers to: the current one, one already loaded, or
@@ -787,6 +856,20 @@ impl Interp {
     }
 
     /// `go home`: to the Home stack, or the first card if there's none.
+    /// The long name of Home's first card.
+    fn home_card_name(&mut self) -> String {
+        let mut w = self.w();
+        w.load_home();
+        let home = if w.is_home(&w.stack) { Some(&w.stack) } else { w.home_key().and_then(|k| w.other(k)) };
+        match home {
+            Some(h) => {
+                let place = h.path.as_ref().map_or(h.name.clone(), |p| p.display().to_string());
+                format!("card id {} of stack \"{place}\"", h.cards[0].id)
+            }
+            None => "card id 1 of stack \"Home\"".into(),
+        }
+    }
+
     pub(super) fn go_home(&mut self) -> R<()> {
         let (is_home, key) = {
             let mut w = self.w();
@@ -1010,6 +1093,25 @@ impl Interp {
             w.mouse.click_y = y;
         }
         let target = self.part_at(x, y).unwrap_or_else(|| self.current_card_ref());
+        // With the button or field tool a click selects a part and sends no
+        // messages, as in HyperCard; scripts click that way before Clear
+        // Button. Paint tools aren't sent messages either.
+        let tool = self.w().tool;
+        if tool != Tool::Browse {
+            if let ObjRef::Part { layer, id, card } = target {
+                let mut w = self.w();
+                let kind = w.stack.part(card, layer, id).map(|p| p.kind);
+                let wanted = match tool {
+                    Tool::Button => Some(PartKind::Button),
+                    Tool::Field => Some(PartKind::Field),
+                    _ => None,
+                };
+                if kind.is_some() && kind == wanted {
+                    w.requests.push(UiRequest::SelectPart(target));
+                }
+            }
+            return Ok(());
+        }
         if let ObjRef::Part { layer, id, card } = target {
             let toggles = {
                 let w = self.w();
@@ -1389,7 +1491,12 @@ impl Interp {
             slots.iter().map(|i| w.stack.cards[*i].id).collect()
         };
         let keys = self.per_card(ids, |me, _| {
-            let v = me.eval(by)?;
+            // A card without the part sorted on (an index card on another
+            // background) sorts as if it were empty, as in HyperCard.
+            let v = match me.eval(by) {
+                Err(Ctl::Error(e)) if e.msg.starts_with("No such") => String::new(),
+                v => v?,
+            };
             Ok(Self::sort_key(style, &v))
         })?;
         let mut w = self.w();
@@ -1783,12 +1890,59 @@ impl Interp {
                 Ok(())
             }
             _ if is_text_menu_item(&key) => self.text_menu(&key),
-            "compact stack" | "about hypercard" | "about randomcard" | "help" => Ok(()),
+            // Nothing to do: stacks are written whole, printing goes through
+            // PDF, and there's one window and no help stack.
+            "compact stack" | "page setup" | "scroll" | "next window" | "help" | "about hypercard"
+            | "about randomcard" => Ok(()),
+            "print report" | "text style" | "icon" | "audio" => {
+                let name = item.trim().trim_end_matches('…').trim_end_matches("...");
+                self.dialog(Dialog::Answer {
+                    prompt: format!("{name} isn't in RandomCard yet."),
+                    buttons: vec!["OK".into()],
+                })?;
+                Ok(())
+            }
+            // With one window, closing a stack goes Home.
+            "close stack" => self.go_home(),
+            "delete stack" => self.delete_stack(),
+            "print field" => match { self.w().focus } {
+                Some((layer, id)) => {
+                    let card = self.w().card_id;
+                    self.print_field(ObjRef::Part { layer, id, card })
+                }
+                None => self.request(UiRequest::PrintSelectedField),
+            },
             _ => {
                 self.result = format!("Can't find menu item \"{item}\"");
                 Ok(())
             }
         }
+    }
+
+    /// Delete Stack: after asking, remove the stack's RandomCard file and go
+    /// Home. A HyperCard stack that was only imported keeps its file.
+    fn delete_stack(&mut self) -> R<()> {
+        let (name, path, protected, home) = {
+            let w = self.w();
+            (w.stack.name.clone(), w.stack.path.clone(), w.stack.protection.cant_delete, w.is_home(&w.stack))
+        };
+        if home || protected {
+            return err(format!("The stack \"{name}\" can't be deleted"));
+        }
+        let Some(path) = path else {
+            return err(format!("The stack \"{name}\" has no RandomCard file to delete"));
+        };
+        let reply = self.dialog(Dialog::Answer {
+            prompt: format!("Delete the stack \"{name}\"? This can't be undone."),
+            buttons: vec!["Cancel".into(), "Delete".into()],
+        })?;
+        if !matches!(reply, DialogReply::Button(b) if b == "Delete") {
+            return Ok(());
+        }
+        std::fs::remove_file(&path).or_else(|e| err(format!("Can't delete \"{}\": {e}", path.display())))?;
+        self.w().stack.path = None;
+        self.w().dirty = false;
+        self.go_home()
     }
 
     fn request(&mut self, r: UiRequest) -> R<()> {

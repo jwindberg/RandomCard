@@ -36,6 +36,7 @@ const PROPERTIES: &[&str] = &[
     "showname", "enabled", "family", "sharedhilite", "icon", "titlewidth", "locktext", "dontwrap", "autotab",
     "widemargins", "showlines", "sharedtext", "dontsearch", "autoselect", "multiplelines", "fixedlineheight", "scroll", "script", "contents", "text", "marked",
     "showpict", "cantdelete", "cantmodify", "owner", "partnumber", "checkmark", "commandchar", "menumessage",
+    "size", "freesize",
 ];
 
 const TYPE_NAMES: &[&str] =
@@ -61,9 +62,17 @@ const EXPR_START_WORDS: &[&str] = &[
     "previous", "number",
 ];
 
+/// Parse a script, failing at its first error (for the script editor).
 pub fn parse_script(src: &str) -> PResult<Script> {
     let mut p = Parser::new(src)?;
-    p.script()
+    p.script(false)
+}
+
+/// Parse a script for running: a handler with an error is kept as broken,
+/// and only fails if it runs, so one bad handler doesn't stop the others.
+pub fn parse_script_for_running(src: &str) -> PResult<Script> {
+    let mut p = Parser::new(src)?;
+    p.script(true)
 }
 
 pub fn parse_statements(src: &str) -> PResult<Vec<Stmt>> {
@@ -368,7 +377,9 @@ impl Parser {
         match self.tok_at(n) {
             Tok::Number(_) | Tok::Str(_) => true,
             Tok::Sym(s) => *s == "(",
-            Tok::Word(w) => !STOP_WORDS.contains(&w.as_str()),
+            // `where` is a stop word only for `sort … where`; elsewhere it can
+            // be a variable, as in `line where of x`.
+            Tok::Word(w) => !STOP_WORDS.contains(&w.as_str()) || w == "where",
             _ => false,
         }
     }
@@ -379,7 +390,7 @@ impl Parser {
 
     // ----- scripts and statements -----
 
-    fn script(&mut self) -> PResult<Script> {
+    fn script(&mut self, tolerant: bool) -> PResult<Script> {
         let mut script = Script::default();
         loop {
             self.skip_newlines();
@@ -395,28 +406,66 @@ impl Parser {
                 self.rest_of_line();
                 continue;
             };
-            let name = self.symbol()?;
-            let mut params = Vec::new();
-            if !self.at_newline() {
-                params.push(self.symbol()?);
-                while self.accept_sym(",") {
-                    params.push(self.symbol()?);
+            // The name as written, to find the handler's end if it's broken.
+            let written = self.word().map(str::to_string);
+            let handler = match self.handler() {
+                Ok((name, handler)) => (name, handler),
+                Err(e) if tolerant => {
+                    let name = written.unwrap_or_default();
+                    self.skip_to_end_of(&name);
+                    (name, Handler { params: Vec::new(), body: Vec::new(), broken: Some(e) })
                 }
-            }
-            let body = self.block(&["end"])?;
-            self.expect("end")?;
-            let end_name = self.symbol()?;
-            if end_name != name {
-                return Err(format!("line {}: Expected \"end {name}\" but found \"end {end_name}\"", self.line()));
-            }
-            let handler = Handler { params, body };
-            if is_func {
-                script.functions.insert(name, handler);
-            } else {
-                script.handlers.insert(name, handler);
+                Err(e) => return Err(e),
+            };
+            let (name, handler) = handler;
+            let table = if is_func { &mut script.functions } else { &mut script.handlers };
+            // A broken handler never replaces a good one of the same name.
+            if handler.broken.is_none() || !table.contains_key(&name) {
+                table.insert(name, handler);
             }
         }
         Ok(script)
+    }
+
+    /// One handler, after `on` or `function`: its name, parameters and body.
+    fn handler(&mut self) -> PResult<(String, Handler)> {
+        let name = self.symbol()?;
+        let mut params = Vec::new();
+        if !self.at_newline() {
+            params.push(self.symbol()?);
+            while self.accept_sym(",") {
+                params.push(self.symbol()?);
+            }
+        }
+        let body = self.block(&["end"])?;
+        self.expect("end")?;
+        let end_name = self.symbol()?;
+        if end_name != name {
+            return Err(format!("line {}: Expected \"end {name}\" but found \"end {end_name}\"", self.line()));
+        }
+        Ok((name, Handler { params, body, broken: None }))
+    }
+
+    /// After an error in a handler, move past the line `end <name>` (or, if
+    /// the name couldn't be read, the next line starting with `end`).
+    fn skip_to_end_of(&mut self, name: &str) {
+        self.if_depth = 0;
+        loop {
+            self.rest_of_line();
+            self.skip_newlines();
+            if self.at_eof() {
+                return;
+            }
+            let ends = self.is("end")
+                && match name {
+                    "" => !self.is_at(1, "if") && !self.is_at(1, "repeat"),
+                    name => self.word_at(1).is_some_and(|w| w.eq_ignore_ascii_case(name)),
+                };
+            if ends {
+                self.rest_of_line();
+                return;
+            }
+        }
     }
 
     /// Parse statements, one per line, until one of `terminators` starts a line.
@@ -686,7 +735,8 @@ impl Parser {
                 let mut buttons = Vec::new();
                 if self.accept("with") {
                     buttons.push(self.term()?);
-                    while self.accept("or") {
+                    // `or` between buttons, or commas as some stacks wrote it.
+                    while self.accept("or") || self.accept_sym(",") {
                         buttons.push(self.term()?);
                     }
                 }
@@ -736,7 +786,19 @@ impl Parser {
                 let target = if self.accept("to") { Some(self.expr()?) } else { None };
                 Cmd::Send { msg, target }
             }
-            "do" => Cmd::Do(self.expr()?),
+            "do" => {
+                // `do ShowCategory CardNum,2`: HyperCard evaluated each word
+                // and ran the result, "ShowCategory 3,2", as a statement.
+                let mut e = self.expr()?;
+                while !self.at_newline() && !self.at_eof() && !self.is("else") {
+                    let (op, comma) = if self.accept_sym(",") { (BinOp::Concat, true) } else { (BinOp::ConcatSpace, false) };
+                    if comma {
+                        e = Expr::Binary(BinOp::Concat, Box::new(e), Box::new(Expr::Lit(",".into())));
+                    }
+                    e = Expr::Binary(op, Box::new(e), Box::new(self.expr()?));
+                }
+                Cmd::Do(e)
+            }
             "hide" => Cmd::Hide(self.show_hide()?),
             "show" => {
                 if self.accept("all") {
@@ -842,7 +904,34 @@ impl Parser {
                 Cmd::ChooseTool(Expr::Lit(words.join(" ")))
             }
             "domenu" => {
-                let e = self.expr()?;
+                // `domenu copy button`, `doMenu New Stack...`: an unquoted item
+                // is the rest of the line as written.
+                let start = self.pos;
+                let parsed = self.expr();
+                let ends = |p: &Self| p.at_newline() || p.at_eof() || p.is_sym(",") || p.is("without");
+                let e = match parsed {
+                    Ok(e) if ends(self) => e,
+                    _ => {
+                        self.pos = start;
+                        let mut item = String::new();
+                        while !ends(self) {
+                            let t = &self.toks[self.pos];
+                            let piece = match &t.tok {
+                                Tok::Str(s) => s.clone(),
+                                Tok::Number(n) => n.clone(),
+                                _ => t.text.clone(),
+                            };
+                            // "Info..." keeps its dots against the word.
+                            let tight = matches!(t.tok, Tok::Sym(_) | Tok::Other(_)) && !item.is_empty();
+                            if !item.is_empty() && !tight {
+                                item.push(' ');
+                            }
+                            item.push_str(&piece);
+                            self.advance();
+                        }
+                        Expr::Lit(item)
+                    }
+                };
                 if self.accept_sym(",") {
                     self.expr()?;
                 }
@@ -866,6 +955,8 @@ impl Parser {
             "close" => {
                 if self.accept("file") {
                     Cmd::CloseFile(self.expr()?)
+                } else if self.accept("window") {
+                    Cmd::CloseWindow(self.expr()?)
                 } else if self.accept("printing") {
                     Cmd::ClosePrinting
                 } else {
@@ -1202,6 +1293,15 @@ impl Parser {
             self.expect("of")?;
             return Ok(ShowHide::PictureOf(self.expr()?));
         }
+        if self.is("tool") && self.is_at(1, "window") {
+            self.pos += 2;
+            return Ok(ShowHide::ToolWindow);
+        }
+        if self.is("pattern") && self.is_at(1, "window") {
+            // The patterns are in the tool panel, which `tool window` shows.
+            self.pos += 2;
+            return Ok(ShowHide::PatternWindow);
+        }
         for (word, which) in [("message", ShowHide::MessageWatcher), ("variable", ShowHide::VariableWatcher)] {
             if self.is(word) && self.is_at(1, "watcher") {
                 self.pos += 2;
@@ -1479,9 +1579,10 @@ impl Parser {
                 let test = Expr::MenuExists(Box::new(r));
                 return Ok(if positive { test } else { Expr::Unary(UnOp::Not, Box::new(test)) });
             }
-            if self.accept("file") {
-                let path = self.term()?;
-                let test = Expr::Call("__fileexists".into(), vec![path]);
+            if self.accept("file") || self.accept("window") {
+                let window = self.toks[self.pos - 1].text.eq_ignore_ascii_case("window");
+                let arg = self.term()?;
+                let test = Expr::Call(if window { "__windowexists" } else { "__fileexists" }.into(), vec![arg]);
                 return Ok(if positive { test } else { Expr::Unary(UnOp::Not, Box::new(test)) });
             }
             let Some(obj) = self.object()? else {
@@ -1583,7 +1684,9 @@ impl Parser {
             self.advance();
             return Ok(Expr::Lit(c.into()));
         }
-        if STOP_WORDS.contains(&w) {
+        // Some stop words end expressions but can still be variables or bare
+        // words where a value is expected: `put x into to`, `of type PICT`.
+        if STOP_WORDS.contains(&w) && !matches!(w, "to" | "times" | "where" | "pict" | "picture" | "before" | "after") {
             return Err(self.err_here("Expected an expression"));
         }
         let text = self.toks[self.pos.min(self.toks.len() - 1)].text.clone();
@@ -1659,6 +1762,11 @@ impl Parser {
             if self.is("the") && self.is_at(1, "target") {
                 self.pos += 2;
                 return Ok(Expr::Property { name, length, obj: Some(Box::new(ObjSpec::Target)) });
+            }
+            // A window a script opened: `the text of window "Notes"`.
+            if self.is("window") && self.starts_term_at(1) {
+                self.advance();
+                return Ok(Expr::Call("__windowprop".into(), vec![Expr::Lit(name), self.term()?]));
             }
             let obj = self.term()?;
             let obj = match obj {
@@ -1749,6 +1857,16 @@ impl Parser {
         };
         let next = self.word_at(1).unwrap_or_default().to_string();
         if explicit_layer.is_some() && is_part_word(&next) || explicit_layer.is_none() && is_part_word(&w) {
+            // `number of bg fld "about"` is that field's number, not a count.
+            let at = if explicit_layer.is_some() { 1 } else { 0 };
+            let word = if explicit_layer.is_some() { &next } else { &w };
+            if matches!(word.as_str(), "field" | "fld" | "button" | "btn" | "part")
+                && self.starts_term_at(at + 1)
+                && !self.is_at(at + 1, "of")
+                && !self.is_at(at + 1, "in")
+            {
+                return Ok(None);
+            }
             if explicit_layer.is_some() {
                 self.advance();
             }

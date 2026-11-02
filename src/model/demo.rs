@@ -149,14 +149,14 @@ fn house(p: &mut Picture) {
 const STACK_SCRIPT: &str = r#"-- A menu of the stack's own. Its items arrive as doMenu messages.
 on openStack
   if there is no menu "Tour" then create menu "Tour"
-  put "Contents,Basics,Dice,Drawing,Animation,Sound,Keys,Fields,Print & Find,Debugging,-,Address Book" into menu "Tour"
+  put "Contents,Basics,Dice,Drawing,Animation,Sound,Keys,Fields,Print & Find,Icons,Debugging,-,Address Book" into menu "Tour"
 end openStack
 
 on doMenu what
   if what is "Address Book" then
     visual effect zoom open
     go to first card of background "Address"
-  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation,Sound,Keys,Fields,Print & Find,Debugging," then
+  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation,Sound,Keys,Fields,Print & Find,Icons,Debugging," then
     visual effect dissolve
     go to card what
   else
@@ -252,6 +252,7 @@ pub fn build() -> Stack {
         ("Keys", "on mouseUp\n  visual effect wipe up\n  go to card \"Keys\"\nend mouseUp"),
         ("Fields & Text", "on mouseUp\n  visual effect dissolve\n  go to card \"Fields\"\nend mouseUp"),
         ("Print & Find", "on mouseUp\n  visual effect scroll left\n  go to card \"Print & Find\"\nend mouseUp"),
+        ("Icons", "on mouseUp\n  visual effect zoom open\n  go to card \"Icons\"\nend mouseUp"),
         ("Debugging", "on mouseUp\n  visual effect iris open\n  go to card \"Debugging\"\nend mouseUp"),
         ("Address Book", "on mouseUp\n  visual effect zoom open\n  go to first card of background \"Address\"\nend mouseUp"),
     ];
@@ -624,6 +625,46 @@ end tabKey
         let p = b.button(name, Rect::new(x, y, x + 140, y + 28), script);
         b.card_part(c, p);
     }
+
+    // ----- HyperCard's icons -----
+    let c = b.card(main, "Icons");
+    let t = b.label("Heading", Rect::new(20, 10, 492, 36), "Buttons and icons", 20);
+    b.card_part(c, t);
+    let about = b.label(
+        "About",
+        Rect::new(20, 42, 492, 76),
+        "HyperCard's own icons are built in. Give a button one in its Info window, or by name from a script.",
+        12,
+    );
+    b.card_part(c, about);
+    // Scripts change these buttons' icons by name.
+    let icon_buttons = [
+        ("Roll Me", "Dice,1", "on mouseUp\n  repeat 6 times\n    set the icon of me to \"Dice,\" & random(6)\n    wait 4 ticks\n  end repeat\nend mouseUp"),
+        ("Juggle", "Juggler 2", "on mouseUp\n  repeat with i = 1 to 18\n    set the icon of me to \"Juggler\" && ((i mod 3) + 2)\n    wait 5 ticks\n  end repeat\nend mouseUp"),
+    ];
+    for (i, (name, icon, script)) in icon_buttons.iter().enumerate() {
+        let x = 60 + i as i32 * 130;
+        let mut p = b.button(name, Rect::new(x, 96, x + 90, 160), script);
+        p.style = PartStyle::Transparent;
+        if let Some((id, art)) = crate::import::hypercard_icon(icon) {
+            p.icon = id;
+            b.stack.icons.insert(id, art);
+        }
+        b.card_part(c, p);
+    }
+    // A hilited transparent button reverses what's under it.
+    let mut under = Part::new_field(b.id(), "Under", Rect::new(330, 96, 480, 160));
+    under.style = PartStyle::Rectangle;
+    under.lock_text = true;
+    under.text_size = 12;
+    under.text_align = TextAlign::Center;
+    under.contents = "Press and hold here: the button over this text reverses it.".into();
+    b.card_part(c, under);
+    let mut over = b.button("Reverse", Rect::new(330, 96, 480, 160), "");
+    over.style = PartStyle::Transparent;
+    over.show_name = false;
+    over.auto_hilite = true;
+    b.card_part(c, over);
 
     // ----- The debugger -----
     let c = b.card(main, "Debugging");

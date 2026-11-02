@@ -193,15 +193,47 @@ impl Interp {
                     .collect();
                 names.join("\n")
             }
-            "windows" => "card window\nmessage box".into(),
+            "windows" => {
+                let w = self.w();
+                let mut list: Vec<String> = w.text_windows.iter().rev().map(|t| t.name.clone()).collect();
+                list.extend(["card window".to_string(), "message box".to_string()]);
+                list.join("\n")
+            }
+            // The text, rect or name of a window a script opened.
+            "__windowprop" => {
+                let w = self.w();
+                let Some(t) = w.text_windows.iter().find(|t| t.name.eq_ignore_ascii_case(arg(1).trim())) else {
+                    drop(w);
+                    return err(format!("No such window \"{}\"", arg(1)));
+                };
+                match arg(0).as_str() {
+                    "text" | "contents" => t.text.clone(),
+                    "name" | "short name" => t.name.clone(),
+                    "rect" | "rectangle" => format!("{},{},{},{}", t.rect.left, t.rect.top, t.rect.right, t.rect.bottom),
+                    "visible" => "true".into(),
+                    other => {
+                        let other = other.to_string();
+                        drop(w);
+                        return err(format!("Windows have no property \"{other}\""));
+                    }
+                }
+            }
             "sound" => self.audio.current(),
             "speech" => "done".into(),
             "voices" => String::new(),
-            "screenrect" => "0,0,1920,1080".into(),
+            "screenrect" => {
+                let r = self.w().screen_rect;
+                format!("{},{},{},{}", r.left, r.top, r.right, r.bottom)
+            }
             "systemversion" | "osversion" => "1.0".into(),
             "osname" => std::env::consts::OS.into(),
             "diskspace" | "heapspace" => "1000000000".into(),
             "__fileexists" => bool_str(std::path::Path::new(&arg(0)).exists()),
+            // `there is a window "…"`: one of the windows `the windows` lists.
+            "__windowexists" => {
+                let windows = self.builtin("windows", NameLength::Default, vec![])?;
+                bool_str(windows.lines().any(|w| w.eq_ignore_ascii_case(arg(0).trim())))
+            }
             _ => return err(format!("No such function \"{name}\"")),
         })
     }

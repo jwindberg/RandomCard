@@ -204,10 +204,26 @@ pub struct FieldRange {
     pub end: usize,
 }
 
+/// A window of text a script opened, which the user can edit.
+#[derive(Clone, Debug)]
+pub struct TextWindow {
+    pub name: String,
+    pub text: String,
+    /// Where on the card it opens.
+    pub rect: crate::model::Rect,
+    pub font: String,
+    pub size: u32,
+    /// Whether the user has changed the text.
+    pub dirty: bool,
+}
+
 #[derive(Clone, Debug)]
 pub enum Dialog {
     Answer { prompt: String, buttons: Vec<String> },
     Ask { prompt: String, default: String, password: bool },
+    /// A pop-up menu at a point on the card, for externals like PopUpMenu.
+    /// The reply is the chosen item's number, from 1, or None.
+    Menu { items: Vec<String>, left: i32, top: i32, checked: u32 },
 }
 
 #[derive(Clone, Debug)]
@@ -253,6 +269,8 @@ pub enum UiRequest {
     SaveStackAs(Option<String>),
     Quit,
     SelectedPartInfo,
+    /// Print the field selected with the Field tool (Print Field…).
+    PrintSelectedField,
     CardInfo,
     BgInfo,
     StackInfo,
@@ -280,6 +298,10 @@ pub enum UiRequest {
     /// Show or hide the message or variable watcher.
     MessageWatcher(bool),
     VariableWatcher(bool),
+    /// Show or hide the tool panel (`show tool window`).
+    ToolWindow(bool),
+    /// Move the window so the card's top left corner is at this point on screen.
+    MoveWindow(i32, i32),
     /// A key's message wasn't handled: do what the key does by default.
     Key(ObjRef, KeyAction),
 }
@@ -297,6 +319,10 @@ pub enum Event {
     /// Open a stack file (RandomCard or HyperCard), asking for its password
     /// if it needs one.
     OpenFile(std::path::PathBuf),
+    /// The user closed a script's text window: the card is sent
+    /// TEXWindowClosing name, changed, while the window can still be read,
+    /// and then it closes.
+    CloseWindow(String),
     Shutdown,
 }
 
@@ -310,6 +336,12 @@ pub struct World {
     /// Where scripts have put the message box. It's drawn under the card
     /// whatever this says, but scripts read back what they set.
     pub msg_rect: crate::model::Rect,
+    /// Where the card's top left corner is on screen, in global coordinates,
+    /// as `the rect of card window` reports it. The UI keeps it up to date;
+    /// scripts move the window by setting it.
+    pub window_origin: (i32, i32),
+    /// The main screen, for `the screenRect`. The UI fills it in.
+    pub screen_rect: crate::model::Rect,
     pub history: Vec<Id>,
     pub history_pos: usize,
     /// Cards visited, each once, most recent last, for the Recent dialog.
@@ -326,6 +358,8 @@ pub struct World {
     /// Bumped whenever a picture changes so the UI can refresh textures.
     pub picture_rev: u64,
     pub requests: Vec<UiRequest>,
+    /// Text windows scripts have opened (TEXWindow), in front last.
+    pub text_windows: Vec<TextWindow>,
     pub dialog: Option<Dialog>,
     /// A script is running.
     pub busy: bool,
@@ -456,6 +490,8 @@ impl World {
             msg: String::new(),
             msg_visible: false,
             msg_rect,
+            window_origin: (0, 0),
+            screen_rect: crate::model::Rect::new(0, 0, 1920, 1080),
             history: vec![card_id],
             history_pos: 0,
             recent: vec![card_id],
@@ -468,6 +504,7 @@ impl World {
             dirty,
             picture_rev: 0,
             requests: Vec::new(),
+            text_windows: Vec::new(),
             dialog: None,
             busy: false,
             found: None,
@@ -510,6 +547,9 @@ impl World {
         let mut fresh = World::new(stack);
         fresh.msg_visible = self.msg_visible;
         fresh.msg_rect = self.msg_rect;
+        fresh.window_origin = self.window_origin;
+        fresh.text_windows = std::mem::take(&mut self.text_windows);
+        fresh.screen_rect = self.screen_rect;
         fresh.msg = std::mem::take(&mut self.msg);
         fresh.user_level = self.user_level;
         fresh.others = std::mem::take(&mut self.others);

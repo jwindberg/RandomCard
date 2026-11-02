@@ -69,6 +69,14 @@ pub fn item_key(name: &str) -> String {
     name.trim().trim_end_matches('…').trim_end_matches("...").trim().to_ascii_lowercase()
 }
 
+/// HyperCard 2's menu items that RandomCard has nothing behind yet, or never
+/// needs (Compact Stack: stacks are written whole). Scripts can still choose,
+/// enable, disable and delete them, as Apple's stacks do, but the menus don't
+/// show them.
+pub const SCRIPT_ONLY_ITEMS: &[&str] = &[
+    "compact stack", "page setup", "print report", "text style", "icon", "audio", "help", "scroll", "next window",
+];
+
 /// RandomCard's standard menu bar, in HyperCard's order.
 pub fn standard_menus() -> Vec<Menu> {
     let fonts: Vec<&str> = styles::FONTS.to_vec();
@@ -86,14 +94,20 @@ pub fn standard_menus() -> Vec<Menu> {
                 "New Stack…",
                 "Open Stack…",
                 "Import HyperCard Stack…",
+                "Close Stack",
                 "Save Stack",
                 "Save a Copy…",
+                "Compact Stack",
                 "-",
                 "Protect Stack…",
+                "Delete Stack…",
                 "Preferences…",
                 "-",
+                "Page Setup…",
+                "Print Field…",
                 "Print Card",
                 "Print Stack…",
+                "Print Report…",
                 "-",
                 "Quit RandomCard",
             ],
@@ -117,9 +131,15 @@ pub fn standard_menus() -> Vec<Menu> {
                 "-",
                 "Background",
                 "Clear Picture",
+                "Text Style…",
+                "Icon…",
+                "Audio…",
             ],
         ),
-        Menu::builtin("Go", &["Back", "Home", "Recent", "-", "First", "Prev", "Next", "Last", "-", "Find…", "Message"]),
+        Menu::builtin(
+            "Go",
+            &["Back", "Home", "Help", "Recent", "-", "First", "Prev", "Next", "Last", "-", "Find…", "Message", "Scroll", "Next Window"],
+        ),
         Menu::builtin("View", &["Tool Panel", "Message Box", "-", "Message Watcher", "Variable Watcher"]),
         Menu::builtin("Font", &fonts),
         Menu::builtin("Style", &style),
@@ -174,7 +194,7 @@ mod tests {
         let edit = menu_index(&menus, "edit").unwrap();
         assert_eq!(menus[edit].item_index("new card"), Some(8));
         assert_eq!(menus[edit].item_index("1"), Some(0));
-        assert_eq!(menus[0].item_index("protect stack"), Some(6));
+        assert_eq!(menus[0].item_index("protect stack"), Some(8));
         assert_eq!(menu_index(&menus, "2"), Some(1));
         assert!(find_item(&menus, "Bold").is_some());
         assert!(find_item(&menus, "-").is_none());

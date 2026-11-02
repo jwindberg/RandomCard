@@ -444,6 +444,34 @@ pub fn draw_scene(painter: &Painter, tex: &Textures, scene: &Scene, origin: Pos2
     }
 }
 
+/// Draw again what lies above part `i`, clipped to it. A scrolling field is a
+/// live widget drawn after the card, so whatever is layered over it (a
+/// popup field, a button, the card picture over a background field) has to
+/// be put back on top.
+pub fn draw_over(painter: &Painter, tex: &Textures, scene: &Scene, i: usize, origin: Pos2, live: bool) {
+    let rect = part_rect(&scene.parts[i].part, origin);
+    let painter = painter.with_clip_rect(rect.intersect(painter.clip_rect()));
+    let card_rect = Rect::from_min_size(origin, Vec2::new(scene.width as f32, scene.height as f32));
+    let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+    let mut card_pict_drawn = matches!(scene.parts[i].obj, ObjRef::Part { layer: Layer::Card, .. });
+    for (j, pv) in scene.parts.iter().enumerate().skip(i + 1) {
+        let is_card = matches!(pv.obj, ObjRef::Part { layer: Layer::Card, .. });
+        if is_card && !card_pict_drawn {
+            card_pict_drawn = true;
+            draw_card_picture(&painter, tex, scene, card_rect, uv);
+        }
+        if pv.part.visible && part_rect(&pv.part, origin).intersects(rect) {
+            if can_invert(&pv.part) && pv.hilite {
+                invert_under(&painter, tex, scene, j, origin, live);
+            }
+            draw_part(&painter, tex, pv, origin, false, scene.highlight(pv.obj), live);
+        }
+    }
+    if !card_pict_drawn {
+        draw_card_picture(&painter, tex, scene, card_rect, uv);
+    }
+}
+
 /// Whether a button inverts what's under it when hilited: in HyperCard a
 /// hilited transparent button with no icon reverses black and white in its
 /// rectangle, so stacks laid one over text to show it white on black.

@@ -189,14 +189,15 @@ container), click functions in locked fields, and autoSelect list fields.
 ## HyperTalk
 
 **Today:** see the README for what's implemented. All 268 scripts in the
-sample stacks parse; of 3,016 scripts in Apple's developer stacks
-(`examples/apple`), 480 don't yet, for the reasons below.
+sample stacks parse, and 3,009 of the 3,016 in Apple's developer stacks
+(`examples/apple`). The other 7 hold slips in Apple's own scripts, such as
+a missing `&` or a typed `whatof`. As in HyperCard, scripts are compiled a
+handler at a time, so a broken handler fails only if it runs and the rest
+of its script works.
 
 **Missing:**
-- **Forms found in Apple's developer stacks:** `do` followed by a command
-  (`do ShowCategory CardNum`), `there is a window "…"`, `answer … with
-  "No", "Yes"` (with commas), `doMenu` with an unquoted item (`domenu copy
-  button`), variables named `times` or `to`, and `size of this stack`.
+- **Odd forms in Apple's stacks:** `get lineClicked(4) of me` (a function's
+  value followed by `of me`), seen once.
 - **Keyboard gaps:** keyboard messages and interceptable commands are done
   (see the README). Still missing: `controlKey`; `keyDown` for editing keys
   such as Backspace and the arrows inside a field; a separate Enter key
@@ -409,6 +410,31 @@ Next, ranked by what people who built HyperCard stacks will need first:
 11. **Color.** Long term and large: the Color section's plan, from color
     pictures and a color picker to colored parts and text, images, and
     printing in color. Each step lands on its own.
+
+## HyperCard 2.4.1 compliance
+
+RandomCard aims to do everything HyperCard 2.4.1, the last version, could.
+COMPLIANCE.md audits it against Apple's 2.4.1 documentation, with probes that
+can be re-run. What's missing, by feature (details there):
+
+- **HyperCard 2 windows:** global rect and loc, the card window's scroll
+  (hBarLoc, vBarLoc), zoom, hide and show window, moveWindow and sizeWindow.
+- **Palettes and picture windows:** the `palette` and `picture` commands and
+  their messages.
+- **AppleEvents and other programs:** `request`, `reply`, `answer program`,
+  appleEvent, and opening or printing documents with another application.
+  Needs design: what they mean on today's systems.
+- **Report printing:** report templates and the print text settings.
+- **Paint import and export.**
+- **Error dialogs and Recent:** `lock error dialogs`, `lock recent`.
+- **Scripting environment properties:** scriptEditor, scriptTextFont and
+  size, the debugger, the environment, and the rest.
+- **Smaller items:** `ask file … with default`, `doMenu … with` modifier keys,
+  `the selectedButton of family`, key commands such as `returnKey` used in
+  scripts, and others.
+- **Still to audit:** 2.4 and 2.4.1's new features (QuickTime from HyperTalk,
+  URLs, the new script editor) and the application itself (menus, tools,
+  color).
 
 ## Future
 

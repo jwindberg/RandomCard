@@ -243,6 +243,21 @@ fn find_and_mark() {
 }
 
 #[test]
+fn sorting_past_a_card_without_the_field() {
+    // Apple's "Sort Cards by Name" button: an index card on its own
+    // background has no field "Name", and sorts as if it were empty.
+    let mut s = stack();
+    let mut index_bg = s.backgrounds[0].clone();
+    index_bg.id = 30;
+    index_bg.parts.clear();
+    s.backgrounds.push(index_bg);
+    s.cards.insert(0, Card { id: 31, name: "Index".into(), background: 30, picture: Picture::new(s.width, s.height), ..Card::default() });
+    let mut i = interp_with(s);
+    assert_eq!(run(&mut i, "sort by field \"Name\"\nput the short name of card 1 && the short name of card 4"), "Index Three");
+    assert_eq!(run(&mut i, "sort descending by field \"Name\"\nput the short name of card 1 && the short name of card 4"), "Three Index");
+}
+
+#[test]
 fn dialogs_and_menus() {
     let mut i = interp_with(stack());
     i.canned_answers.push(DialogReply::Button("Yes".into()));
@@ -296,13 +311,13 @@ fn click(i: &mut Interp, card_name: &str, button: &str) -> Option<String> {
 fn demo_stack_runs() {
     let mut i = interp_with(Stack::demo());
     i.handle_event(Event::Startup);
-    assert_eq!(run(&mut i, "put field \"Page\""), "Card 1 of 13");
+    assert_eq!(run(&mut i, "put field \"Page\""), "Card 1 of 14");
     let current = |i: &Interp| {
         let w = lock(&i.world);
         w.stack.card(w.card_id).unwrap().name.clone()
     };
     // The stack's own Tour menu.
-    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "12");
+    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "13");
     i.handle_event(Event::DoMenu("Dice".into()));
     assert_eq!(current(&i), "Dice");
     i.handle_event(Event::DoMenu("First".into()));
@@ -352,6 +367,7 @@ fn demo_stack_runs() {
         ("Keys", "Keys"),
         ("Fields & Text", "Fields"),
         ("Print & Find", "Print & Find"),
+        ("Icons", "Icons"),
         ("Debugging", "Debugging"),
     ] {
         assert_eq!(click(&mut i, "Contents", button), None, "{button}");
@@ -368,6 +384,13 @@ fn demo_stack_runs() {
     assert_eq!(run(&mut i, "put field \"Last Key\" of card \"Keys\""), "arrowKey left");
     run(&mut i, "send \"functionKey 5\" to card \"Keys\"");
     assert_eq!(run(&mut i, "put field \"Last Key\" of card \"Keys\""), "functionKey 5");
+    // The icon buttons change their icons by name, to HyperCard's own.
+    run(&mut i, "go to card \"Icons\"");
+    assert_eq!(click(&mut i, "Icons", "Roll Me"), None);
+    let die = run(&mut i, "put the icon of card button \"Roll Me\"").parse::<i32>().unwrap();
+    assert!((2101..=2106).contains(&die), "rolled icon {die}");
+    assert_eq!(click(&mut i, "Icons", "Juggle"), None);
+    assert_eq!(run(&mut i, "put the icon of card button \"Juggle\""), "21574");
     // The debugger card's script runs to its answer (tests don't stop at checkpoints).
     run(&mut i, "go to card \"Debugging\"");
     assert_eq!(click(&mut i, "Debugging", "Step Through Me"), None);
@@ -395,7 +418,7 @@ fn demo_stack_runs() {
     assert_eq!(run(&mut i, "put the number of cards of this background"), "4");
     i.canned_answers.push(DialogReply::Button("Delete".into()));
     assert_eq!(click(&mut i, "", "Delete"), None);
-    assert_eq!(run(&mut i, "put the number of cards"), "13");
+    assert_eq!(run(&mut i, "put the number of cards"), "14");
     assert_eq!(click(&mut i, "Grace Hopper", "Contents"), None);
     assert_eq!(current(&i), "Contents");
     assert_eq!(run(&mut i, "put the userLevel"), "5");
@@ -991,16 +1014,27 @@ fn plurals_as_variable_names() {
 }
 
 #[test]
+fn a_broken_handler_fails_only_when_it_runs() {
+    let mut i = interp_with(stack());
+    let card = ObjRef::Card(lock(&i.world).card_id);
+    set_script(&i, card, "on good\n  put \"fine\"\nend good\non bad\n  put field\nend bad\nfunction odd.name\n  return 1\nend odd.name\non later\n  put \"also fine\"\nend later");
+    assert_eq!(run(&mut i, "good"), "fine");
+    assert_eq!(run(&mut i, "later"), "also fine");
+    let e = run(&mut i, "bad");
+    assert!(e.starts_with("ERROR: Script error in card") && e.contains("line 5"), "{e}");
+}
+
+#[test]
 fn repeating_messages_report_an_error_once() {
     let mut i = interp_with(stack());
     let card = ObjRef::Card(lock(&i.world).card_id);
-    set_script(&i, card, "on mouseUp\n  put field\nend mouseUp");
+    set_script(&i, card, "on mouseWithin\n  put field\nend mouseWithin\non mouseUp\n  put field\nend mouseUp");
     let errors = |i: &mut Interp, message: &str| {
         i.handle_event(Event::Send { target: card, message: message.into(), args: vec![] });
         let mut w = lock(&i.world);
         w.requests.drain(..).filter(|r| matches!(r, UiRequest::ScriptError { .. })).count()
     };
-    // The card's script doesn't parse. The first mouseWithin reports it; the
+    // The card's handlers don't parse. The first mouseWithin reports it; the
     // ones after don't, so the error doesn't reopen while it's being fixed.
     assert_eq!(errors(&mut i, "mouseWithin"), 1);
     assert_eq!(errors(&mut i, "mouseWithin"), 0);
@@ -1011,14 +1045,42 @@ fn repeating_messages_report_an_error_once() {
 }
 
 /// Exercises a real stack: opens it, then goes to every card and clicks
-/// every visible button, printing each script error once. A click that
+/// every visible button (background buttons once each), printing each
+/// script error once. A click that
 /// waits for typing that never comes is stopped after two seconds. Run it on any stack with
 /// RANDOMCARD_EXERCISE=path/to/stack cargo test exercise_stack -- --ignored --nocapture
 #[test]
 #[ignore]
 fn exercise_stack() {
+    // Scripts get the stack the app gives them, not a test thread's.
+    std::thread::Builder::new().stack_size(super::SCRIPT_STACK).spawn(exercise).unwrap().join().unwrap();
+}
+
+fn exercise() {
     let Ok(path) = std::env::var("RANDOMCARD_EXERCISE") else { return };
-    let stack = crate::import::load_any(std::path::Path::new(&path), None).expect("can't open the stack");
+    let r = exercise_one(std::path::Path::new(&path), true);
+    println!("{} clicks, {} distinct errors, {} in all, {} stopped", r.clicks, r.errors.len(), r.error_count, r.stopped);
+}
+
+#[derive(Default)]
+struct Exercised {
+    clicks: usize,
+    /// Each distinct error, first seen first, with what was clicked.
+    errors: Vec<String>,
+    error_count: usize,
+    stopped: usize,
+}
+
+/// Open a stack, go to every card and click every button that has a script.
+fn exercise_one(path: &std::path::Path, print: bool) -> Exercised {
+    let mut out = Exercised::default();
+    let stack = match crate::import::load_any(path, None) {
+        Ok(s) => s,
+        Err(e) => {
+            out.errors.push(format!("doesn't import: {e}"));
+            return out;
+        }
+    };
     let name = stack.name.clone();
     let original = stack.clone();
     let mut i = interp_with(stack);
@@ -1043,7 +1105,10 @@ fn exercise_stack() {
         done.store(true, std::sync::atomic::Ordering::SeqCst);
         let _ = watchdog.join();
         if start.elapsed() > std::time::Duration::from_secs(2) {
-            println!("STOPPED after 2s: {what}");
+            if print {
+                println!("STOPPED after 2s: {what}");
+            }
+            out.stopped += 1;
         }
         let mut w = lock(&i.world);
         for r in w.requests.drain(..) {
@@ -1051,17 +1116,26 @@ fn exercise_stack() {
                 let key = format!("{msg} ({obj:?} line {line:?})");
                 let n = seen.entry(key.clone()).or_default();
                 if *n == 0 {
-                    println!("ERROR on {what}: {key}");
+                    if print {
+                        println!("ERROR on {what}: {key}");
+                    }
+                    out.errors.push(format!("{what}: {msg}"));
                 }
+                out.error_count += 1;
                 *n += 1;
             }
         }
         if w.stack.name != name {
-            println!("  ({what} went to stack \"{}\"; going back)", w.stack.name);
+            if print {
+                println!("  ({what} went to stack \"{}\"; going back)", w.stack.name);
+            }
             w.replace_stack(original.clone());
         }
     };
     step(&mut i, "openStack".into(), Event::Startup);
+    let mut clicks = 0;
+    // Background buttons are the same on every card: click them once.
+    let mut clicked_bg = std::collections::HashSet::<(Id, Id)>::new();
     let cards: Vec<(Id, Id)> = lock(&i.world).stack.cards.iter().map(|c| (c.id, c.background)).collect();
     for (n, (card, bg)) in cards.iter().enumerate() {
         step(&mut i, format!("going to card {}", n + 1), Event::MsgBox(format!("go to card id {card}")));
@@ -1070,6 +1144,7 @@ fn exercise_stack() {
             let b = w.stack.background(*bg).map(|b| b.parts.clone()).unwrap_or_default();
             let c = w.stack.card(*card).map(|c| c.parts.clone()).unwrap_or_default();
             b.into_iter()
+                .filter(|p| clicked_bg.insert((*bg, p.id)))
                 .map(|p| (Layer::Background, p))
                 .chain(c.into_iter().map(|p| (Layer::Card, p)))
                 .filter(|(_, p)| p.kind == crate::model::PartKind::Button && p.visible && p.enabled && !p.script.trim().is_empty())
@@ -1082,9 +1157,84 @@ fn exercise_stack() {
             step(&mut i, what.clone(), Event::MsgBox(format!("go to card id {card}")));
             let (x, y) = ((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2);
             step(&mut i, what, Event::MsgBox(format!("click at {x},{y}")));
+            clicks += 1;
         }
     }
-    println!("{} distinct errors", seen.len());
+    drop(step);
+    out.clicks = clicks;
+    out
+}
+
+/// Level 4 of the index: click everything in each stack listed, one path per
+/// line, in RANDOMCARD_LEVEL4 (relative to the list's folder). Writes the
+/// results beside the list, a row at a time: LEVEL4.list gives LEVEL4.tsv.
+#[test]
+#[ignore]
+fn click_every_button() {
+    use std::sync::mpsc;
+    let Ok(list) = std::env::var("RANDOMCARD_LEVEL4") else { return };
+    let list = std::path::PathBuf::from(list);
+    let root = list.parent().unwrap().to_path_buf();
+    let paths: Vec<String> = std::fs::read_to_string(&list).unwrap().lines().filter(|l| !l.is_empty()).map(String::from).collect();
+    let out_path = list.with_extension("tsv");
+    std::fs::write(&out_path, "path\tresult\tclicks\tdistinct_errors\terrors\tstopped\tfirst_error\n").unwrap();
+    let queue = Arc::new(Mutex::new(paths.clone()));
+    let (tx, rx) = mpsc::channel::<(String, Option<Exercised>)>();
+    let total = paths.len();
+    for _ in 0..8 {
+        let (queue, tx, root) = (queue.clone(), tx.clone(), root.clone());
+        std::thread::Builder::new()
+            .stack_size(super::SCRIPT_STACK)
+            .spawn(move || loop {
+                let Some(p) = queue.lock().unwrap().pop() else { break };
+                let full = root.join(&p);
+                let r = std::panic::catch_unwind(|| exercise_one(&full, false)).ok();
+                if tx.send((p, r)).is_err() {
+                    break;
+                }
+            })
+            .unwrap();
+    }
+    drop(tx);
+    let mut done = std::collections::HashSet::new();
+    let clean = |s: &str| s.replace(['\t', '\n', '\r'], " ");
+    loop {
+        // A stack that runs for ten minutes is marked hung and left behind.
+        match rx.recv_timeout(std::time::Duration::from_secs(600)) {
+            Ok((p, r)) => {
+                let row = match r {
+                    Some(r) => {
+                        let result = if r.errors.first().is_some_and(|e| e.starts_with("doesn't import")) {
+                            "doesn't import"
+                        } else if r.errors.is_empty() && r.clicks == 0 {
+                            "nothing to click"
+                        } else if r.errors.is_empty() {
+                            "every click clean"
+                        } else {
+                            "errors"
+                        };
+                        format!("{p}\t{result}\t{}\t{}\t{}\t{}\t{}", r.clicks, r.errors.len(), r.error_count, r.stopped, clean(r.errors.first().map(String::as_str).unwrap_or("")))
+                    }
+                    None => format!("{p}\tcrashed\t0\t0\t0\t0\t"),
+                };
+                use std::io::Write;
+                let mut f = std::fs::OpenOptions::new().append(true).open(&out_path).unwrap();
+                writeln!(f, "{row}").unwrap();
+                done.insert(p);
+                println!("{}/{total}", done.len());
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new().append(true).open(&out_path).unwrap();
+    for p in paths.iter().filter(|p| !done.contains(*p)) {
+        writeln!(f, "{p}\thung\t0\t0\t0\t0\t").unwrap();
+    }
+    drop(f);
+    println!("wrote {}", out_path.display());
+    // Hung workers would keep the test running.
+    std::process::exit(0);
 }
 
 
@@ -1115,7 +1265,7 @@ fn externals_done_by_randomcard() {
     run(&mut i, "selectLineXCMD the name of bg field \"Name\", 2");
     assert_eq!(run(&mut i, "put the selectedText"), "b");
     run(&mut i, "TNPict \"pic\",1,0");
-    assert!(run(&mut i, "put the result").starts_with("Error"));
+    assert_eq!(run(&mut i, "put the result"), "Error file not found");
 }
 
 #[test]
@@ -1139,3 +1289,468 @@ fn dynamic_path_reaches_the_current_card() {
 }
 
 
+
+
+
+
+#[test]
+fn forms_from_apples_stacks() {
+    let mut i = interp_with(stack());
+    set_script(&i, ObjRef::Stack, "on showCategory a, b\n  put a & \"/\" & b\nend showCategory");
+    // `do` with several words runs them as a statement, as HyperCard did.
+    assert_eq!(run(&mut i, "put 3 into cardNum\ndo ShowCategory CardNum,2"), "3/2");
+    assert_eq!(run(&mut i, "do ShowCategory \"1\""), "1/");
+    // A part's number, with or without `the`.
+    assert_eq!(run(&mut i, "put number of bg fld \"Name\""), "1");
+    assert_eq!(run(&mut i, "put the number of bg fld \"Name\""), "1");
+    assert_eq!(run(&mut i, "put the number of bg flds"), "1");
+    // Commas between answer's buttons.
+    i.canned_answers.push(DialogReply::Button("Yes".into()));
+    assert_eq!(run(&mut i, "answer \"Delete?\" with \"No\", \"Yes\"\nput it"), "Yes");
+    // Variables named like keywords.
+    assert_eq!(run(&mut i, "put 5 into to\nput 2 into times\nput to * times"), "10");
+    assert_eq!(run(&mut i, "put 2 into where\nput line where of (\"a\" & return & \"b\")"), "b");
+    // Windows, tool windows and the stack's size.
+    assert_eq!(run(&mut i, "put there is a window \"message box\""), "true");
+    assert_eq!(run(&mut i, "put there is no window \"Describe Problem\""), "true");
+    i.handle_event(Event::MsgBox("hide tool window".into()));
+    assert!(lock(&i.world).requests.drain(..).any(|r| matches!(r, UiRequest::ToolWindow(false))));
+    assert_eq!(run(&mut i, "put freeSize of this stack"), "0");
+    assert_eq!(run(&mut i, "put size of this stack > 0"), "true");
+    // Popping more cards than were pushed gives the Home card.
+    assert_eq!(run(&mut i, "pop card into backFrom\nput backFrom contains \"Home\""), "true");
+    // An unquoted menu item is the rest of the line.
+    let cards = lock(&i.world).stack.cards.len();
+    run(&mut i, "domenu new card");
+    assert_eq!(lock(&i.world).stack.cards.len(), cards + 1);
+}
+
+
+#[test]
+fn hypercard_2_menu_items() {
+    let mut i = interp_with(stack());
+    // Apple's stacks edit HyperCard 2's items by name, including ones the
+    // menus don't show.
+    assert_eq!(run(&mut i, "delete menuItem \"print report...\" of menu \"file\""), "");
+    assert_eq!(run(&mut i, "disable menuItem \"Compact Stack\" of menu \"File\""), "");
+    assert_eq!(run(&mut i, "put the enabled of menuItem \"Compact Stack\" of menu \"File\""), "false");
+    assert!(!run(&mut i, "doMenu \"Page Setup...\"").starts_with("ERROR"));
+    // With one window, Close Stack goes Home (here, with no Home, the first card).
+    run(&mut i, "go to card 3");
+    run(&mut i, "doMenu \"Close Stack\"");
+    assert_eq!(run(&mut i, "put the short name of this card"), "One");
+    // Delete Stack… only deletes a stack's own RandomCard file.
+    let e = run(&mut i, "doMenu \"Delete Stack...\"");
+    assert!(e.contains("has no RandomCard file"), "{e}");
+    // Print Field… prints the field's text in the field's own font.
+    run(&mut i, "put \"Printed\" into bg field \"Name\"\nset the textFont of bg field \"Name\" to \"Courier\"");
+    run(&mut i, "print bg field \"Name\"");
+    let pdf = String::from_utf8_lossy(&std::fs::read(i.printed.last().unwrap()).unwrap()).to_string();
+    assert!(pdf.contains("/BaseFont /Courier"), "the field printed in Courier");
+}
+
+#[test]
+fn delete_stack_removes_its_file_after_asking() {
+    let dir = std::env::temp_dir().join(format!("randomcard-del-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("Doomed.rcstack");
+    let mut s = stack();
+    s.save(&path).unwrap();
+    s.path = Some(path.clone());
+    let mut i = interp_with(s);
+    // Cancel keeps it.
+    i.canned_answers.push(DialogReply::Button("Cancel".into()));
+    run(&mut i, "doMenu \"Delete Stack…\"");
+    assert!(path.exists());
+    i.canned_answers.push(DialogReply::Button("Delete".into()));
+    run(&mut i, "doMenu \"Delete Stack…\"");
+    assert!(!path.exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Builds an index of every stack under a folder (the Developer CDs that
+/// tools/devcds.py unpacks): what each is, where it's found, and how far it
+/// works in RandomCard. Identical stacks on several discs are tried once.
+/// RANDOMCARD_INDEX=examples/apple/devcds cargo test --release index_stacks -- --ignored --nocapture
+/// writes INDEX.tsv in that folder.
+#[test]
+#[ignore]
+fn index_stacks() {
+    use std::collections::HashMap;
+    use std::hash::{Hash, Hasher};
+    use std::io::Read;
+    use std::path::{Path, PathBuf};
+    let Ok(root) = std::env::var("RANDOMCARD_INDEX") else { return };
+    let root = PathBuf::from(root);
+
+    // Every stack, found by its data ("STAK" at byte 4), grouped by content.
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                walk(&p, out);
+            } else if p.extension().is_none_or(|x| x != "rsrc") {
+                let mut head = [0u8; 8];
+                if std::fs::File::open(&p).and_then(|mut f| f.read_exact(&mut head)).is_ok() && &head[4..8] == b"STAK" {
+                    out.push(p);
+                }
+            }
+        }
+    }
+    let _ = std::fs::remove_file(root.join("INDEX.partial.tsv"));
+    let mut found = Vec::new();
+    walk(&root, &mut found);
+    let mut groups: HashMap<u64, Vec<PathBuf>> = HashMap::new();
+    for p in found {
+        let Ok(data) = std::fs::read(&p) else { continue };
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        data.hash(&mut h);
+        groups.entry(h.finish()).or_default().push(p);
+    }
+    let mut work: Vec<Vec<PathBuf>> = groups.into_values().collect();
+    work.sort_by(|a, b| a[0].cmp(&b[0]));
+    println!("{} distinct stacks", work.len());
+
+    fn disc(root: &Path, p: &Path) -> String {
+        p.strip_prefix(root).ok().and_then(|r| r.components().next()).map(|c| c.as_os_str().to_string_lossy().to_string()).unwrap_or_default()
+    }
+    fn clean(s: &str) -> String {
+        s.replace(['\t', '\n', '\r'], " ").trim().to_string()
+    }
+    let queue = Arc::new(Mutex::new(work.into_iter().enumerate().collect::<Vec<_>>()));
+    let rows = Arc::new(Mutex::new(Vec::<(usize, String)>::new()));
+    let workers: Vec<_> = (0..8)
+        .map(|_| {
+            let (queue, rows, root) = (queue.clone(), rows.clone(), root.clone());
+            std::thread::spawn(move || loop {
+                let Some((n, paths)) = queue.lock().unwrap().pop() else { break };
+                let path = paths[0].clone();
+                // Each stack on its own thread: a crash marks it, and one that
+                // never finishes (a loop outside any script) is left behind.
+                let (tx, rx) = std::sync::mpsc::channel();
+                std::thread::Builder::new()
+                    .stack_size(super::SCRIPT_STACK)
+                    .spawn(move || {
+                        let facts = std::panic::catch_unwind(|| index_one(&path))
+                            .unwrap_or_else(|_| Facts { works: "crashed".into(), ..Facts::default() });
+                        let _ = tx.send(facts);
+                    })
+                    .unwrap();
+                let result = rx
+                    .recv_timeout(std::time::Duration::from_secs(60))
+                    .unwrap_or_else(|_| Facts { works: "hung".into(), ..Facts::default() });
+                let p0 = &paths[0];
+                let mut discs: Vec<String> = paths.iter().map(|p| disc(&root, p)).collect();
+                discs.dedup();
+                let row = [
+                    p0.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+                    result.works,
+                    result.cards.to_string(),
+                    result.bad_scripts.to_string(),
+                    result.open_errors.to_string(),
+                    clean(&result.first_error),
+                    clean(&result.about),
+                    p0.parent().and_then(|d| d.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+                    discs.len().to_string(),
+                    discs.join("; "),
+                    p0.strip_prefix(&root).unwrap_or(p0).display().to_string(),
+                ]
+                // Not trimmed: some Mac file names end in a space.
+                .map(|s| s.replace(['\t', '\n', '\r'], " "))
+                .join("\t");
+                // Written as it goes, so a run that stops loses nothing.
+                {
+                    use std::io::Write;
+                    let mut f = std::fs::OpenOptions::new().append(true).create(true).open(root.join("INDEX.partial.tsv")).unwrap();
+                    let _ = writeln!(f, "{row}");
+                }
+                rows.lock().unwrap().push((n, row));
+                let done = rows.lock().unwrap().len();
+                if done % 200 == 0 {
+                    println!("{done} done");
+                }
+            })
+        })
+        .collect();
+    for w in workers {
+        w.join().unwrap();
+    }
+    let mut rows = Arc::try_unwrap(rows).unwrap().into_inner().unwrap();
+    rows.sort_by_key(|r| r.0);
+    let header = "name\tworks\tcards\tbad_scripts\topen_errors\tfirst_error\tabout\tfolder\tdisc_count\tdiscs\tpath";
+    let text = std::iter::once(header.to_string()).chain(rows.into_iter().map(|r| r.1)).collect::<Vec<_>>().join("\n");
+    std::fs::write(root.join("INDEX.tsv"), text + "\n").unwrap();
+    let _ = std::fs::remove_file(root.join("INDEX.partial.tsv"));
+    println!("wrote {}", root.join("INDEX.tsv").display());
+    // Threads of hung stacks are still spinning; end the process.
+    std::process::exit(0);
+}
+
+#[derive(Default)]
+struct Facts {
+    works: String,
+    cards: usize,
+    bad_scripts: usize,
+    open_errors: usize,
+    first_error: String,
+    about: String,
+}
+
+/// How far one stack works: imports, parses, opens.
+fn index_one(path: &std::path::Path) -> Facts {
+    let stack = match crate::import::load_any(path, None) {
+        Ok(s) => s,
+        Err(e) => return Facts { works: "doesn't import".into(), first_error: e, ..Facts::default() },
+    };
+    let mut f = Facts { cards: stack.cards.len(), ..Facts::default() };
+    // What it is: the comment at the top of its stack script, or the first
+    // line of text on its first card.
+    let comment: Vec<String> = stack
+        .script
+        .lines()
+        .map(str::trim)
+        .take_while(|l| l.is_empty() || l.starts_with("--"))
+        .map(|l| l.trim_start_matches('-').trim().to_string())
+        .filter(|l| l.chars().any(char::is_alphanumeric))
+        .take(2)
+        .collect();
+    f.about = if !comment.is_empty() {
+        comment.join(" — ")
+    } else {
+        let c = &stack.cards[0];
+        let texts = c.parts.iter().filter(|p| p.kind == crate::model::PartKind::Field).map(|p| stack.field_text(c.id, Layer::Card, p.id))
+            .chain(stack.background(c.background).into_iter().flat_map(|b| b.parts.iter()).filter(|p| p.kind == crate::model::PartKind::Field).map(|p| stack.field_text(c.id, Layer::Background, p.id)));
+        texts.flat_map(|t| t.lines().map(str::to_string).collect::<Vec<_>>()).find(|l| l.chars().filter(|c| c.is_alphanumeric()).count() > 3).unwrap_or_default()
+    };
+    f.about = f.about.chars().take(140).collect();
+    let mut scripts = vec![stack.script.clone()];
+    for b in &stack.backgrounds {
+        scripts.push(b.script.clone());
+        scripts.extend(b.parts.iter().map(|p| p.script.clone()));
+    }
+    for c in &stack.cards {
+        scripts.push(c.script.clone());
+        scripts.extend(c.parts.iter().map(|p| p.script.clone()));
+    }
+    f.bad_scripts = scripts.iter().filter(|s| crate::hypertalk::parser::parse_script(s).is_err()).count();
+    // Open it, stopping anything that runs longer than three seconds.
+    let mut i = interp_with(stack);
+    let abort = i.abort.clone();
+    let done = Arc::new(AtomicBool::new(false));
+    let d = done.clone();
+    let watchdog = std::thread::spawn(move || {
+        for _ in 0..60 {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            if d.load(std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
+        }
+        abort.store(true, std::sync::atomic::Ordering::SeqCst);
+    });
+    i.handle_event(Event::Startup);
+    done.store(true, std::sync::atomic::Ordering::SeqCst);
+    let _ = watchdog.join();
+    let errors: Vec<String> = lock(&i.world)
+        .requests
+        .drain(..)
+        .filter_map(|r| match r {
+            UiRequest::ScriptError { msg, .. } => Some(msg),
+            _ => None,
+        })
+        .collect();
+    f.open_errors = errors.len();
+    f.first_error = errors.first().cloned().unwrap_or_default();
+    f.works = match (f.bad_scripts, f.open_errors) {
+        (0, 0) => "opens cleanly",
+        (_, 0) => "opens; some scripts don't parse",
+        _ => "errors on opening",
+    }
+    .into();
+    f
+}
+
+#[test]
+fn scripts_move_the_card_window() {
+    let mut i = interp_with(stack());
+    let (w, h) = { let w = lock(&i.world); (w.stack.width as i32, w.stack.height as i32) };
+    // Apple's stacks center the window on the screen this way.
+    run(&mut i, "get the screenRect\nset the loc of cd window to (item 3 of it-512)/2,(item 4 of it-342)/2");
+    assert_eq!(run(&mut i, "put the loc of card window"), "704,369");
+    assert_eq!(run(&mut i, "put the rect of this stack"), format!("704,369,{},{}", 704 + w, 369 + h));
+    run(&mut i, "set the rect of cd window to 10,40,600,400");
+    assert_eq!(run(&mut i, "put the topLeft of card window"), "10,40");
+    assert_eq!(run(&mut i, "put the width of card window"), w.to_string());
+    run(&mut i, "set the left of cd window to 0");
+    assert_eq!(run(&mut i, "put the left of this stack && the top of this stack"), "0 40");
+}
+
+#[test]
+fn day_and_month_names_from_datebook() {
+    assert_eq!(eval("dayMonthName(1, 1)"), "Sunday");
+    assert_eq!(eval("dayMonthName(2, 12)"), "December");
+    assert_eq!(eval("dayMonthName(3, 7)"), "Sat");
+    assert_eq!(eval("dayMonthName(4, 2)"), "Feb");
+}
+
+#[test]
+fn clicking_with_the_button_tool_selects() {
+    // DateBook removes its Extend button by clicking it with the button
+    // tool; the click mustn't run the button's script.
+    let mut i = interp_with(stack());
+    let card = lock(&i.world).card_id;
+    set_script(&i, ObjRef::Part { layer: Layer::Card, id: 11, card }, "on mouseUp\n  put \"ran\" into msg\nend mouseUp");
+    run(&mut i, "put empty into msg");
+    assert_eq!(run(&mut i, "choose button tool\nclick at 50,75\nput msg"), "");
+    assert_eq!(run(&mut i, "choose browse tool\nclick at 50,75\nput msg"), "ran");
+}
+
+#[test]
+fn pop_up_menus_for_scripts() {
+    let mut i = interp_with(stack());
+    // PopUpMenu answers the item's number; nothing chosen is 0.
+    i.canned_answers.push(DialogReply::Text(Some("2".into())));
+    assert_eq!(run(&mut i, "put PopUpMenu(\"Map\" & return & \"Index\", 1, 100, 50)"), "2");
+    i.canned_answers.push(DialogReply::Text(None));
+    assert_eq!(run(&mut i, "put PopUpMenu(\"Map,Index\", 0, 100, 50)"), "0");
+    // PopMenu answers "true,item,menu", or empty.
+    i.canned_answers.push(DialogReply::Text(Some("3".into())));
+    assert_eq!(run(&mut i, "put PopMenu(10, 20, 0, \"Undo,(-,Cut,Copy\")"), "true,3,1");
+    i.canned_answers.push(DialogReply::Text(None));
+    assert_eq!(run(&mut i, "put PopMenu(10, 20, 0, \"Undo,Cut\") is empty"), "true");
+    // With no one to choose (no UI), nothing is chosen.
+    assert_eq!(run(&mut i, "put PopUpMenu(\"A,B\")"), "0");
+    assert_eq!(run(&mut i, "put FilePath(\"TEXT\", \"Which file?\") is empty"), "true");
+    assert_eq!(run(&mut i, "put NewFileName(\"Save as:\", \"Untitled\") is empty"), "true");
+    assert!(!run(&mut i, "put MacType()").is_empty());
+}
+
+#[test]
+fn text_windows_from_scripts() {
+    // Apple's Bug Reporter opens its fields in TEXWindow windows and reads
+    // them back as HyperCard 2 windows.
+    let mut i = interp_with(stack());
+    run(&mut i, "TEXWindow \"Notes\", \"Hello\", 10, 10, 300, 200, \"Geneva\", 12, 16, -1");
+    assert_eq!(run(&mut i, "put there is a window \"Notes\""), "true");
+    assert_eq!(run(&mut i, "put the text of window \"Notes\""), "Hello");
+    assert_eq!(run(&mut i, "put line 1 of the windows"), "Notes");
+    lock(&i.world).text_windows[0].text = "Edited".into();
+    lock(&i.world).text_windows[0].dirty = true;
+    let card = lock(&i.world).card_id;
+    set_script(&i, ObjRef::Card(card), "on TEXWindowClosing name, changed\n  put the text of window name && changed into msg\nend TEXWindowClosing");
+    i.handle_event(Event::CloseWindow("Notes".into()));
+    assert_eq!(lock(&i.world).msg, "Edited true");
+    assert_eq!(run(&mut i, "put there is a window \"Notes\""), "false");
+    run(&mut i, "TEXWindow \"Notes\", \"Again\"\nclose window \"Notes\"");
+    assert_eq!(run(&mut i, "put there is a window \"Notes\""), "false");
+}
+
+#[test]
+fn an_empty_loop_can_be_stopped() {
+    let mut s = stack();
+    s.script = "on openStack\n  repeat until the mouse is down\n  end repeat\nend openStack".into();
+    let mut i = interp_with(s);
+    let abort = i.abort.clone();
+    let stopper = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        abort.store(true, std::sync::atomic::Ordering::SeqCst);
+    });
+    i.handle_event(Event::Startup);
+    stopper.join().unwrap();
+}
+
+/// Print every script in a stack, with line numbers, for bug hunting:
+/// RANDOMCARD_DUMP=path cargo test --release dump_scripts -- --ignored --nocapture
+#[test]
+#[ignore]
+fn dump_scripts() {
+    let Ok(path) = std::env::var("RANDOMCARD_DUMP") else { return };
+    let s = crate::import::load_any(std::path::Path::new(&path), None).expect("can't open the stack");
+    let show = |what: String, script: &str| {
+        if script.trim().is_empty() {
+            return;
+        }
+        println!("== {what}");
+        for (n, l) in script.lines().enumerate() {
+            println!("{:4} {l}", n + 1);
+        }
+    };
+    show(format!("stack \"{}\"", s.name), &s.script);
+    for b in &s.backgrounds {
+        show(format!("bkgnd id {} \"{}\"", b.id, b.name), &b.script);
+        for p in &b.parts {
+            show(format!("bkgnd id {} part id {} \"{}\"", b.id, p.id, p.name), &p.script);
+        }
+    }
+    for (n, c) in s.cards.iter().enumerate() {
+        show(format!("card {} id {} \"{}\"", n + 1, c.id, c.name), &c.script);
+        for p in &c.parts {
+            show(format!("card {} part id {} \"{}\"", n + 1, p.id, p.name), &p.script);
+        }
+    }
+}
+
+#[test]
+#[ignore]
+fn vocabulary_probe() {
+    let Ok(path) = std::env::var("RANDOMCARD_VOCAB") else { return };
+    std::thread::Builder::new()
+        .stack_size(super::SCRIPT_STACK)
+        .spawn(move || {
+            let text = std::fs::read_to_string(path).unwrap();
+            for line in text.lines() {
+                let mut f = line.split('\t');
+                let (Some(term), Some(cat)) = (f.next(), f.next()) else { continue };
+                let name: String = {
+                    let t = term.split(['(', '[']).next().unwrap_or(term).trim();
+                    t.to_string()
+                };
+                let tries: Vec<String> = match cat {
+                    "Function" => vec![format!("the {name}"), format!("{name}()"), format!("{name}(1)"), format!("{name}(1,2)"), format!("{name}(\"a\")")],
+                    "Property" => ["", " of this card", " of this stack", " of card button 1", " of card field 1", " of bkgnd field 1", " of this bkgnd", " of card window", " of msg", " of menu 1", " of menuItem 1 of menu 1", " of HyperCard"]
+                        .iter()
+                        .map(|o| format!("the {name}{o}"))
+                        .collect(),
+                    "Constant" => vec![name.clone()],
+                    _ => continue,
+                };
+                let mut answers = Vec::new();
+                let mut ok = None;
+                for t in &tries {
+                    let mut i = interp_with(stack());
+                    let r = run(&mut i, &format!("put {t} into x\nput x"));
+                    if !r.starts_with("ERROR") {
+                        ok = Some(format!("{t} = {:?}", r.chars().take(40).collect::<String>()));
+                        break;
+                    }
+                    answers.push(format!("{t}: {r}"));
+                }
+                match ok {
+                    Some(o) => println!("OK\t{term}\t{cat}\t{o}"),
+                    None => println!("FAIL\t{term}\t{cat}\t{}", answers.first().cloned().unwrap_or_default()),
+                }
+            }
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+/// Parse a concrete example of every command form in HyperCard's syntax
+/// summary (form TAB statement, one per line, in RANDOMCARD_COMMANDS):
+/// FAIL if it doesn't parse, IGNORED if it parses to nothing.
+#[test]
+#[ignore]
+fn command_forms_probe() {
+    let Ok(path) = std::env::var("RANDOMCARD_COMMANDS") else { return };
+    for line in std::fs::read_to_string(path).unwrap().lines() {
+        let Some((form, stmt)) = line.split_once('\t') else { continue };
+        match crate::hypertalk::parser::parse_statements(stmt) {
+            Err(e) => println!("FAIL\t{form}\t{stmt}\t{e}"),
+            Ok(stmts) => {
+                let ignored = stmts.iter().all(|s| matches!(&s.kind, crate::hypertalk::ast::StmtKind::Cmd { cmd: crate::hypertalk::ast::Cmd::NoOp, .. }));
+                println!("{}\t{form}\t{stmt}", if ignored { "IGNORED" } else { "OK" });
+            }
+        }
+    }
+}

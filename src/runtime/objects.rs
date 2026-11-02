@@ -6,7 +6,7 @@ use crate::hypertalk::value::*;
 use crate::model::{Id, Layer, Part, PartKind, PartStyle, Rect, TextAlign};
 
 use super::interp::{Ctl, Interp, R, err, to_bool, to_int};
-use super::world::ObjRef;
+use super::world::{ObjRef, UiRequest};
 
 /// Cards or backgrounds as (id, name) pairs, in order.
 type Named = Vec<(Id, String)>;
@@ -619,7 +619,14 @@ impl Interp {
                 }
             }
             ObjRef::Stack => {
-                if let Some(v) = rect_props(full_rect) {
+                // The stack's rect is its card window's, on screen. A
+                // window's loc is its top left corner.
+                let (x, y) = w.window_origin;
+                let r = full_rect.translate(x, y);
+                if matches!(name, "loc" | "location") {
+                    return Ok(format!("{},{}", r.left, r.top));
+                }
+                if let Some(v) = rect_props(r) {
                     return Ok(v);
                 }
                 match name {
@@ -629,6 +636,9 @@ impl Interp {
                     "cantpeek" => bool_str(s.protection.cant_peek),
                     "privateaccess" => bool_str(s.protection.private_access),
                     "size" => serde_json::to_string(s).map(|j| j.len()).unwrap_or(0).to_string(),
+                    // Space Compact Stack would free. RandomCard writes stacks
+                    // whole, so there's never any.
+                    "freesize" => "0".into(),
                     _ => {
                         drop(w);
                         return err(format!("Stacks have no property \"{name}\""));
@@ -637,6 +647,7 @@ impl Interp {
             }
             ObjRef::OtherStack(k) => match (w.other(k), name) {
                 (Some(o), "size") => serde_json::to_string(o).map(|j| j.len()).unwrap_or(0).to_string(),
+                (Some(_), "freesize") => "0".into(),
                 (Some(o), "cantmodify") => bool_str(o.cant_modify),
                 (Some(o), "number") => o.cards.len().to_string(),
                 _ => {
@@ -817,6 +828,11 @@ impl Interp {
                     "cantpeek" => w.stack.protection.cant_peek = to_bool(v)?,
                     "privateaccess" => w.stack.protection.private_access = to_bool(v)?,
                     "userlevel" => {}
+                    "rect" | "rectangle" | "loc" | "location" | "topleft" | "left" | "top" | "right" | "bottom" | "botright"
+                    | "bottomright" | "width" | "height" => {
+                        drop(w);
+                        return self.move_card_window(name, v);
+                    }
                     _ => return err(format!("Can't set the {name} of a stack")),
                 }
                 Ok(())
@@ -856,6 +872,40 @@ impl Interp {
     }
 
     /// Move the message box so its top left corner is at a point.
+    /// Set a geometric property of the card window. The card stays its own
+    /// size, so this moves the window: to the new top left corner, or for
+    /// right, bottom and botRight, to wherever puts that edge there. A rect
+    /// that's smaller would show part of the card in HyperCard 2; RandomCard
+    /// shows the whole card at the rect's top left.
+    fn move_card_window(&mut self, name: &str, v: &str) -> R<()> {
+        let (x, y) = {
+            let w = self.w();
+            let (x, y) = w.window_origin;
+            let (cw, ch) = (w.stack.width as i32, w.stack.height as i32);
+            let point = || parse_point(v).ok_or(());
+            let int = || to_int(v).map(|n| n as i32).map_err(|_| ());
+            let moved = match name {
+                "rect" | "rectangle" => parse_rect(v).map(|(l, t, _, _)| (l, t)).ok_or(()),
+                "loc" | "location" | "topleft" => point(),
+                "botright" | "bottomright" => point().map(|(r, b)| (r - cw, b - ch)),
+                "left" => int().map(|l| (l, y)),
+                "top" => int().map(|t| (x, t)),
+                "right" => int().map(|r| (r - cw, y)),
+                "bottom" => int().map(|b| (x, b - ch)),
+                // The card's size is the stack's, set with Stack Info.
+                _ => Ok((x, y)),
+            };
+            match moved {
+                Ok(p) => p,
+                Err(()) => return err(format!("Can't set the {name} of a stack to \"{v}\"")),
+            }
+        };
+        let mut w = self.w();
+        w.window_origin = (x, y);
+        w.requests.push(UiRequest::MoveWindow(x, y));
+        Ok(())
+    }
+
     pub(super) fn move_msg(&mut self, v: &str) -> R<()> {
         let Some((x, y)) = parse_point(v) else { return err(format!("Expected a point, not \"{v}\"")) };
         let mut w = self.w();

@@ -40,7 +40,12 @@ impl MenuState {
     }
 
     pub fn item_shown(&self, menu: &str, item: &str) -> bool {
-        match (menu, item_key(item).as_str()) {
+        let key = item_key(item);
+        if crate::runtime::menus::SCRIPT_ONLY_ITEMS.contains(&key.as_str()) {
+            return false;
+        }
+        match (menu, key.as_str()) {
+            ("File", "delete stack") => self.editing >= 4,
             ("Edit", "new card" | "delete card" | "cut card" | "copy card" | "paste card") => self.editing >= 2,
             ("Edit", "background" | "clear picture") => self.editing >= 3,
             ("Objects", "card script" | "bkgnd script" | "stack script") => self.level >= 5,

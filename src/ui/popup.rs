@@ -6,14 +6,16 @@
 
 use eframe::egui::{self, Align, Layout, PopupAnchor, Pos2, RectAlign};
 
-use crate::runtime::world::{Event, ObjRef};
+use crate::runtime::world::{DialogReply, Event, ObjRef, lock};
 
 use super::App;
 use super::menus::menu_item;
 
 /// A popup's menu while it's open.
 pub(super) struct PopupMenu {
-    pub obj: ObjRef,
+    /// The popup button, or None for a menu a script asked for, whose
+    /// choice goes back to the script.
+    pub obj: Option<ObjRef>,
     /// The popup's menu box on screen.
     pub at: egui::Rect,
     pub items: Vec<String>,
@@ -71,6 +73,15 @@ impl App {
         }
         let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
         let obj = menu.obj;
+        let Some(obj) = obj else {
+            // A script's menu: send back the choice, or none.
+            if chosen.is_some() || !open || clicked_outside || escape {
+                self.popup = None;
+                lock(&self.rt.world).dialog = None;
+                let _ = self.rt.dialog_replies.send(DialogReply::Text(chosen.map(|n| n.to_string())));
+            }
+            return;
+        };
         if let Some(n) = chosen {
             self.popup = None;
             if let ObjRef::Part { layer, id, card } = obj {

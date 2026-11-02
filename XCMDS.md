@@ -35,6 +35,34 @@ Each external gets one of four decisions:
 The **Status** column says whether it's planned or done. HIN Stack 1.4's
 externals were done first, since it uses no others.
 
+## Same name, different external
+
+Externals were written by many people, and some names were used by more than
+one. A built-in has to answer the way the stack's own external did:
+
+| Name | The versions | How RandomCard tells them apart now |
+| --- | --- | --- |
+| FileExists | Apple DTS's answers a Mac error code (0 when the file is there); the others answer true or false. | Guesses from whether the stack's scripts compare the answer with 0. |
+| PopMenu | Appropriate Technology's takes (top, left, checked, items) and answers "true,item,menu"; another takes (point, lines) and answers a line number. | By the number of arguments. |
+
+Guessing from scripts or arguments is fragile. Each stack carries its
+external's compiled code in its resource fork, so the reliable way is to
+identify the external by that code (a checksum of the XCMD or XFCN resource,
+or the version and author strings most contain) and answer as that version
+did. Add to this table whenever another one turns up.
+
+## Names and prefixes
+
+Some externals carry their author's prefix (Krs and the like). Decided
+(2026-11-02): RandomCard stays proper. A built-in gets one clean name
+(`NewMenu`, not `KrsNewMenu`), and the interpreter doesn't keep the old names
+as aliases. RandomCard doesn't promise to run every old stack unchanged;
+instead each such issue gets a written fix step, applied to our converted
+copy of the stack (never the original on the disc). The fix steps are listed
+in one place, each with the old form, the new form, why, and the stacks that
+need it. Fix steps stay mild, like removing a prefix from a couple of calls; a stack that would need a drastic rewrite shows a gap in RandomCard to close instead. The same goes for name collisions above: a stack carrying the other
+version of an external gets the fix step for that version.
+
 ## Externals found
 
 First scan, 2026-10-31: the 31 Apple developer stacks in `examples/apple`
@@ -99,7 +127,7 @@ they never call.
 | SetVolume | XCMD | 1 stack, called in 0 | Sets the current folder. | Built in | As defaultFolder | Planned |
 | Pathitems | XFCN | 1 stack, called in 0 | Splits a path into its parts. | Built in | As a function on paths | Planned |
 | Lastpathitem | XFCN | 1 stack, called in 0 | The last part of a path. | Built in | As TruncFile | Planned |
-| NewFileName | XFCN | 1 stack, called in 1 | A Save dialog with a prompt and default name. | Built in | As `ask file` | Planned |
+| NewFileName | XFCN | 1 stack, called in 1 | A Save dialog with a prompt and default name. | Built in | As `ask file` | Done |
 | StdFile | XCMD | 1 stack, called in 0 | The standard Open and Save dialogs. | Built in | As `answer file` and `ask file` | Planned |
 | ImportPict | XCMD | 1 stack, called in 1 | Imports a picture file onto cards. | Built in | As importing images (see Color in the roadmap) | Planned |
 | import | XCMD | 1 stack, called in 1 | Imports text or pictures from a file. | Unknown | Its exact behavior isn't clear from the stack | Research |
@@ -114,7 +142,10 @@ they never call.
 | Dialog | XFCN | 9 stacks, called in 9 | An alert with chosen buttons and font: `dialog(msg, "OK", 1, Chicago, Plain, 12)`. | Built in | As `answer` | Done |
 | ListSelect | XFCN | 2 stacks, called in 2 | A dialog for choosing one line from a list (by Frédéric Rinaldi). | Built in | As a new list-choosing dialog | Planned |
 | XScrollBox | XFCN | 3 stacks, called in 3 | A dialog with a scrolling list to choose from (Dartmouth, 1989). | Built in | As the list-choosing dialog | Planned |
-| PopUpMenu | XFCN | 3 stacks, called in 3 | A popup menu at a point, returning the chosen item. | Built in | As a popup menu function, using popup buttons' menus | Planned |
+| PopUpMenu | XFCN | 3 stacks, called in 3 | A popup menu at a point, returning the chosen item's number. | Built in | As a popup menu function, using popup buttons' menus | Done |
+| PopMenu | XFCN | 5 Developer CD stacks | Appropriate Technology's popup menu: (top, left, checked, items), answering "true,item,menu". Another PopMenu takes (point, lines) and answers a line number. | Built in | With PopUpMenu's menu; hierarchical menus are shown flat | Done |
+| FilePath | XFCN | Rinaldi collection | An Open dialog, answering the file's path. | Built in | As FileName | Done |
+| MacType | XFCN | Rinaldi collection | The kind of computer. | Stub | SysEnv's first item | Done |
 | PopUpMenu1 | XFCN | 1 stack, called in 1 | A popup menu (another version). | Built in | As PopUpMenu | Planned |
 | HPopUpMenu | XFCN | 2 stacks, called in 2 | A popup menu (by Guy de Picciotto). | Built in | As PopUpMenu | Planned |
 | BigPop | XFCN | 20 stacks, called in 7 | A popup menu for long lists: `BigPop <menu list>[,<top>,<left>]`. | Built in | As PopUpMenu | Planned |
@@ -127,7 +158,7 @@ they never call.
 | KrsChangeMenu | XCMD | 1 stack, called in 0 | Renames a menu item (HyperKRS). | Built in | As `set the name of menuItem` | Planned |
 | KrsShowMenu | XCMD | 1 stack, called in 1 | Shows a menu (HyperKRS). | Built in | As the menus RandomCard draws | Planned |
 | Prompt | XCMD | 2 stacks, called in 2 | Shows a "please wait" message (`prompt 1, "…"`) and hides it (`prompt 3`) (by Frédéric Rinaldi). | Built in | As a status message | Planned |
-| TEXWindow | XCMD | 2 stacks, called in 2 | Shows text in a window of its own. | Built in | As a text window (with roadmap item 8, windows) | Planned |
+| TEXWindow | XCMD | 2 stacks, called in 2 | Shows text in a window of its own. | Built in | As a text window (with roadmap item 8, windows) | Done |
 | TNPict | XCMD | 9 stacks, called in 9 | Shows a picture file in a window (Technical Notes stacks). | Built in | As HyperCard 2's `picture` command | Part done: no PICT pictures yet |
 | SelectLineXCMD | XCMD | 8 stacks, called in 8 | Selects a line in a field. | Built in | As `select line … of field`, which RandomCard has | Done |
 | SpinAbout | XCMD | 8 stacks, called in 8 | An animated About box (by Andrew Shebanow, Apple, 1989). | Stub | A bit of fun from 1989; it can do nothing | Done |
@@ -202,12 +233,12 @@ they never call.
 | --- | --- | --- | --- | --- | --- | --- |
 | SysEnv | XFCN | 28 stacks, called in 15 | The Mac's system environment: machine, system version and so on. | Stub | Answers machine, system version and processor in the format stacks read | Done |
 | sysEnvironment | XFCN | 4 stacks, called in 3 | The system environment (another version). | Stub | As SysEnv | Done |
-| TotalRAM | XFCN | 4 stacks, called in 4 | Total memory. | Stub | Answers the real amount | Planned |
+| TotalRAM | XFCN | 4 stacks, called in 4 | Total memory. | Stub | Answers the real amount | Done |
 | MaxApplZone | XFCN | 2 stacks, called in 1 | Grows HyperCard's memory zone. | Stub | Means nothing today | Planned |
-| BoardInfo | XFCN | 2 stacks, called in 2 | The NuBus cards installed. | Stub | Answers none | Planned |
+| BoardInfo | XFCN | 2 stacks, called in 2 | The NuBus cards installed. | Stub | Answers none | Done |
 | SCSIInfo | XFCN | 3 stacks, called in 2 | The SCSI devices attached. | Stub | Answers none | Planned |
-| INITFinder | XFCN | 3 stacks, called in 3 | The system extensions (INITs) installed. | Stub | Answers none | Planned |
-| SwitchXRoo | XCMD | 3 stacks, called in 3 | Changes the monitor's color depth (by Bill Steinberg, 1990). | Stub | Monitors are always in full color now | Planned |
+| INITFinder | XFCN | 3 stacks, called in 3 | The system extensions (INITs) installed. | Stub | Answers none | Done |
+| SwitchXRoo | XCMD | 3 stacks, called in 3 | Changes the monitor's color depth (by Bill Steinberg, 1990). | Stub | Monitors are always in full color now | Done |
 | monitorCount | XFCN | 1 stack, called in 1 | How many monitors are connected. | Built in | As the screens RandomCard can see | Planned |
 | monitorConfig | XFCN | 1 stack, called in 1 | A monitor's settings. | Built in | As each screen's size and depth | Planned |
 | ApplMemory | XFCN | 1 stack, called in 1 | Free memory for HyperCard. | Stub | Answers a generous amount | Planned |
@@ -327,9 +358,9 @@ they never call.
 - **The DTS stacks call each other.** Scripts call handlers that live in the
   other stacks of the set (`findChapter`, `goChapter`, `findQA`,
   `findTechNote`), so they work together as a group, not one at a time.
-- **HyperTalk gaps.** The scan also found scripts RandomCard can't parse
-  yet, unrelated to externals: `do` followed by a command
+- **HyperTalk gaps.** The scan also found scripts RandomCard couldn't
+  parse, unrelated to externals: `do` followed by a command
   (`do ShowCategory CardNum`), `there is a window "…"`, `answer … with "No",
   "Yes"` with commas, `doMenu` with an unquoted item (`domenu copy button`),
-  a variable named `times` or `to`, and `size of this stack`. They're listed
-  in ROADMAP.md under HyperTalk.
+  variables named `times` or `to`, and `size of this stack`. RandomCard
+  handles them all now; see ROADMAP.md under HyperTalk for what's left.

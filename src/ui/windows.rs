@@ -598,12 +598,65 @@ impl App {
         };
     }
 
+    /// Text windows scripts opened with TEXWindow: editable, and closing
+    /// one tells the card.
+    pub fn text_windows(&mut self, ctx: &egui::Context) {
+        let windows = lock(&self.rt.world).text_windows.clone();
+        for t in windows {
+            let mut open = true;
+            let mut text = t.text.clone();
+            let at = self.card_origin + egui::vec2(t.rect.left as f32, t.rect.top as f32);
+            let size = egui::vec2(t.rect.width().max(120) as f32, t.rect.height().max(60) as f32);
+            egui::Window::new(&t.name)
+                .id(egui::Id::unique(("text-window", t.name.as_str())))
+                .default_pos(at)
+                .default_size(size)
+                .open(&mut open)
+                .show(ctx, |ui| {
+                    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+                        let size = t.size as f32;
+                        let fixed = ["courier", "monaco"].contains(&t.font.to_lowercase().as_str());
+                        let font = if fixed { egui::FontId::monospace(size) } else { egui::FontId::proportional(size) };
+                        ui.add_sized(
+                            ui.available_size(),
+                            egui::TextEdit::multiline(&mut text).font(font).desired_width(f32::INFINITY),
+                        );
+                    });
+                });
+            if text != t.text {
+                let mut w = lock(&self.rt.world);
+                if let Some(tw) = w.text_windows.iter_mut().find(|x| x.name == t.name) {
+                    tw.text = text;
+                    tw.dirty = true;
+                }
+            }
+            if !open {
+                self.send(Event::CloseWindow(t.name.clone()));
+            }
+        }
+    }
+
     pub fn show_dialog(&mut self, ctx: &egui::Context) {
         let dialog = lock(&self.rt.world).dialog.clone();
         let Some(d) = dialog else {
             self.dialog_init = false;
             return;
         };
+        if let Dialog::Menu { items, left, top, checked } = &d {
+            // Shown as a popup menu, which sends the reply.
+            if self.popup.is_none() {
+                let at = egui::Pos2::new(*left as f32, *top as f32) + self.card_origin.to_vec2();
+                let width = 40.0 + 7.0 * items.iter().map(|i| i.chars().count()).max().unwrap_or(0) as f32;
+                self.popup = Some(super::popup::PopupMenu {
+                    obj: None,
+                    at: egui::Rect::from_min_size(at, egui::vec2(width.max(100.0), 0.0)),
+                    items: items.clone(),
+                    selected: *checked,
+                    dragging: ctx.input(|i| i.pointer.primary_down()),
+                });
+            }
+            return;
+        }
         if !self.dialog_init {
             self.dialog_init = true;
             if let Dialog::Ask { default, .. } = &d {
@@ -634,6 +687,7 @@ impl App {
                         reply = Some(DialogReply::Button(b.clone()));
                     }
                 }
+                Dialog::Menu { .. } => {}
                 Dialog::Ask { prompt, password, .. } => {
                     ui.label(RichText::new(prompt).size(14.0));
                     let resp = ui.add(

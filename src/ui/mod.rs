@@ -97,6 +97,14 @@ pub struct App {
     stroke: Option<PaintStroke>,
     clipboard: Option<Clip>,
     settings: Settings,
+    /// A stack's `show`/`hide tool window`, over the preference until the
+    /// user toggles the panel themselves.
+    tools_by_script: Option<bool>,
+    /// Where the card's top left corner was on screen last frame, and the
+    /// window's outer top left, for moving the window when a script asks.
+    card_on_screen: Option<(egui::Pos2, egui::Pos2)>,
+    /// The card's top left corner in the window, last frame.
+    card_origin: egui::Pos2,
     prefs_open: bool,
     protect_open: bool,
     password_prompt: Option<PasswordPrompt>,
@@ -173,6 +181,9 @@ impl App {
         App {
             rt: runtime::start(stack, open, settings.user_level, runtime::settings::home_path()),
             settings,
+            tools_by_script: None,
+            card_on_screen: None,
+            card_origin: egui::Pos2::ZERO,
             prefs_open: false,
             protect_open: false,
             password_prompt: None,
@@ -256,7 +267,7 @@ impl App {
                 cant_modify: w.stack.cant_modify,
                 can_undo: !w.undo.is_empty(),
                 can_redo: !w.redo.is_empty(),
-                tools_shown: self.settings.show_tools,
+                tools_shown: self.tools_shown(),
                 message_watcher: self.message_watcher,
                 variable_watcher: self.variable_watcher,
                 target: None,
@@ -375,8 +386,15 @@ impl App {
     }
 
     fn toggle_tool_panel(&mut self) {
-        self.settings.show_tools = !self.settings.show_tools;
+        self.settings.show_tools = !self.tools_shown();
+        self.tools_by_script = None;
         self.settings.save();
+    }
+
+    /// Whether the tool panel is showing: as a stack last set it, or else as
+    /// the user prefers.
+    fn tools_shown(&self) -> bool {
+        self.tools_by_script.unwrap_or(self.settings.show_tools)
     }
 
     fn choose_tool(&mut self, t: Tool) {
@@ -481,6 +499,15 @@ impl App {
                     }
                 }
                 UiRequest::Quit => self.request_quit(ctx),
+                UiRequest::PrintSelectedField => match self.selected {
+                    Some(ObjRef::Part { layer, id, card })
+                        if self.world().stack.part(card, layer, id).map(|p| p.kind) == Some(PartKind::Field) =>
+                    {
+                        let which = if layer == Layer::Card { "card" } else { "bkgnd" };
+                        let _ = self.rt.events.send(Event::MsgBox(format!("print {which} field id {id}")));
+                    }
+                    _ => self.alert("Select a field first, with the Field tool, or click into one.".into()),
+                },
                 UiRequest::SelectedPartInfo => match self.selected {
                     Some(o) => self.open_info(InfoTarget::Part(o)),
                     None => self.alert("Select a button or field first, with the Button or Field tool.".into()),
@@ -512,6 +539,18 @@ impl App {
                 UiRequest::ProtectStack => self.open_protect_stack(),
                 UiRequest::Preferences => self.prefs_open = true,
                 UiRequest::MessageWatcher(show) => self.show_message_watcher(show),
+                // A stack showing or hiding the tools doesn't change the
+                // preference, only what's on screen now.
+                UiRequest::ToolWindow(show) => self.tools_by_script = Some(show),
+                // Put the card's corner where the script said. Some window
+                // systems (Wayland) don't let programs move windows; then
+                // scripts still read back the place they set.
+                UiRequest::MoveWindow(x, y) => {
+                    if let Some((card, outer)) = self.card_on_screen {
+                        let to = outer + (egui::pos2(x as f32, y as f32) - card);
+                        ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(to));
+                    }
+                }
                 UiRequest::VariableWatcher(show) => self.variable_watcher = show,
                 UiRequest::Recent => self.recent_open = true,
                 UiRequest::FocusMessage(at) => {
@@ -1145,7 +1184,8 @@ impl App {
                     origin + Vec2::new(b.right as f32, b.bottom as f32),
                 );
                 let items = pv.part.contents.split('\n').map(String::from).collect();
-                self.popup = Some(popup::PopupMenu { obj: t, at, items, selected: pv.part.selected_line, dragging: true });
+                self.popup =
+                    Some(popup::PopupMenu { obj: Some(t), at, items, selected: pv.part.selected_line, dragging: true });
                 return;
             }
             self.pressed = Some(t);
@@ -1456,6 +1496,7 @@ impl App {
             })
             .inner;
         let origin = resp.rect.min.round();
+        self.card_origin = origin;
         let painter = painter.with_clip_rect(resp.rect);
 
         // Frame around the card; striped when editing the background.
@@ -1475,7 +1516,7 @@ impl App {
             .filter(|o| {
                 shown.parts.iter().any(|pv| pv.obj == *o && pv.part.kind == PartKind::Button && pv.part.auto_hilite)
             })
-            .or(self.popup.as_ref().map(|m| m.obj));
+            .or(self.popup.as_ref().and_then(|m| m.obj));
         let animating = self.anim.as_ref().is_some_and(|a| a.start.elapsed().as_secs_f32() < a.seconds);
         // Scrolling fields are live scroll areas while browsing a card that's
         // on screen (not mid-transition or behind lock screen).
@@ -1493,7 +1534,7 @@ impl App {
         self.scroll_bar_zones.clear();
         if live_fields {
             let editing = self.editing.as_ref().map(|e| e.obj);
-            for pv in shown.parts.iter().filter(|pv| {
+            for (i, pv) in shown.parts.iter().enumerate().filter(|(_, pv)| {
                 pv.part.visible
                     && pv.part.kind == PartKind::Field
                     && pv.part.style == PartStyle::Scrolling
@@ -1503,6 +1544,8 @@ impl App {
                 field_scroll_area(ui, pv, origin, &self.rt.world, &mut self.synced_scroll, &mut self.scroll_bar_zones, |ui| {
                     show_field_text(ui, pv, origin, found)
                 });
+                // Parts layered over the field stay on top of its text.
+                render::draw_over(&painter, &self.tex, &shown, i, origin, live_fields);
             }
         }
 
@@ -1515,9 +1558,26 @@ impl App {
                 w.mouse.y = (p.y - origin.y) as i32;
             }
             w.mouse.down = down;
+            // Where the window is, for `the rect of card window` and `the screenRect`.
+            let (inner, outer, monitor) =
+                ctx.input(|i| (i.viewport().inner_rect, i.viewport().outer_rect, i.viewport().monitor_size));
+            let last = self.card_on_screen.map(|(c, _)| c);
+            let seen = inner.zip(outer).map(|(inner, outer)| (inner.min + origin.to_vec2(), outer.min));
+            if let Some((card, _)) = seen
+                && last != Some(card)
+            {
+                w.window_origin = (card.x as i32, card.y as i32);
+            }
+            if let Some(m) = monitor {
+                w.screen_rect = crate::model::Rect::new(0, 0, m.x as i32, m.y as i32);
+            }
             w.mouse.shift = mods.shift;
             w.mouse.option = mods.alt;
             w.mouse.command = mods.command;
+            drop(w);
+            if seen.is_some() {
+                self.card_on_screen = seen;
+            }
         }
 
         // Where the selection starts, for `the selectedLoc`.
@@ -1855,7 +1915,7 @@ impl eframe::App for App {
             self.status_bar(ui);
         });
         // The tool panel, when shown and the level allows tools.
-        if self.settings.show_tools && self.editing_level() >= 3 {
+        if self.tools_shown() && self.editing_level() >= 3 {
             egui::Panel::left("palette").resizable(false).exact_size(140.0).show(ui, |ui| self.palette(ui));
         }
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(Color32::from_gray(200))).show(ui, |ui| {
@@ -1866,6 +1926,7 @@ impl eframe::App for App {
         self.recent_window(&ctx);
         self.popup_menu(&ctx);
         self.debugger(&ctx);
+        self.text_windows(&ctx);
         self.show_dialog(&ctx);
         self.show_error(&ctx);
         self.show_preferences(&ctx);
