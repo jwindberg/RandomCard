@@ -412,6 +412,16 @@ impl Interp {
                 Ok(())
             }
             Cmd::Select(Select::Part(e)) => {
+                // A chunk held in a variable (`put the selectedChunk into c`
+                // … `select c`) selects that text, as in HyperCard.
+                if !matches!(e, Expr::Object(_)) {
+                    let text = self.eval(e)?;
+                    let t = text.trim().to_ascii_lowercase();
+                    if ["char ", "character ", "word ", "line ", "item "].iter().any(|w| t.starts_with(w)) {
+                        let stmts = parse_statements(&format!("select {}", text.trim())).or_else(err)?;
+                        return self.exec_block(&stmts);
+                    }
+                }
                 let obj = self.resolve_dynamic(e)?;
                 let ObjRef::Part { layer, id, card } = obj else { return err("Can only select a button or field") };
                 let mut w = self.w();
@@ -641,6 +651,7 @@ impl Interp {
                 }
             }
             ShowHide::VariableWatcher => self.w().requests.push(UiRequest::VariableWatcher(show)),
+            ShowHide::ScrollWindow | ShowHide::Groups => {}
             ShowHide::MenuBar => self.w().menubar_visible = show,
             ShowHide::TitleBar => {}
             ShowHide::CardPicture => {

@@ -432,6 +432,9 @@ pub struct World {
     /// as `the rect of card window` reports it. The UI keeps it up to date;
     /// scripts move the window by setting it.
     pub window_origin: (i32, i32),
+    /// The card window's scroll, as scripts set it (HyperCard 2 scrolled a
+    /// card bigger than its window). RandomCard always shows the whole card.
+    pub card_scroll: String,
     /// The main screen, for `the screenRect`. The UI fills it in.
     pub screen_rect: crate::model::Rect,
     pub history: Vec<Id>,
@@ -583,6 +586,7 @@ impl World {
             msg_visible: false,
             msg_rect,
             window_origin: (0, 0),
+            card_scroll: "0,0".into(),
             screen_rect: crate::model::Rect::new(0, 0, 1920, 1080),
             history: vec![card_id],
             history_pos: 0,

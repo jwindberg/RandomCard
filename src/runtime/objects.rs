@@ -639,6 +639,9 @@ impl Interp {
                     // Space Compact Stack would free. RandomCard writes stacks
                     // whole, so there's never any.
                     "freesize" => "0".into(),
+                    // How far the card is scrolled in its window (HyperCard
+                    // 2): RandomCard always shows the whole card.
+                    "scroll" => w.card_scroll.clone(),
                     _ => {
                         drop(w);
                         return err(format!("Stacks have no property \"{name}\""));
@@ -828,6 +831,10 @@ impl Interp {
                     "cantpeek" => w.stack.protection.cant_peek = to_bool(v)?,
                     "privateaccess" => w.stack.protection.private_access = to_bool(v)?,
                     "userlevel" => {}
+                    "scroll" => match crate::hypertalk::value::parse_point(v) {
+                        Some((x, y)) => w.card_scroll = format!("{x},{y}"),
+                        None => return err(format!("Expected a point, not \"{v}\"")),
+                    },
                     "rect" | "rectangle" | "loc" | "location" | "topleft" | "left" | "top" | "right" | "bottom" | "botright"
                     | "bottomright" | "width" | "height" => {
                         drop(w);

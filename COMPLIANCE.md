@@ -80,6 +80,8 @@ the message watcher's `hideIdle` and `hideUnused`. `the commands` and `the
 properties` (lists of what's available) are also missing.
 
 **Smaller items.**
+- `show groups` and `hide groups` are accepted, but the gray underline under
+  group-style text isn't drawn.
 - `ask file … with default name`.
 - `doMenu … with` modifier keys.
 - `the selectedButton of family N` (the function form works), `the

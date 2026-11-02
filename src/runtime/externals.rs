@@ -174,6 +174,8 @@ impl Interp {
                 });
                 String::new()
             }
+            // XVersion(n): a version number, for a stack's headers. RandomCard's.
+            "xversion" => env!("CARGO_PKG_VERSION").to_string(),
             // FileN(prompt), from the Rinaldi collection: an Open dialog.
             "filen" => path(self.file_dialog(&arg(0), FileDialog::Open)),
             // FolderPath(prompt) and SelectDir(prompt): a dialog for choosing

@@ -818,11 +818,12 @@ fn stacks_home_and_libraries() {
     Stack::home().save(&home_path).unwrap();
     let lib_path = dir.join("Lib.rcstack");
     let mut lib = Stack::new("Lib");
-    lib.script = "function libFn\n  return \"from lib\"\nend libFn\non libraryStack\n  global inUse\n  put \"yes\" into inUse\nend libraryStack".into();
+    lib.script = "function libFn\n  return \"from lib\"\nend libFn\non libraryStack\n  global inUse\n  put \"yes\" into inUse\nend libraryStack\nfunction libCallsBack\n  return mainFn()\nend libCallsBack".into();
     lib.save(&lib_path).unwrap();
     let main_path = dir.join("Main.rcstack");
     let mut main = stack();
     main.name = "Main".into();
+    main.script = "function mainFn\n  return \"from main\"\nend mainFn".into();
     main.path = Some(main_path.clone());
     main.save(&main_path).unwrap();
 
@@ -839,6 +840,9 @@ fn stacks_home_and_libraries() {
     assert!(run(&mut i, "put libFn()").starts_with("ERROR"));
     run(&mut i, "start using stack \"Lib\"");
     assert_eq!(run(&mut i, "put libFn()"), "from lib");
+    // The library's handlers reach the current stack too (the dynamic path),
+    // as Macintosh Reference's call to stackNameWithPath did.
+    assert_eq!(run(&mut i, "put libCallsBack()"), "from main");
     assert_eq!(run(&mut i, "global inUse\nput inUse"), "yes");
     assert_eq!(run(&mut i, "global inUse\nput empty into inUse\nsend \"libraryStack\" to stack \"Lib\"\nput inUse"), "yes");
     assert!(run(&mut i, "put the stacksInUse").ends_with("Lib.rcstack"));
@@ -1769,6 +1773,39 @@ fn files_and_folders() {
 }
 
 #[test]
+fn forms_from_apples_develop_stacks() {
+    use crate::hypertalk::parser::parse_script;
+    // The develop stacks' index: the Scroll palette, a card and stack named
+    // with &&, and a handler with a period in its name.
+    assert!(parse_script("on openStack\n  hide scroll window\n  show scroll window\nend openStack").is_ok());
+    assert!(parse_script("function BuildQuery.old\n  return 1\nend BuildQuery.old").is_ok());
+    // develop Index: a menu named by an expression in parentheses.
+    let mut i = interp_with(stack());
+    run(&mut i, "create menu \"Extras\"\nput \"Extras\" into m\ndelete menu (m)");
+    assert_eq!(run(&mut i, "put there is a menu \"Extras\""), "false");
+    assert!(!run(&mut i, "hide groups\nshow groups\nput XVersion(1)").starts_with("ERROR"));
+    // Macintosh Reference: a chunk kept in a variable, selected again.
+    let mut i = interp_with(stack());
+    run(&mut i, "select char 2 to 4 of field 1\nput the selectedChunk into c\nselect empty\nselect c");
+    assert_eq!(run(&mut i, "put the selection"), "ppl");
+    // `the card window`, and its scroll.
+    let mut i = interp_with(stack());
+    run(&mut i, "set the rect of the card window to 0,40,512,382");
+    assert_eq!(run(&mut i, "put the top of the cd window & \":\" & the scroll of cd window"), "40:0,0");
+    run(&mut i, "set the scroll of card window to 0,20");
+    assert_eq!(run(&mut i, "put the scroll of card window"), "0,20");
+    // HIN Stack 2.0: a menu message written without quotes.
+    let mut i = interp_with(stack());
+    run(&mut i, "create menu \"Extras\"\nput \"Search\" after menu \"Extras\" with menuMessages go stack \"Search Knowledge Base\"");
+    let msg = lock(&i.world).menus.iter().find(|m| m.name == "Extras").map(|m| m.items[0].message.clone());
+    assert_eq!(msg.as_deref(), Some("go stack \"Search Knowledge Base\""));
+    let mut s = stack();
+    s.cards[1].name = "page 7".into();
+    let mut i = interp_with(s);
+    assert_eq!(run(&mut i, "put 7 into n\ngo cd \"page\" && n of stack \"Test\"\nput the short name of this card"), "page 7");
+}
+
+#[test]
 fn an_empty_loop_can_be_stopped() {
     let mut s = stack();
     s.script = "on openStack\n  repeat until the mouse is down\n  end repeat\nend openStack".into();
@@ -1794,6 +1831,25 @@ fn dump_scripts() {
             return;
         }
         println!("== {what}");
+        // RANDOMCARD_DUMP_ERRORS: only the scripts that don't parse, with the
+        // line each stops at.
+        let errors_only = std::env::var("RANDOMCARD_DUMP_ERRORS").is_ok();
+        match crate::hypertalk::parser::parse_script(script) {
+            Err(e) => {
+                println!("   PARSE ERROR: {e}");
+                let line: Option<usize> = e.to_string().strip_prefix("line ").and_then(|r| r.split(':').next()).and_then(|n| n.parse().ok());
+                if let Some(n) = line {
+                    for (i, l) in script.lines().enumerate().skip(n.saturating_sub(3)).take(5) {
+                        println!("   {}{:4} {l}", if i + 1 == n { ">" } else { " " }, i + 1);
+                    }
+                }
+            }
+            Ok(_) if errors_only => return,
+            Ok(_) => {}
+        }
+        if errors_only {
+            return;
+        }
         for (n, l) in script.lines().enumerate() {
             println!("{:4} {l}", n + 1);
         }

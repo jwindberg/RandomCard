@@ -541,11 +541,25 @@ impl Interp {
     /// stack.
     pub fn dynamic_path(&self, target: ObjRef) -> Vec<ObjRef> {
         let mut path = self.message_path(target);
-        if matches!(target, ObjRef::OtherStack(_) | ObjRef::HyperCard) {
+        if matches!(target, ObjRef::HyperCard) {
+            return path;
+        }
+        let current = self.w().card_id;
+        // A handler in another stack (a library put into use, say): after
+        // that stack, the current card, background and stack, as the
+        // Script Language Guide's "The Dynamic Path" says.
+        if let ObjRef::OtherStack(_) = target {
+            let Some(at) = path.iter().position(|o| *o == target) else { return path };
+            let mut extra = vec![ObjRef::Card(current)];
+            if let Some(bg) = self.w().stack.card(current).map(|c| ObjRef::Background(c.background)) {
+                extra.push(bg);
+            }
+            extra.push(ObjRef::Stack);
+            extra.retain(|o| !path.contains(o));
+            path.splice(at + 1..at + 1, extra);
             return path;
         }
         let Some(at) = path.iter().position(|o| *o == ObjRef::Stack) else { return path };
-        let current = self.w().card_id;
         let mut extra = Vec::new();
         if !path.contains(&ObjRef::Card(current)) {
             extra.push(ObjRef::Card(current));

@@ -258,6 +258,11 @@ pub enum ShowHide {
     ToolWindow,
     /// `show pattern window`: the Patterns palette, part of the tool panel.
     PatternWindow,
+    /// `show groups`: HyperCard 2's gray underline under text in the group
+    /// style. RandomCard doesn't draw it yet.
+    Groups,
+    /// `show scroll window`: HyperCard 2's Scroll palette; nothing to show.
+    ScrollWindow,
     /// `show window "Progress"`: a window a script opened, by name.
     Window(Expr),
 }

@@ -429,7 +429,7 @@ impl Parser {
 
     /// One handler, after `on` or `function`: its name, parameters and body.
     fn handler(&mut self) -> PResult<(String, Handler)> {
-        let name = self.symbol()?;
+        let name = self.handler_name()?;
         let mut params = Vec::new();
         if !self.at_newline() {
             params.push(self.symbol()?);
@@ -439,11 +439,23 @@ impl Parser {
         }
         let body = self.block(&["end"])?;
         self.expect("end")?;
-        let end_name = self.symbol()?;
+        let end_name = self.handler_name()?;
         if end_name != name {
             return Err(format!("line {}: Expected \"end {name}\" but found \"end {end_name}\"", self.line()));
         }
         Ok((name, Handler { params, body, broken: None }))
+    }
+
+    /// A handler's name. HyperCard allowed periods in it (Apple's develop
+    /// stacks kept an old version as `function BuildQuery.old`).
+    fn handler_name(&mut self) -> PResult<String> {
+        let mut name = self.symbol()?;
+        while matches!(self.tok(), Tok::Other('.')) {
+            self.advance();
+            name.push('.');
+            name.push_str(&self.symbol()?);
+        }
+        Ok(name)
     }
 
     /// After an error in a handler, move past the line `end <name>` (or, if
@@ -685,7 +697,30 @@ impl Parser {
                 // `put items into menu "X" with menuMessages msgs`
                 let messages = if self.accept("with") {
                     self.accept_any(&["menumessages", "menumessage", "menumsgs", "menumsg"]);
-                    Some(self.list_expr()?)
+                    // Unquoted (`with menuMessages go stack "Search"`), the
+                    // message is the rest of the line, as HyperCard took it.
+                    let start = self.pos;
+                    match self.list_expr() {
+                        Ok(e) if self.at_newline() || self.at_eof() => Some(e),
+                        _ => {
+                            self.pos = start;
+                            let mut text = String::new();
+                            while !self.at_newline() && !self.at_eof() {
+                                let t = &self.toks[self.pos];
+                                let piece = match &t.tok {
+                                    Tok::Str(s) => format!("\"{s}\""),
+                                    Tok::Number(n) => n.clone(),
+                                    _ => t.text.clone(),
+                                };
+                                if !text.is_empty() && !matches!(t.tok, Tok::Sym(_) | Tok::Other(_)) {
+                                    text.push(' ');
+                                }
+                                text.push_str(&piece);
+                                self.advance();
+                            }
+                            Some(Expr::Lit(text))
+                        }
+                    }
                 } else {
                     None
                 };
@@ -1313,6 +1348,15 @@ impl Parser {
             self.pos += 2;
             return Ok(ShowHide::ToolWindow);
         }
+        if self.accept("groups") {
+            return Ok(ShowHide::Groups);
+        }
+        if self.is("scroll") && self.is_at(1, "window") {
+            // HyperCard 2's Scroll palette, for moving around a card bigger
+            // than its window. RandomCard has no such palette.
+            self.pos += 2;
+            return Ok(ShowHide::ScrollWindow);
+        }
         if self.is("pattern") && self.is_at(1, "window") {
             // The patterns are in the tool panel, which `tool window` shows.
             self.pos += 2;
@@ -1405,6 +1449,23 @@ impl Parser {
             return Ok(GoDest::Card(CardSpec::Which(Which::Ordinal(ord))));
         }
         let e = self.expr()?;
+        // `go cd "page" && n of stack "develop Issue" && issue`: HyperCard
+        // took everything up to `of` as the card's name, and the rest as the
+        // stack's.
+        if self.is("of")
+            && let Some((false, name)) = absorb_name(&e)
+        {
+            self.advance();
+            let stack = self.expr()?;
+            let stack = match absorb_name(&stack) {
+                Some((true, n)) => n,
+                _ => stack,
+            };
+            return Ok(GoDest::Card(CardSpec::OfStack(
+                Box::new(CardSpec::Which(Which::Expr(Box::new(name)))),
+                Box::new(stack),
+            )));
+        }
         match e {
             // HyperCard 1.x stacks write `go to card "Index" of "Datebook"`.
             Expr::Object(ObjSpec::Card(spec)) if self.is("of") && self.starts_term_at(1) => {
@@ -1617,6 +1678,10 @@ impl Parser {
     }
 
     pub fn term(&mut self) -> PResult<Expr> {
+        // `the card window` is the card window.
+        if self.is("the") && self.word_at(1).is_some_and(is_card_word) && self.is_at(2, "window") {
+            self.advance();
+        }
         match self.tok().clone() {
             Tok::Number(n) => {
                 self.advance();
@@ -1646,7 +1711,10 @@ impl Parser {
     fn word_term(&mut self, w: &str) -> PResult<Expr> {
         // Function call with parentheses.
         let builtin = ZERO_ARG_FUNCS.contains(&w) || ONE_ARG_FUNCS.contains(&w);
+        // `menu (line i of it)` names a menu, not a function called menu.
+        let menu = matches!(w, "menu" | "menuitem");
         if matches!(self.tok_at(1), Tok::Sym("("))
+            && !menu
             && (builtin || !EXPR_START_WORDS.contains(&w) && constant(w).is_none())
         {
             let name = w.to_string();
@@ -2190,6 +2258,20 @@ impl Parser {
             None
         };
         Ok(ObjSpec::Part { kind, layer, which, card })
+    }
+}
+
+/// A card or stack reference with more joined onto its name by `&` or `&&`
+/// (`cd "page" && n`, `stack "develop Issue" && issue`): whether it's a
+/// stack, and the whole name.
+fn absorb_name(e: &Expr) -> Option<(bool, Expr)> {
+    match e {
+        Expr::Binary(op @ (BinOp::Concat | BinOp::ConcatSpace), l, r) => {
+            absorb_name(l).map(|(stack, name)| (stack, Expr::Binary(*op, Box::new(name), r.clone())))
+        }
+        Expr::Object(ObjSpec::Card(CardSpec::Which(Which::Expr(n)))) => Some((false, (**n).clone())),
+        Expr::Object(ObjSpec::Stack(Some(n))) => Some((true, (**n).clone())),
+        _ => None,
     }
 }
 

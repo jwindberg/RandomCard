@@ -47,9 +47,9 @@ mirroring the discs' folders, re-run whenever the importer improves.
 
 | Level | Stacks |
 | --- | --- |
-| Open cleanly (levels 1–3) | 748 |
+| Open cleanly (levels 1–3) | 820 (748 at the first index) |
 | Tested at level 4 | all 748 (320 without compiled externals, then the 428 with them) |
-| **Work fully (level 4)** | **490** (16 use stubs, marked †; 3 checked by driven steps, marked ‡) |
+| **Work fully (level 4)** | **579** (17 use stubs, marked †; 3 checked by driven steps, marked ‡) |
 
 1,192 of the 1,703 stacks contain compiled XCMDs or XFCNs, 885 distinct
 names between them. Each one either becomes a RandomCard feature or, rarely,
@@ -68,6 +68,9 @@ fixing its first one can uncover the next.
 | 17 | Fonts carried in a stack's resource fork are ignored | 374 (19 on the working list) | About Graphics Database Toolkit: body text in Garamond 16 drawn in Geneva, too wide to fit | Read FOND names, FONT/NFNT widths and line heights, and ideally draw the bitmaps themselves. Level 4 can't see this: it only catches script errors. |
 | 5 | No such bkgnd field (on click), not sorting | 15 | Catalog, "New Button" (HyperCard British 1.2.2); Background Ideas, "Calendar" | Catalog, Téléphone, Katalog and the like, card 1; the idea stacks' Calendar buttons, after goWeekly was fixed. |
 | 26 | Broken on the disc: a typo in the stack's own script | 1 (FullRename 1.4 (US), 1993-11) | `selectDir("Folder to rename"")`: an extra quote, which real HyperCard rejects too. Not RandomCard's. |
+| 28 | `No such object ""` (on click) | 32 | | Not looked at yet. |
+| 29 | `palette` command (HyperCard 2's floating button palettes) | 12 | | A real feature: PLTE resources drawn as a floating window of buttons. |
+| 30 | Too much recursion (on click) | 12 | | Not looked at yet. |
 | 18 | Companion stack missing from the disc | 4 | Button Ideas (Desperately Seeking Seven): no DateBook on that disc | Not RandomCard's fault: real HyperCard asks "Where is DateBook?" and fails the same way. Should be marked so they stop counting against us. |
 | 6 | No such card button / bkgnd button (on click) | 11 | Help Index; Using, "Troubleshooting" | Help Index card 1 has an unnamed button that refers to another. |
 | 7 | No such card field (on click) | 4 | Display Card 4•8, card 92 "Check my answers" | The training quizzes. |
@@ -93,4 +96,5 @@ fixing its first one can uncover the next.
 | 23 | MakeSendMe5, GetVol not built in (on click) | 7 (Q & A Stack 3.4 and 3.4.1, Scan Demo) | MakeSendMe5 (and MakeSendMe4) opens a new message in the user's mail program; GetVol lists the mounted volumes. All 7 work. |
 | 24 | ProgressWindoid not built in (on click) | 3 (the ProgressWindoid demo) | Built in, with HyperCard 2's window commands for it: `show`, `hide` and `close window`, `set … of window`, and the fraction, text, loc, width, font and visible of a window. The click test fails these stacks on click order alone (Show before Create, Get after Close); driven in order (`tests/driven/ProgressWindoid.txt`), every button works, so all 3 count, marked ‡. |
 | 25 | The Rinaldi collection's file externals (on click) | 64 demo copies; 63 now work fully | Built in (src/runtime/files.rs): FileCopy, EraseFile, FullMove, FullRename, GetDir (with Rinaldi's filters and layouts), GetFInfo, FullSFPut, GetBootVol, GetSysFolder, and the helpers the demos use: LeafName, FileN, FolderPath, SelectDir. Each answers "!" and "?" as Rinaldi's did. FileMaker (FileToRes, ResToFile) waits: it keeps files in a stack's resource fork. |
+| 27 | Found by the second index (2026-11-02): companions now found, and their scripts | 188 stacks tested, 89 now work fully | Parse: `hide scroll window`, `go cd "page" && n of stack "x" && y`, handler names with periods (`BuildQuery.old`), unquoted `with menuMessages`, `the card window`, `menu (expr)`, `show groups`. Run: the dynamic path from a library stack to the current stack (Apple's manual, "The Dynamic Path"); the scroll of the card window; `select` of a chunk held in a variable; XVersion. |
 | 4 | `goWeekly`, `goSixMonthly`: Can't understand (on click) | 56 rechecked; 34 now work fully | Three fixes. Stacks are found as HyperCard's default search paths found them (the stack's folder, folders beside and above it, and the other floppies' folders), with names matched regardless of case. DateBook's XFCN dayMonthName is built in. And `click at` with the button or field tool selects the part instead of clicking it, as in HyperCard; DateBook's Extend button had been clicking itself forever. |
