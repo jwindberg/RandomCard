@@ -841,6 +841,61 @@ fn scripted_menus() {
 }
 
 #[test]
+fn home_has_hypercards_own_cards() {
+    let dir = std::env::temp_dir().join(format!("randomcard-homecards-{}", std::process::id()));
+    let far = dir.join("far away");
+    std::fs::create_dir_all(&far).unwrap();
+    // A Home from before the cards: they're added when it loads.
+    let home_path = dir.join("Home.rcstack");
+    let mut old = Stack::home();
+    old.cards.truncate(1);
+    old.save(&home_path).unwrap();
+    Stack::new("Faraway").save(&far.join("Faraway.rcstack")).unwrap();
+    let mut main = stack();
+    main.path = Some(dir.join("Main.rcstack"));
+    // Stack Dump's own getHomeInfo, from HyperCard 1's Home script.
+    main.script = "on getHomeInfo\n  global stacks,applications,documents,userName\n  set lockScreen to true\n  set lockMessages to true\n  push this card\n  go to card \"User Preferences\" of stack \"Home\"\n  put card field \"User Name\" into userName\n  set userLevel to card field \"User Level\"\n  set powerKeys to the hilite of button \"Power Keys\"\n  set textArrows to the hilite of button \"Text Arrows\"\n  set blindTyping to the hilite of button \"Blind Typing\"\n  put field \"paths\" of card \"stacks\" into stacks\n  put field \"paths\" of card \"applications\" into applications\n  put field \"paths\" of card \"documents\" into documents\n  pop card\n  set lockScreen to false\n  set lockMessages to false\nend getHomeInfo".into();
+    main.save(&dir.join("Main.rcstack")).unwrap();
+    let mut i = interp_with(main);
+    {
+        let mut w = lock(&i.world);
+        w.home_path = Some(home_path.clone());
+        w.user_level = 3;
+        w.load_home();
+    }
+    assert!(Stack::load(&home_path).unwrap().cards.iter().any(|c| c.name == "User Preferences"));
+    // The level shows on the card, as HyperCard kept it there.
+    let home_part = |i: &Interp, name: &str| -> (String, bool) {
+        let mut w = lock(&i.world);
+        let h = w.home_mut().unwrap();
+        let c = h.cards.iter().find(|c| c.name == "User Preferences").unwrap();
+        let p = c.parts.iter().find(|p| p.name == name).unwrap();
+        (p.contents.clone(), p.hilite)
+    };
+    assert_eq!(home_part(&i, "User Level").0, "3");
+    run(&mut i, "set userLevel to 4");
+    assert_eq!(home_part(&i, "User Level").0, "4");
+    assert!(home_part(&i, "Authoring").1);
+    assert!(!home_part(&i, "Painting").1);
+    // Set from a stack, the level isn't kept in Settings.
+    assert!(!lock(&i.world).requests.iter().any(|r| matches!(r, UiRequest::SaveUserLevel(_))));
+    let current_stack = |i: &Interp| lock(&i.world).stack.name.clone();
+    let main_name = current_stack(&i);
+    assert_eq!(run(&mut i, "getHomeInfo\nput the userLevel"), "4");
+    assert_eq!(current_stack(&i), main_name);
+    // The Stacks card's folders are searched for a stack.
+    let folder = super::paths::shown(&far);
+    run(&mut i, &format!("go to card \"Stacks\" of stack \"Home\"\nput \"{folder}\" into field \"Paths\"\ngo to stack \"Faraway\""));
+    assert_eq!(current_stack(&i), "Faraway");
+    // On Home's card, the level is the user's choice, kept in Settings.
+    run(&mut i, "go to card \"User Preferences\" of stack \"Home\"");
+    lock(&i.world).requests.clear();
+    i.handle_event(Event::MsgBox("send \"mouseUp\" to button \"Typing\"".into()));
+    assert_eq!(lock(&i.world).user_level, 2);
+    assert!(lock(&i.world).requests.iter().any(|r| matches!(r, UiRequest::SaveUserLevel(2))));
+}
+
+#[test]
 fn stacks_home_and_libraries() {
     let dir = std::env::temp_dir().join(format!("randomcard-stacks-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

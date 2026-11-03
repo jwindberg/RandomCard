@@ -3,7 +3,7 @@
 
 pub mod color;
 mod demo;
-mod home;
+pub mod home;
 pub mod metrics;
 pub mod password;
 mod picture;

@@ -545,6 +545,10 @@ impl App {
                 UiRequest::SelectAll => self.select_all(),
                 UiRequest::ProtectStack => self.open_protect_stack(),
                 UiRequest::Preferences => self.prefs_open = true,
+                UiRequest::SaveUserLevel(level) => {
+                    self.settings.user_level = level;
+                    self.settings.save();
+                }
                 UiRequest::MessageWatcher(show) => self.show_message_watcher(show),
                 // A stack showing or hiding the tools doesn't change the
                 // preference, only what's on screen now.

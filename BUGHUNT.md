@@ -35,6 +35,11 @@ or delete anything in the collection.
 To recheck after a fix, put the affected stacks' paths in a list, run level
 4 on it, and pass the result to `working_md.py` after `LEVEL4.tsv`.
 
+A typo in a stack's own script, one real HyperCard rejects too, is fixed in
+the stack file itself, with the untouched file kept in
+`examples/apple/devcds/ORIGINALS/` at the same path. Stack scripts that
+only assume a Mac (colon paths, say) aren't bugs and get fix steps instead.
+
 RandomCard converts a HyperCard stack in memory each time it opens one, so
 none of the Developer CD stacks are saved in RandomCard's format yet. Later:
 a conversion loop that imports every stack, applies its fix steps (the *
@@ -49,7 +54,7 @@ mirroring the discs' folders, re-run whenever the importer improves.
 | --- | --- |
 | Open cleanly (levels 1–3) | 820 (748 at the first index) |
 | Tested at level 4 | all 748 (320 without compiled externals, then the 428 with them) |
-| **Work fully (level 4)** | **694** (36 use stubs, marked †; 3 checked by driven steps, marked ‡) |
+| **Work fully (level 4)** | **701** (36 use stubs, marked †; 3 checked by driven steps, marked ‡) |
 
 1,192 of the 1,703 stacks contain compiled XCMDs or XFCNs, 885 distinct
 names between them. Each one either becomes a RandomCard feature or, rarely,
@@ -73,11 +78,9 @@ fixing its first one can uncover the next.
 | 35 | Broken on the disc: a damaged copy of a companion stack | 1 (•HC 2.0-6, Volume 07) | Its return arrows go to "•HC 2.0-2", whose copy on Volume 07 is typed as a stack but holds sound-like bytes (the Volume 04 copy is fine). It passed level 4 only while RandomCard couldn't find companions; HyperCard's search paths now find the damaged file. | Real HyperCard can't open it either. |
 | 37 | Broken on the disc: Q & A Stack's Help button on its answers cards | 12 (Q & A Stack 4.0.3 to 4.1.1) | The button toggles `bg fld "help"`, but the "answers" background has no such field (checked in the raw block, not just after import). | Real HyperCard fails the same way. |
 | 42 | Mac paths: `the long name of stack` has `/` paths, scripts look for `:` | 156 of the 970 tested parse colon paths; 4 Technical Notes Stacks hang | Technical Notes Stack 3.4.x: resetPrefs runs `repeat until last char of shortstackpath = ":"` over the stack's long name to find its folder; with no colon the loop never ends (the click test's 2-second stop used to hide it, and it left openStack half done). | Decided: each system's own paths, through Rust's `std::path`, and on macOS colon paths as HyperCard gave them (`Disk:Folder:Stack`, taken back in file commands too). New function `the pathSeparator` (":" on macOS, "\" on Windows, "/" elsewhere) lets a stack find its folder anywhere. On Linux and Windows the Technical Notes stacks need a fix step: `":"` in resetPrefs becomes `the pathSeparator`. |
-| 40 | RandomCard's Home stack lacks HyperCard's own Home cards | 4 (Prototyping Toolkit 2.0, Start Here; the KL Launchers and Launch 1.2) | The Launchers too: Home-stack replacements whose getHomeInfo reads Home's cards. | A Home-stack replacement: its startUp goes to card "User Preferences" of stack "Home" to read the User Name, User Level, Power Keys and the search paths (cards "stacks", "applications", "documents"). HyperCard's Home has those cards; RandomCard's keeps its preferences in Settings. | Needs a decision: give Home those cards, kept in step with Settings? |
 | 41 | A click order that real HyperCard fails too | 1 (Guidebook Addresses) | Padlock unlocks the fields; Home then empties the globals (clearGlobals) before `go home`, and closeCard relocks through `toggle`, whose `if dataChanged` gets empty: "Expected true or false". Also needs RadioDialog, RadioDialogPlus and kSort (#19). | Like UserList (#8). |
 | 8 | No such card (on click), what's left | 4 | UserList (2): the click test presses "Delete User", which deletes the card openStack pushed, before "Return" pops it; real HyperCard can't go to a deleted card either, so it's the click order (like ProgressWindoid, #24). Getting Started, "Finder"; OASIS Stack 1.1, "Desktop": not looked at. | |
 | 5 | No such bkgnd field (on click), what's left | 2 | Version 1.2 nyheter, "Se även"; Welcome, "Install Button on Home Card" (sends to a handler in its era's Home stack) | Most of the 36 were fixed by #38. |
-| 26 | Broken on the disc: a typo in the stack's own script | 1 (FullRename 1.4 (US), 1993-11) | `selectDir("Folder to rename"")`: an extra quote, which real HyperCard rejects too. Not RandomCard's. |
 | 28 | `No such object ""` (on click) | 32; 25 now work fully | `select ""` is `select empty`, as in HyperCard. |
 | 30 | Too much recursion (on click) | 23; 17 now work fully | The develop stacks' resize button presses Command-Shift-E, which shows HyperCard 2's size box, then clicks; that click drags the box. Without the size box the click went back to the button forever. `type` with those keys now arms it. |
 | 18 | Companion stack missing from the disc | 4 | Button Ideas (Desperately Seeking Seven): no DateBook on that disc | Not RandomCard's fault: real HyperCard asks "Where is DateBook?" and fails the same way. Should be marked so they stop counting against us. |
@@ -96,6 +99,8 @@ fixing its first one can uncover the next.
 
 | # | Bug | Stacks | Fix |
 | --- | --- | --- | --- |
+| 44 | RandomCard's Home stack lacked HyperCard's own Home cards (was #40) | 4 (Stack Dump 1.2.2; the KL Launchers in Launch 1.2 and Launcher 1.3; Prototyping Toolkit 2.0's Start Here) | These stacks replace Home's script, and their getHomeInfo goes to card "User Preferences" of stack "Home" for the user's name, level and Power Keys, then to cards "stacks", "applications" and "documents" for the search paths. Home now has those cards (added to an existing Home when it loads). The level on them follows the user level, and the level set from Home's own card is kept in Settings. The folders on the Stacks card are searched for stacks, as in HyperCard, and `stack "Home"` names the Home stack whatever its file is called. |
+| 45 | Broken on the disc: a typo in the stack's own script (was #26) | 3 (FullRename 1.4 (US), 1993-05, 1993-08, 1993-11) | `selectDir("Folder to rename"")` had an extra quote, which real HyperCard rejects too. Fixed in the stack file itself: the quote became a space, a one-byte change in a CARD block (no checksum). The untouched files are in `examples/apple/devcds/ORIGINALS/`. |
 | 1 | Opening hung forever | 1 (SysEnv XFCN 1.0D13) | `repeat until the mouse is down` with an empty body never checked for ⌘-period; loops now check every pass. |
 | 2 | Can't set the rect / loc of a stack (at open) | 27 | Scripts can read and set the card window's rect, loc and edges; setting moves the window. Not yet rechecked. |
 | 3 | No such bkgnd field when sorting (on click) | 30 hit it; 9 now work fully | A card without the field sorted on sorts as empty, as in HyperCard. The rest moved on to #4 and #5. |

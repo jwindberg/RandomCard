@@ -48,10 +48,19 @@ pub fn home_path() -> Option<PathBuf> {
 pub fn open_home() -> Stack {
     let Some(path) = home_path() else { return Stack::home() };
     if path.exists() {
-        return Stack::load(&path).unwrap_or_else(|e| {
-            eprintln!("RandomCard: {e}; using a new Home stack for now.");
-            Stack::home()
-        });
+        return match Stack::load(&path) {
+            Ok(mut home) => {
+                // A Home from before RandomCard had HyperCard's own cards.
+                if crate::model::home::add_preference_cards(&mut home) {
+                    let _ = home.save(&path);
+                }
+                home
+            }
+            Err(e) => {
+                eprintln!("RandomCard: {e}; using a new Home stack for now.");
+                Stack::home()
+            }
+        };
     }
     let mut home = Stack::home();
     if let Some(dir) = path.parent() {

@@ -46,6 +46,7 @@ pub fn start(stack: Stack, open: Option<std::path::PathBuf>, user_level: u8, hom
     world.user_level = user_level.clamp(1, 5);
     world.home_path = home;
     world.load_home();
+    world.show_level_at_home();
     let world = Arc::new(Mutex::new(world));
     let (events, event_rx) = channel();
     let (dialog_replies, dialog_rx) = channel();

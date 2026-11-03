@@ -458,6 +458,13 @@ impl Interp {
                 let mut w = self.w();
                 let limit = w.level_limit();
                 w.user_level = (to_int(v)?.clamp(1, 5) as u8).min(limit);
+                w.show_level_at_home();
+                // Set from Home, as by its User Preferences card, the level
+                // is kept, as HyperCard kept it in Home.
+                if w.is_home(&w.stack) {
+                    let level = w.user_level;
+                    w.requests.push(UiRequest::SaveUserLevel(level));
+                }
             }
             "tracedelay" => self.w().trace_delay = to_int(v)?.clamp(0, 600) as u32,
             "cursor" | "dragspeed" | "textarrows" | "blindtyping" | "powerkeys" | "usermodify"

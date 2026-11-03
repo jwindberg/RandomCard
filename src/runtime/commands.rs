@@ -882,6 +882,13 @@ impl Interp {
         if let Some(dir) = home.as_deref().and_then(Path::parent) {
             dirs.push(dir.to_path_buf());
         }
+        // Then the folders on Home's Stacks card, as in HyperCard.
+        let paths = {
+            let mut w = self.w();
+            w.load_home();
+            w.home_mut().map(|h| crate::model::home::search_paths(h, "Stacks")).unwrap_or_default()
+        };
+        dirs.extend(paths.iter().map(|p| super::paths::native(p)));
         let mut seen = std::collections::HashSet::new();
         dirs.into_iter().filter(|d| seen.insert(d.clone())).find_map(|d| in_dir(&d))
     }
@@ -897,6 +904,17 @@ impl Interp {
                 return Ok(Some(ObjRef::Stack));
             }
             if let Some(k) = w.find_other(name, None) {
+                return Ok(Some(ObjRef::OtherStack(k)));
+            }
+        }
+        // Stack "Home" is the Home stack, whatever its file is called.
+        if name.eq_ignore_ascii_case("home") {
+            let mut w = self.w();
+            w.load_home();
+            if w.is_home(&w.stack) {
+                return Ok(Some(ObjRef::Stack));
+            }
+            if let Some(k) = w.home_key() {
                 return Ok(Some(ObjRef::OtherStack(k)));
             }
         }

@@ -183,6 +183,7 @@ impl App {
                 if resp.clicked() {
                     let mut w = self.world();
                     w.user_level = level;
+                    w.show_level_at_home();
                     drop(w);
                     self.settings.user_level = level;
                     self.settings.save();

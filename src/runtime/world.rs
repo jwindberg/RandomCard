@@ -433,6 +433,8 @@ pub enum UiRequest {
     MoveWindow(i32, i32),
     /// Open a URL, such as a `mailto:` message, in the program that handles it.
     OpenUrl(String),
+    /// Keep this user level in Settings: it was set from the Home stack.
+    SaveUserLevel(u8),
     /// A key's message wasn't handled: do what the key does by default.
     Key(ObjRef, KeyAction),
 }
@@ -783,8 +785,30 @@ impl World {
         if self.is_home(&self.stack) || self.home_key().is_some() {
             return;
         }
-        if let Ok(home) = Stack::load(&path) {
+        if let Ok(mut home) = Stack::load(&path) {
+            if crate::model::home::add_preference_cards(&mut home) {
+                let _ = home.save(&path);
+            }
+            crate::model::home::show_level(&mut home, self.user_level);
             self.add_other(home);
+        }
+    }
+
+    /// The Home stack, if it's loaded: the current stack or another.
+    pub fn home_mut(&mut self) -> Option<&mut Stack> {
+        if self.is_home(&self.stack) {
+            return Some(&mut self.stack);
+        }
+        let key = self.home_key()?;
+        self.other_mut(key)
+    }
+
+    /// Show the user level on Home's User Preferences card, where stacks
+    /// made for HyperCard read it.
+    pub fn show_level_at_home(&mut self) {
+        let level = self.user_level;
+        if let Some(home) = self.home_mut() {
+            crate::model::home::show_level(home, level);
         }
     }
 
