@@ -211,7 +211,7 @@ impl Interp {
         }
     }
 
-    fn resolve_part(&mut self, kind: Option<PartKind>, layer: Option<Layer>, which: &Which, card: Id) -> R<ObjRef> {
+    pub(super) fn resolve_part(&mut self, kind: Option<PartKind>, layer: Option<Layer>, which: &Which, card: Id) -> R<ObjRef> {
         let default_layer = match kind {
             Some(PartKind::Field) => Layer::Background,
             _ => Layer::Card,

@@ -878,6 +878,13 @@ fn stacks_home_and_libraries() {
     assert_eq!(run(&mut i, "put homeVersion()"), "Home 1.0");
     run(&mut i, "go to card \"Two\" of stack \"Main\"");
     assert_eq!(run(&mut i, "put the short name of this stack && the short name of this card"), "Main Two");
+    // A card pushed in another stack pops back to that stack, as DateBook's
+    // Return button does after a visit to the Address stack.
+    run(&mut i, "push card\ngo to stack \"Lib\"\npush card\ngo to stack \"Main\"");
+    run(&mut i, "pop card");
+    assert_eq!(this_stack(&mut i), "Lib");
+    run(&mut i, "pop card");
+    assert_eq!(run(&mut i, "put the short name of this stack && the short name of this card"), "Main Two");
     // The built-in Tour has no file; Home's button goes there.
     run(&mut i, "go home");
     assert_eq!(click(&mut i, "Home", "Take the Tour"), None);

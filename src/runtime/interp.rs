@@ -115,7 +115,9 @@ pub struct Interp {
     pub files: HashMap<String, OpenFile>,
     pub started: Instant,
     pub clipboard_card: Option<crate::model::Card>,
-    pub pushed_cards: Vec<Id>,
+    /// Cards `push card` saved, with the stack each is in (its path, or
+    /// its name if it has none), as HyperCard saved the full ID and path.
+    pub pushed_cards: Vec<(Id, String)>,
     msgbox_vars: HashMap<String, String>,
     /// For tests: canned dialog answers.
     pub canned_answers: Vec<DialogReply>,

@@ -245,13 +245,14 @@ impl Interp {
                         _ => return err("Can only push cards"),
                     },
                 };
-                self.pushed_cards.push(id);
+                let place = self.stack_place();
+                self.pushed_cards.push((id, place));
                 Ok(())
             }
             Cmd::PopCard(into) => {
                 // Popping more cards than were pushed gives the Home card, as
                 // in HyperCard; stacks test for it (`if it contains "Home"`).
-                let Some(id) = self.pushed_cards.pop() else {
+                let Some((id, place)) = self.pushed_cards.pop() else {
                     return match into {
                         Some((prep, dest)) => {
                             let name = self.home_card_name();
@@ -262,19 +263,24 @@ impl Interp {
                 };
                 match into {
                     Some((prep, dest)) => {
-                        let name = self.name_of(ObjRef::Card(id), NameLength::Long);
+                        let name = format!("card id {id} of stack \"{place}\"");
                         self.put_into(dest, *prep, &name)
+                    }
+                    // A card in another stack: go back to that stack.
+                    None if place != self.stack_place() => {
+                        let card = CardSpec::Which(Which::Id(Box::new(Expr::Lit(id.to_string()))));
+                        self.go_stack(&place, Some(&card))
                     }
                     None => self.go_card_id(id, true),
                 }
             }
             Cmd::Find { mode, what, field } => {
                 let text = self.eval(what)?;
-                let field = match field {
-                    Some(f) => Some(self.resolve_dynamic(f)?),
+                let only = match field {
+                    Some(f) => Some(self.find_fields(f)?),
                     None => None,
                 };
-                self.find(&text, *mode, field)
+                self.find(&text, *mode, only)
             }
             Cmd::SortChunks { kind, container, ascending, style, by } => {
                 self.sort_chunks(*kind, container, *ascending, *style, by.as_ref())
@@ -969,6 +975,13 @@ impl Interp {
         Ok(())
     }
 
+    /// How a pushed card names its stack: the stack's path, or its name if
+    /// it has none, as in a card's long name.
+    fn stack_place(&self) -> String {
+        let w = self.w();
+        w.stack.path.as_ref().map_or(w.stack.name.clone(), |p| p.display().to_string())
+    }
+
     /// `go home`: to the Home stack, or the first card if there's none.
     /// The long name of Home's first card.
     fn home_card_name(&mut self) -> String {
@@ -1253,16 +1266,43 @@ impl Interp {
 
     // ----- find -----
 
-    fn find(&mut self, what: &str, mode: FindMode, only: Option<ObjRef>) -> R<()> {
+    /// The fields `find … in field` searches, card by card. A field named
+    /// by its description is looked up on each card, as HyperCard does:
+    /// cards without it are skipped, and each background's field of that
+    /// name counts, whatever its id.
+    fn find_fields(&mut self, f: &Expr) -> R<std::collections::HashSet<(Id, Layer, Id)>> {
+        let cards: Vec<Id> = self.w().stack.cards.iter().map(|c| c.id).collect();
+        if let Expr::Object(ObjSpec::Part { kind, layer, which, card: None }) = f {
+            let mut set = std::collections::HashSet::new();
+            for card in cards {
+                if let Ok(ObjRef::Part { layer, id, card }) = self.resolve_part(*kind, *layer, which, card) {
+                    set.insert((card, layer, id));
+                }
+            }
+            return Ok(set);
+        }
+        match self.resolve_dynamic(f)? {
+            // A particular field (`me`, a field of a given card): that field
+            // on every card that shares it.
+            ObjRef::Part { layer, id, card } => {
+                let w = self.w();
+                let bg = w.stack.card(card).map(|c| c.background);
+                Ok(w.stack
+                    .cards
+                    .iter()
+                    .filter(|c| layer == Layer::Card && c.id == card || layer == Layer::Background && Some(c.background) == bg)
+                    .map(|c| (c.id, layer, id))
+                    .collect())
+            }
+            _ => err("Can only find in a field"),
+        }
+    }
+
+    fn find(&mut self, what: &str, mode: FindMode, only: Option<std::collections::HashSet<(Id, Layer, Id)>>) -> R<()> {
         if what.is_empty() {
             return Ok(());
         }
         let needle = what.to_lowercase();
-        let only_field = match only {
-            Some(ObjRef::Part { layer, id, .. }) => Some((layer, id)),
-            Some(_) => return err("Can only find in a field"),
-            None => None,
-        };
         // Every searchable field on every card, starting with the current card.
         let (fields, previous) = {
             let w = self.w();
@@ -1282,7 +1322,7 @@ impl Interp {
                     for p in s.parts(c.id, layer) {
                         if p.kind == PartKind::Field
                             && !p.dont_search
-                            && only_field.is_none_or(|(l, i)| l == layer && i == p.id)
+                            && only.as_ref().is_none_or(|o| o.contains(&(c.id, layer, p.id)))
                         {
                             fields.push((c.id, layer, p.id));
                         }
