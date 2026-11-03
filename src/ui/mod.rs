@@ -123,6 +123,8 @@ pub struct App {
     dialog_init: bool,
     /// The open ListSelect dialog's choices.
     list: list_dialog::ListState,
+    /// The Mousoid or Infoid window being dragged by its title.
+    live_drag: Option<String>,
     msg_buffer: String,
     msg_has_focus: bool,
     /// Give the message box keyboard focus (after blind typing).
@@ -221,6 +223,7 @@ impl App {
             ask_text: String::new(),
             dialog_init: false,
             list: Default::default(),
+            live_drag: None,
             msg_buffer: String::new(),
             msg_has_focus: false,
             focus_msg_box: false,
@@ -549,6 +552,9 @@ impl App {
                 UiRequest::SelectAll => self.select_all(),
                 UiRequest::ProtectStack => self.open_protect_stack(),
                 UiRequest::Preferences => self.prefs_open = true,
+                UiRequest::Attention => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
+                }
                 UiRequest::SaveUserLevel(level) => {
                     self.settings.user_level = level;
                     self.settings.save();
@@ -1629,6 +1635,7 @@ impl App {
             if let Some(m) = monitor {
                 w.screen_rect = crate::model::Rect::new(0, 0, m.x as i32, m.y as i32);
             }
+            w.focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
             w.mouse.shift = mods.shift;
             w.mouse.option = mods.alt;
             w.mouse.command = mods.command;

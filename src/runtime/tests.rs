@@ -350,12 +350,25 @@ fn demo_stack_runs() {
     i.canned_answers.push(DialogReply::List(vec![0, 3], "Validated".into()));
     assert_eq!(click(&mut i, "Fields", "Flash Fields"), None);
     assert!(lock(&i.world).msg.contains("Flashed Lined,Wide"), "{}", lock(&i.world).msg);
+    let before = i.printed.len();
+    assert_eq!(click(&mut i, "Print & Find", "Print PostScript"), None);
+    assert!(i.printed.len() == before + 1 && i.printed.last().unwrap().extension().is_some_and(|e| e == "ps"));
     run(&mut i, "go to card \"Debugging\"");
     for b in ["List Globals", "This Computer"] {
         i.canned_answers.push(DialogReply::Button("OK".into()));
         assert_eq!(click(&mut i, "Debugging", b), None, "{b}");
     }
     assert_eq!(run(&mut i, "global tourVisits\nput tourVisits"), "1");
+    for b in ["Mouse Window", "Info Window"] {
+        assert_eq!(click(&mut i, "Debugging", b), None, "{b}");
+    }
+    assert_eq!(run(&mut i, "put \"Mousoid\" is in the windows and \"Infoid\" is in the windows"), "true");
+    for b in ["Mouse Window", "Info Window"] {
+        assert_eq!(click(&mut i, "Debugging", b), None, "{b}");
+    }
+    assert_eq!(run(&mut i, "put \"Mousoid\" is in the windows"), "false");
+    i.canned_answers.push(DialogReply::Button("OK".into()));
+    assert_eq!(click(&mut i, "Debugging", "Call Me Back"), None);
     i.canned_answers.push(DialogReply::Text(Some("Tour Window".into())));
     assert_eq!(click(&mut i, "Debugging", "Rename Window"), None);
     assert_eq!(lock(&i.world).window_title.as_ref().map(|t| t.1.as_str()), Some("Tour Window"));
@@ -1491,6 +1504,34 @@ fn rinaldi_externals() {
     // With no one to answer, it's cancelled.
     assert_eq!(run(&mut i, "put ListSelect(1, \"a,b\")"), "");
     assert_eq!(exit(&mut i), "Cancel");
+    // Mousoid and Infoid: windoids the UI keeps up to date.
+    run(&mut i, "Mousoid");
+    run(&mut i, "Infoid");
+    assert_eq!(run(&mut i, "put \"Infoid\" is in the windows"), "true");
+    assert_eq!(run(&mut i, "put the properties of window \"Mousoid\""), "loc,rect,visible,properties");
+    assert_eq!(run(&mut i, "send \"Update\" to window \"Infoid\"\nput the result"), "");
+    run(&mut i, "close window \"Mousoid\"");
+    assert_eq!(run(&mut i, "put \"Mousoid\" is in the windows"), "false");
+    assert_eq!(run(&mut i, "Mousoid \"x\", 3\nput the result"), "Error : Bad Coordinate");
+    // Promptoid: Prompt's window by HyperCard 2's means.
+    run(&mut i, "Promptoid \"Working\"");
+    assert_eq!(run(&mut i, "Promptoid \"Again\"\nput the result"), "Error : Promptoid already displayed");
+    run(&mut i, "set text of window \"Promptoid\" to \"Test 2\"");
+    assert_eq!(run(&mut i, "put the text of window \"Promptoid\""), "Test 2");
+    run(&mut i, "close window \"Promptoid\"");
+    assert_eq!(run(&mut i, "Promptoid \"A\", empty, 40, \"wide\"\nput the result"), "Error : Bad width");
+    // SendPS saves PostScript to open in the viewer; a path opens that file.
+    let before = i.printed.len();
+    assert_eq!(run(&mut i, "SendPS \"%!PS\" & return & \"showpage\"\nput the result"), "");
+    let ps = i.printed.last().unwrap().clone();
+    assert_eq!(i.printed.len(), before + 1);
+    assert!(ps.extension().is_some_and(|e| e == "ps"));
+    assert!(std::fs::read_to_string(&ps).unwrap().starts_with("%!PS"));
+    assert_eq!(run(&mut i, "SendPS \"/no/such/file.ps\"\nput the result"), "Error : File not found");
+    assert_eq!(run(&mut i, "SendPS \"%!\", \"maybe\"\nput the result"), "Error : Second param must be \"true\" or \"false\"");
+    assert_eq!(run(&mut i, "SendPS empty\nput the result"), "Error : Missing parameter");
+    // Notification waits only when RandomCard is in the background.
+    assert_eq!(run(&mut i, "Notification\nput the result"), "");
     // A SuperCard branch's `top of window` compiles, as the card window.
     assert_eq!(run(&mut i, "put top of window"), run(&mut i, "put top of cd window"));
 }

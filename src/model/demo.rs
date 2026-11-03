@@ -663,7 +663,7 @@ end tabKey
     let about = b.label(
         "About",
         Rect::new(20, 42, 492, 76),
-        "Printing opens a PDF in your PDF viewer. Find and Recent are also in the Go menu.",
+        "Printing opens a PDF in your PDF viewer, and PostScript opens in its viewer. Find and Recent are also in the Go menu.",
         12,
     );
     b.card_part(c, about);
@@ -674,6 +674,8 @@ end tabKey
         ("Find Bill", "on mouseUp\n  visual effect dissolve\n  find \"Bill\"\nend mouseUp"),
         ("Find…", "on mouseUp\n  doMenu \"Find…\"\nend mouseUp"),
         ("Recent", "on mouseUp\n  doMenu \"Recent\"\nend mouseUp"),
+        // SendPS, from Frédéric Rinaldi's externals: PostScript to the viewer.
+        ("Print PostScript", "on mouseUp\n  put \"%!PS\" & return & \"/Times-Bold findfont 36 scalefont setfont\" & return into ps\n  put \"72 700 moveto (Hello from RandomCard!) show\" & return after ps\n  put \"newpath 300 450 120 0 360 arc 0.5 setgray fill\" & return & \"showpage\" after ps\n  SendPS ps\n  if the result is not empty then answer the result\nend mouseUp"),
     ];
     for (i, (name, script)) in actions.iter().enumerate() {
         let (col, row) = ((i % 3) as i32, (i / 3) as i32);
@@ -770,6 +772,17 @@ end square"#,
     for (i, (name, script)) in more.iter().enumerate() {
         let x = 36 + i as i32 * 150;
         let p = b.button(name, Rect::new(x, 170, x + 140, 198), script);
+        b.card_part(c, p);
+    }
+    // Mousoid, Infoid, Promptoid and Notification, from the same collection.
+    let windoids = [
+        ("Mouse Window", "on mouseUp\n  if \"Mousoid\" is in the windows then close window \"Mousoid\"\n  else Mousoid\nend mouseUp"),
+        ("Info Window", "on mouseUp\n  if \"Infoid\" is in the windows then close window \"Infoid\"\n  else Infoid\nend mouseUp"),
+        ("Call Me Back", "on mouseUp\n  Promptoid \"Switch to another window. I'll call you back in 5 seconds.\"\n  repeat with i = 4 down to 1\n    wait 1 second\n    set text of window \"Promptoid\" to \"Calling you back in\" && i && \"…\"\n  end repeat\n  wait 1 second\n  close window \"Promptoid\"\n  Notification\n  answer \"Welcome back!\"\nend mouseUp"),
+    ];
+    for (i, (name, script)) in windoids.iter().enumerate() {
+        let x = 36 + i as i32 * 150;
+        let p = b.button(name, Rect::new(x, 208, x + 140, 236), script);
         b.card_part(c, p);
     }
     let mut answer = b.label("Answer", Rect::new(20, 132, 492, 156), "", 14);

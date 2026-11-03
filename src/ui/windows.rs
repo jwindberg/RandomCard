@@ -630,6 +630,7 @@ impl App {
                         });
                 }
                 WindowKind::Palette { hilited, .. } => self.palette_window(ctx, &t, at, hilited),
+                WindowKind::Mouse | WindowKind::Info => self.live_window(ctx, &t, at, font),
                 WindowKind::Text => {
                     let mut open = true;
                     let mut text = t.text.clone();
@@ -667,6 +668,60 @@ impl App {
                     }
                 }
             }
+        }
+    }
+
+    /// Mousoid's and Infoid's windoids: the mouse's position, or what's
+    /// under it, kept up to date. They can be dragged and closed.
+    fn live_window(&mut self, ctx: &egui::Context, t: &crate::runtime::world::ScriptWindow, at: egui::Pos2, font: egui::FontId) {
+        let text = {
+            let w = lock(&self.rt.world);
+            let (x, y) = (w.mouse.x, w.mouse.y);
+            if t.kind == WindowKind::Mouse {
+                let (wx, wy) = w.window_origin;
+                format!(
+                    "Card: {x},{y}\nScreen: {},{}\nButton: {}",
+                    x + wx,
+                    y + wy,
+                    if w.mouse.down { "down" } else { "up" }
+                )
+            } else {
+                live_info(&w, x, y)
+            }
+        };
+        let mut open = true;
+        let resp = egui::Window::new(&t.name)
+            .id(egui::Id::unique(("script-window", t.name.as_str())))
+            .fixed_pos(at)
+            .fixed_size(egui::vec2(t.rect.width() as f32 - 12.0, 0.0))
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .show(ctx, |ui| ui.label(RichText::new(text).font(font)));
+        // It sits where the script put it; dragging its title bar moves it.
+        if let Some(r) = resp {
+            let rect = r.response.rect;
+            let title = egui::Rect::from_min_size(rect.min, egui::vec2(rect.width() - 28.0, 26.0));
+            let (pressed, down, delta, at_press) = ctx.input(|i| {
+                (i.pointer.primary_pressed(), i.pointer.primary_down(), i.pointer.delta(), i.pointer.press_origin())
+            });
+            // Moves count from the frame after the press: the press's own
+            // delta is how the pointer got there.
+            if pressed && at_press.is_some_and(|p| title.contains(p)) {
+                self.live_drag = Some(t.name.clone());
+            } else if !down {
+                self.live_drag = None;
+            } else if self.live_drag.as_deref() == Some(t.name.as_str()) && delta != egui::Vec2::ZERO {
+                let mut w = lock(&self.rt.world);
+                if let Some(win) = w.script_windows.iter_mut().find(|x| x.name == t.name) {
+                    win.rect = win.rect.translate(delta.x.round() as i32, delta.y.round() as i32);
+                }
+            }
+        }
+        // The pointer keeps moving: keep the numbers fresh.
+        ctx.request_repaint_after(std::time::Duration::from_millis(50));
+        if !open {
+            self.send(Event::CloseWindow(t.name.clone()));
         }
     }
 
@@ -941,6 +996,34 @@ pub fn capitalize(s: &str) -> String {
     }
 }
 
+/// Infoid's text: the button or field under the point, or the card.
+fn live_info(w: &World, x: i32, y: i32) -> String {
+    use crate::model::Layer;
+    let card = w.card_id;
+    for layer in [Layer::Card, Layer::Background] {
+        let parts = w.stack.parts(card, layer);
+        if let Some((n, p)) = parts.iter().enumerate().rev().find(|(_, p)| p.visible && p.rect.contains(x, y)) {
+            let kind = if p.kind == PartKind::Button { "button" } else { "field" };
+            let number = parts[..=n].iter().filter(|q| q.kind == p.kind).count();
+            let layer = if layer == Layer::Card { "card" } else { "bkgnd" };
+            let r = p.rect;
+            return format!(
+                "{layer} {kind} {number} \"{}\"\nid {}\nrect {},{},{},{}\nstyle {}",
+                p.name,
+                p.id,
+                r.left,
+                r.top,
+                r.right,
+                r.bottom,
+                p.style.name()
+            );
+        }
+    }
+    let name = w.stack.card(card).map(|c| c.name.clone()).unwrap_or_default();
+    let number = w.stack.cards.iter().position(|c| c.id == card).map_or(0, |i| i + 1);
+    format!("card {number} \"{name}\"\nid {card}\nof stack \"{}\"", w.stack.name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::format_script;
@@ -952,3 +1035,4 @@ mod tests {
         assert_eq!(format_script(src), want);
     }
 }
+

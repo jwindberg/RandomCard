@@ -238,6 +238,10 @@ pub enum WindowKind {
     /// A palette (the `palette` command): its id, and the button that
     /// stays highlighted (from 1), or -1 for none.
     Palette { id: i32, hilited: i32 },
+    /// A windoid the UI keeps up to date: the mouse's position (Mousoid).
+    Mouse,
+    /// A windoid the UI keeps up to date: what's under the mouse (Infoid).
+    Info,
 }
 
 impl ScriptWindow {
@@ -280,6 +284,7 @@ impl ScriptWindow {
                 WindowKind::Progress(_) => "width,text,fraction,textFont,textSize".into(),
                 WindowKind::Text => "text,textFont,textSize,lockText".into(),
                 WindowKind::Palette { .. } => "buttonCount,commands,hilitedButton,properties".into(),
+                WindowKind::Mouse | WindowKind::Info => "loc,rect,visible,properties".into(),
             },
             _ => return None,
         })
@@ -460,6 +465,9 @@ pub enum UiRequest {
     OpenUrl(String),
     /// Keep this user level in Settings: it was set from the Home stack.
     SaveUserLevel(u8),
+    /// Ask for the user's attention while RandomCard is in the background
+    /// (Notification): the Dock icon bounces, the taskbar entry flashes.
+    Attention,
     /// A key's message wasn't handled: do what the key does by default.
     Key(ObjRef, KeyAction),
 }
@@ -582,6 +590,8 @@ pub struct World {
     /// The kinds of data last copied, as the Mac's scrap types ("TEXT",
     /// "PICT"), for ClipInfo.
     pub clip_types: String,
+    /// Whether RandomCard's window is in front, for Notification.
+    pub focused: bool,
     /// Where a script is stopped in the debugger.
     pub debug: Option<DebugPause>,
     /// Checkpoints: a script's owner and a line in it, from 1.
@@ -717,6 +727,7 @@ impl World {
             stack_serial: 0,
             window_title: None,
             clip_types: String::new(),
+            focused: true,
             debug: None,
             checkpoints: Vec::new(),
             globals_view: Vec::new(),

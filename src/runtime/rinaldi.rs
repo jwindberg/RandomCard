@@ -1,13 +1,14 @@
 //! More of Frédéric Rinaldi's externals, the ones that aren't about files
 //! (those are in files.rs): LineCount, FullSort, DateSort, GetPassword,
 //! Prompt, GetMode, MacType, Switch, CapsLock, ClipInfo, ATalkZones,
-//! GlobalList, WindName and ListSelect. Apple carried his collection on its Developer CDs, a
+//! GlobalList, WindName, ListSelect, Promptoid, Mousoid, Infoid,
+//! Notification and SendPS. Apple carried his collection on its Developer CDs, a
 //! demo stack for each. RandomCard does them itself, by the same names and
 //! with the same answers. As his did, each answers "!" with its notice and
 //! "?" with its syntax, and reports a problem as text starting "Error :".
 
 use super::interp::{Interp, R, to_int};
-use super::world::{Dialog, DialogReply, ListDialog, ObjRef, ScriptWindow, WindowKind};
+use super::world::{Dialog, DialogReply, ListDialog, ObjRef, ScriptWindow, UiRequest, WindowKind};
 use crate::model::{PartKind, Rect};
 
 /// Each one's usual name and the syntax it answers to "?".
@@ -29,6 +30,11 @@ const SYNTAX: &[(&str, &str, &str)] = &[
     ("atalkzones", "ATalkZones", "ATalkZones()"),
     ("globallist", "GlobalList", "GlobalList([<ListAll>])"),
     ("windname", "WindName", "WindName <title string>"),
+    ("promptoid", "Promptoid", "Promptoid [<message>[,<ICON name or id>[,<VLoc>[,<width>]]]]"),
+    ("mousoid", "Mousoid", "Mousoid [<X>,<Y>]"),
+    ("infoid", "Infoid", "Infoid [<X>,<Y>]"),
+    ("notification", "Notification", "Notification"),
+    ("sendps", "SendPS", "SendPS <container or pathname> [,<page setup> [,<print dialog>]]"),
     (
         "listselect",
         "ListSelect",
@@ -43,6 +49,7 @@ fn help(name: &str, args: &[String]) -> Option<String> {
         Some("!") => Some(format!("{proper} 2.0 — built into RandomCard, after Frédéric Rinaldi's external")),
         Some("?") => Some(syntax.to_string()),
         Some("=") if name == "switch" => Some("The text with its lines made items, or its items made lines".into()),
+        Some("=") if name == "promptoid" => Some("Nothing; problems go in the result".into()),
         Some("=") if name == "listselect" => Some("The chosen items, or their numbers, and ListSelectExit".into()),
         _ => None,
     }
@@ -178,7 +185,7 @@ impl Interp {
     /// One of these commands, or None if it isn't one. Problems go in the
     /// result.
     pub(super) fn rinaldi_command(&mut self, name: &str, args: &[String]) -> Option<R<()>> {
-        if !matches!(name, "prompt" | "windname") {
+        if !matches!(name, "prompt" | "promptoid" | "windname" | "mousoid" | "infoid" | "notification" | "sendps") {
             return None;
         }
         if let Some(h) = help(name, args) {
@@ -192,8 +199,134 @@ impl Interp {
             w.window_title = Some((serial, args.join(",")));
             return Some(Ok(()));
         }
+        if name == "sendps" {
+            self.result = self.send_ps(args).err().unwrap_or_default();
+            return Some(Ok(()));
+        }
+        if name == "promptoid" {
+            self.result = self.promptoid(args).err().unwrap_or_default();
+            return Some(Ok(()));
+        }
+        if name == "mousoid" || name == "infoid" {
+            self.result = self.windoid(name, args).err().unwrap_or_default();
+            return Some(Ok(()));
+        }
+        if name == "notification" {
+            self.result.clear();
+            return Some(self.notification());
+        }
         self.result = self.prompt(args).err().unwrap_or_default();
         Some(Ok(()))
+    }
+
+    /// SendPS: PostScript, given as text or as a file's path, opened in the
+    /// system's viewer to print from there, as RandomCard's printing does
+    /// with its PDFs. His sent it to a LaserWriter over AppleTalk. The page
+    /// setup and print dialog flags are checked but have nothing to show.
+    fn send_ps(&mut self, args: &[String]) -> Result<(), String> {
+        let fail = |_: &mut Self, e: &str| Err(e.to_string());
+        let ps = args.first().cloned().unwrap_or_default();
+        if ps.trim().is_empty() {
+            return fail(self, "Error : Missing parameter");
+        }
+        for (i, word) in [(1, "Second"), (2, "Third")] {
+            if let Some(a) = args.get(i)
+                && !a.trim().is_empty()
+                && !matches!(a.trim().to_ascii_lowercase().as_str(), "true" | "false")
+            {
+                return fail(self, &format!("Error : {word} param must be \"true\" or \"false\""));
+            }
+        }
+        let path = if ps.trim_start().starts_with("%!") || ps.contains('\n') {
+            // PostScript itself: save it where printing saves its PDFs.
+            let name = format!("{} PostScript", self.w().stack.name);
+            let dir = std::env::temp_dir().join("RandomCard");
+            let saved = std::fs::create_dir_all(&dir).and_then(|_| {
+                let safe: String = name.chars().map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { '_' }).collect();
+                let path = dir.join(format!("{}.ps", safe.trim()));
+                std::fs::write(&path, ps.replace('\r', "\n")).map(|_| path)
+            });
+            match saved {
+                Ok(p) => p,
+                Err(_) => return fail(self, "Error : I/O Error"),
+            }
+        } else {
+            let path = super::paths::native(ps.trim());
+            if !path.is_file() {
+                return fail(self, "Error : File not found");
+            }
+            path
+        };
+        if self.open_documents && crate::print::open_in_viewer(&path).is_err() {
+            return fail(self, "Error : I/O Error");
+        }
+        self.printed.push(path);
+        Ok(())
+    }
+
+    /// Promptoid: Prompt for HyperCard 2, a window the script changes with
+    /// `set text of window "Promptoid"` and takes away with `close window`.
+    fn promptoid(&mut self, args: &[String]) -> Result<(), String> {
+        let arg = |i: usize| args.get(i).map(|a| a.trim().to_string()).unwrap_or_default();
+        let mut w = self.w();
+        if w.script_windows.iter().any(|t| t.name == "Promptoid") {
+            return Err("Error : Promptoid already displayed".into());
+        }
+        let width = arg(3);
+        if !width.is_empty() && to_int(&width).is_err() {
+            return Err("Error : Bad width".into());
+        }
+        // The icon (arg 2) isn't shown: script windows hold text only.
+        let window = prompt_window("Promptoid", &w, args.first().cloned().unwrap_or_default(), &arg(2), &width, "Error : Bad coordinate")?;
+        w.script_windows.push(window);
+        Ok(())
+    }
+
+    /// Mousoid or Infoid: a windoid the UI keeps showing the mouse's
+    /// position, or what's under it. X and Y are on the screen; by default
+    /// it's at the card's top right.
+    fn windoid(&mut self, name: &str, args: &[String]) -> Result<(), String> {
+        let (proper, kind, size) =
+            if name == "mousoid" { ("Mousoid", WindowKind::Mouse, (150, 70)) } else { ("Infoid", WindowKind::Info, (220, 110)) };
+        let mut w = self.w();
+        let (left, top) = match (args.first(), args.get(1)) {
+            (Some(x), Some(y)) if !x.trim().is_empty() => {
+                let bad = |_| "Error : Bad Coordinate".to_string();
+                let (wx, wy) = w.window_origin;
+                (to_int(x).map_err(bad)? as i32 - wx, to_int(y).map_err(bad)? as i32 - wy)
+            }
+            _ => (w.stack.width as i32 - size.0 - 8, 8),
+        };
+        let window = ScriptWindow {
+            name: proper.into(),
+            kind,
+            text: String::new(),
+            rect: Rect::new(left, top, left + size.0, top + size.1),
+            font: "Geneva".into(),
+            size: 10,
+            visible: true,
+            dirty: false,
+            locked: true,
+            palette: None,
+        };
+        match w.script_windows.iter().position(|t| t.name == proper) {
+            Some(i) => w.script_windows[i] = window,
+            None => w.script_windows.push(window),
+        }
+        Ok(())
+    }
+
+    /// Notification: if RandomCard isn't in front, ask for the user's
+    /// attention and wait until they bring it forward.
+    fn notification(&mut self) -> R<()> {
+        if self.w().focused {
+            return Ok(());
+        }
+        self.w().requests.push(UiRequest::Attention);
+        while !self.w().focused {
+            self.sleep(std::time::Duration::from_millis(100))?;
+        }
+        Ok(())
     }
 
     /// LineCount: a field's lines as it shows them, wrapped lines and all.
@@ -218,30 +351,7 @@ impl Interp {
         match arg(0).as_str() {
             "1" => {
                 let message = args.get(1).cloned().unwrap_or_default();
-                let (cw, ch) = (w.stack.width as i32, w.stack.height as i32);
-                let text = crate::model::metrics::metrics("Geneva", 12, "plain").text_width(&message) as i32;
-                let width = match arg(3) {
-                    a if a.is_empty() => if message.is_empty() { 300 } else { text + 40 },
-                    a => to_int(&a).map_err(|_| "Error : Bad Coordinate".to_string())? as i32,
-                };
-                let height = 40;
-                let top = match arg(2) {
-                    a if a.is_empty() => (ch - height) / 2,
-                    a => to_int(&a).map_err(|_| "Error : Bad Coordinate".to_string())? as i32,
-                };
-                let left = (cw - width) / 2;
-                let window = ScriptWindow {
-                    name: PROMPT_WINDOW.into(),
-                    kind: WindowKind::Text,
-                    text: message,
-                    rect: Rect::new(left, top, left + width, top + height),
-                    font: "Geneva".into(),
-                    size: 12,
-                    visible: true,
-                    dirty: false,
-                    locked: true,
-                    palette: None,
-                };
+                let window = prompt_window(PROMPT_WINDOW, &w, message, &arg(2), &arg(3), "Error : Bad Coordinate")?;
                 match at {
                     Some(i) => w.script_windows[i] = window,
                     None => w.script_windows.push(window),
@@ -265,6 +375,36 @@ impl Interp {
             _ => Err("Error : Bad Mode Parameter".into()),
         }
     }
+}
+
+/// Prompt's and Promptoid's window: the message on one line, as wide as it
+/// needs (300 if empty) unless a width is given, centered across the card,
+/// and centered down it unless a top is given.
+fn prompt_window(name: &str, w: &super::world::World, message: String, top: &str, width: &str, bad: &str) -> Result<ScriptWindow, String> {
+    let (cw, ch) = (w.stack.width as i32, w.stack.height as i32);
+    let text = crate::model::metrics::metrics("Geneva", 12, "plain").text_width(&message) as i32;
+    let width = match width {
+        "" => if message.is_empty() { 300 } else { text + 40 },
+        a => to_int(a).map_err(|_| bad.to_string())? as i32,
+    };
+    let height = 40;
+    let top = match top {
+        "" => (ch - height) / 2,
+        a => to_int(a).map_err(|_| bad.to_string())? as i32,
+    };
+    let left = (cw - width) / 2;
+    Ok(ScriptWindow {
+        name: name.into(),
+        kind: WindowKind::Text,
+        text: message,
+        rect: Rect::new(left, top, left + width, top + height),
+        font: "Geneva".into(),
+        size: 12,
+        visible: true,
+        dirty: false,
+        locked: true,
+        palette: None,
+    })
 }
 
 /// ListSelect's parameters: the dialog, whether to answer numbers, each
