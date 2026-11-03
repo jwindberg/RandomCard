@@ -3,6 +3,7 @@
 //! directly; a PDF does the same job on any system, with no printer setup.
 
 mod card;
+pub use card::field_lines;
 mod layout;
 pub mod pdf;
 

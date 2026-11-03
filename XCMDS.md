@@ -148,6 +148,7 @@ they never call.
 | ProgressWindoid | XFCN | 3 Developer CD stacks | A floating window with a label over a progress bar (by Chris Thorman, Apple, 1990), managed through HyperCard 2's window commands and properties. | Built in | As a progress window, with `show`/`hide`/`close window` and `set … of window` | Done |
 | FileCopy, EraseFile, FullMove, FullRename | XCMD | Rinaldi collection | Copy, delete, move and rename files and folders. | Built in | src/runtime/files.rs, by the same names | Done |
 | GetDir, GetFInfo, FullSFPut, GetBootVol, GetSysFolder | XFCN | Rinaldi collection | List a folder (with filters and layouts), a file's details, a Save dialog, the startup disk, the System Folder. | Built in | src/runtime/files.rs; Mac type and creator answer "????" | Done |
+| LineCount, FullSort, DateSort, GetPassword, GetMode | XFCN | Rinaldi collection | A field's lines as wrapped; sorting lines or items any way (with FullSortList for co-sorting); sorting lines by date; a hidden password, as `ask password`'s number; the screen's mode and size. | Built in | src/runtime/rinaldi.rs | Done |
 | LeafName, FileN, FolderPath, SelectDir | XFCN | Rinaldi demos | The last part of a path; an Open dialog; folder dialogs. | Built in | | Done |
 | FileToRes, ResToFile (FileMaker) | XCMD | Rinaldi collection | Keep a file in a stack's resource fork, and make it again. | Built in, later | Needs somewhere in a stack to keep files | Planned |
 | PopMenu | XFCN | 5 Developer CD stacks | Appropriate Technology's popup menu: (top, left, checked, items), answering "true,item,menu". Another PopMenu takes (point, lines) and answers a line number. | Built in | With PopUpMenu's menu; hierarchical menus are shown flat | Done |
@@ -164,7 +165,7 @@ they never call.
 | KrsCheckMenu | XCMD | 1 stack, called in 0 | Checks a menu item (HyperKRS). | Built in | As `the checkMark` | Planned |
 | KrsChangeMenu | XCMD | 1 stack, called in 0 | Renames a menu item (HyperKRS). | Built in | As `set the name of menuItem` | Planned |
 | KrsShowMenu | XCMD | 1 stack, called in 1 | Shows a menu (HyperKRS). | Built in | As the menus RandomCard draws | Planned |
-| Prompt | XCMD | 2 stacks, called in 2 | Shows a "please wait" message (`prompt 1, "…"`) and hides it (`prompt 3`) (by Frédéric Rinaldi). | Built in | As a status message | Planned |
+| Prompt | XCMD | 2 stacks, called in 2 | Shows a "please wait" message (`prompt 1, "…"`) and hides it (`prompt 3`) (by Frédéric Rinaldi). | Built in | src/runtime/rinaldi.rs; a locked text window named "Prompt" | Done |
 | TEXWindow | XCMD | 2 stacks, called in 2 | Shows text in a window of its own. | Built in | As a text window (with roadmap item 8, windows) | Done |
 | TNPict | XCMD | 9 stacks, called in 9 | Shows a picture file in a window (Technical Notes stacks). | Built in | As HyperCard 2's `picture` command | Part done: no PICT pictures yet |
 | SelectLineXCMD | XCMD | 8 stacks, called in 8 | Selects a line in a field. | Built in | As `select line … of field`, which RandomCard has | Done |

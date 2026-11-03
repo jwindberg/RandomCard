@@ -630,6 +630,14 @@ end tabKey
         }
         b.card_part(c, f);
     }
+    // LineCount and Prompt, from Frédéric Rinaldi's externals, built in.
+    let mut count = b.button(
+        "Count Lines",
+        Rect::new(190, 314, 290, 336),
+        "on mouseUp\n  Prompt 1, \"Counting the lines in each field…\"\n  put empty into report\n  repeat with i = 1 to 4\n    put item i of \"Lined,Wide,No Wrap,Scrolling\" into n\n    put n & \":\" && LineCount(\"cd fld\" && quote & n & quote) && \"lines on screen,\" && the number of lines of cd fld n && \"in the text\" & return after report\n  end repeat\n  wait 30 ticks\n  Prompt 3\n  answer report\nend mouseUp",
+    );
+    count.style = PartStyle::RoundRect;
+    b.card_part(c, count);
 
     // ----- Printing and finding -----
     let c = b.card(main, "Print & Find");

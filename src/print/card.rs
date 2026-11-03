@@ -415,6 +415,38 @@ fn draw_popup(c: &mut Canvas, p: &Part, fg: f32, bg: f32) {
     text(c, p.selected_text(), inside, inside.left, fg);
 }
 
+/// Where a field's text goes: inside its frame, margins and scroll bar.
+fn text_rect(p: &Part) -> Rect {
+    let r = p.rect;
+    let wide = p.wide_margins as i32;
+    let (mut right, mut bottom) = (4 + 3 * wide, 1);
+    match p.style {
+        PartStyle::Shadow => {
+            right += 2;
+            bottom += 2;
+        }
+        PartStyle::Scrolling => right += 16,
+        _ => {}
+    }
+    Rect::new(r.left + 4 + 5 * wide, r.top + 1 + 4 * wide, r.right - right, r.bottom - bottom)
+}
+
+/// A field's text on a card, laid out in lines as HyperCard wrapped it.
+pub fn field_lines(stack: &Stack, card: Id, layer: Layer, p: &Part) -> Vec<Line> {
+    let text = stack.field_text(card, layer, p.id);
+    let runs: Vec<StyleRun> = stack.field_styles(card, layer, p.id);
+    let setting = Setting {
+        font: &p.text_font,
+        size: p.text_size,
+        style: &p.text_style,
+        align: p.text_align,
+        wrap: !p.dont_wrap,
+        line_height: p.fixed_line_height.then(|| p.line_height()),
+    };
+    let r = text_rect(p);
+    layout::layout(&text, &runs, &setting, (r.right - r.left) as f32)
+}
+
 fn draw_field(c: &mut Canvas, stack: &Stack, card: Id, layer: Layer, p: &Part) {
     let r = p.rect;
     match p.style {
@@ -431,34 +463,15 @@ fn draw_field(c: &mut Canvas, stack: &Stack, card: Id, layer: Layer, p: &Part) {
         }
     }
     let wide = p.wide_margins as i32;
-    let (mut right, mut bottom) = (4 + 3 * wide, 1);
-    match p.style {
-        PartStyle::Shadow => {
-            right += 2;
-            bottom += 2;
-        }
-        PartStyle::Scrolling => {
-            right += 16;
-            // The scroll bar's edge.
-            let x = (r.right - 17) as f32 + 0.5;
-            c.line(x, r.top as f32, x, r.bottom as f32, BLACK);
-        }
-        _ => {}
+    let bottom = if p.style == PartStyle::Shadow { 3 } else { 1 };
+    if p.style == PartStyle::Scrolling {
+        // The scroll bar's edge.
+        let x = (r.right - 17) as f32 + 0.5;
+        c.line(x, r.top as f32, x, r.bottom as f32, BLACK);
     }
-    let text_rect = Rect::new(r.left + 4 + 5 * wide, r.top + 1 + 4 * wide, r.right - right, r.bottom - bottom);
+    let text_rect = text_rect(p);
     let content = Rect::new(r.left + 1, r.top + 1, text_rect.right + 3 + 3 * wide, r.bottom - bottom);
-    let text = stack.field_text(card, layer, p.id);
-    let runs: Vec<StyleRun> = stack.field_styles(card, layer, p.id);
-    let setting = Setting {
-        font: &p.text_font,
-        size: p.text_size,
-        style: &p.text_style,
-        align: p.text_align,
-        wrap: !p.dont_wrap,
-        line_height: p.fixed_line_height.then(|| p.line_height()),
-    };
-    let width = (text_rect.right - text_rect.left) as f32;
-    let lines = layout::layout(&text, &runs, &setting, width);
+    let lines = field_lines(stack, card, layer, p);
     let scroll = if p.style == PartStyle::Scrolling { p.scroll as f32 } else { 0.0 };
     c.op("q");
     c.clip(content);

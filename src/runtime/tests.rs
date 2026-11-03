@@ -337,6 +337,15 @@ fn demo_stack_runs() {
         i.canned_answers.push(DialogReply::Button("OK".into()));
         assert_eq!(click(&mut i, "Basics", b), None, "{b}");
     }
+    run(&mut i, "go to card \"Fields\"");
+    for n in ["Lined", "Wide", "No Wrap", "Scrolling"] {
+        let lines = run(&mut i, &format!("put LineCount(\"cd fld\" && quote & \"{n}\" & quote)"));
+        assert!(lines.parse::<usize>().is_ok_and(|l| l >= 1), "{n}: {lines}");
+    }
+    i.canned_answers.push(DialogReply::Button("OK".into()));
+    assert_eq!(click(&mut i, "Fields", "Count Lines"), None);
+    assert!(!lock(&i.world).script_windows.iter().any(|t| t.name == "Prompt"));
+    run(&mut i, "go to card \"Basics\"");
     // Saved, the stack knows its folder.
     lock(&i.world).stack.path = Some(std::env::temp_dir().join("Tour.rcstack"));
     i.canned_answers.push(DialogReply::Button("OK".into()));
@@ -1399,6 +1408,38 @@ fn the_path_separator_finds_a_stacks_folder() {
     let script = "put the long name of this stack into p\ndelete char 1 to 7 of p\ndelete last char of p\n\
         repeat until last char of p = the pathSeparator\ndelete last char of p\nend repeat\nput p";
     assert_eq!(run(&mut i, script), super::paths::folder(&dir));
+}
+
+#[test]
+fn rinaldi_externals() {
+    let mut i = interp_with(stack());
+    // A field 190 wide: one short line, then a long one that wraps.
+    run(&mut i, "put \"Hi\" & return & \"a line much too long for this narrow field to hold\" into bg fld \"Name\"");
+    let lines: usize = run(&mut i, "put LineCount(\"bg fld Name\")").parse().unwrap();
+    assert!(lines >= 3, "{lines}");
+    assert_eq!(run(&mut i, "put LineCount(\"bg fld 9\")"), "Error : Bad field param");
+    assert_eq!(run(&mut i, "put LineCount(\"?\")"), "LineCount(\"<field descriptor>\")");
+    // FullSort keeps its order for co-sorting.
+    assert_eq!(run(&mut i, "put FullSort(\"c,a,b\")"), "a,b,c");
+    assert_eq!(run(&mut i, "global FullSortList\nput FullSortList"), "2,3,1");
+    assert_eq!(run(&mut i, "put FullSort(\"three,one,two\", \"d=l\")"), "one,two,three");
+    assert_eq!(run(&mut i, "put DateSort(\"b 2/1/90\" & return & \"a 1/1/90\")"), "a 1/1/90\nb 2/1/90");
+    // Prompt: a message window, changed, then taken away.
+    let prompt = |i: &Interp| lock(&i.world).script_windows.iter().find(|t| t.name == "Prompt").map(|t| t.text.clone());
+    run(&mut i, "Prompt 1, \"Working…\"");
+    assert_eq!(prompt(&i).as_deref(), Some("Working…"));
+    run(&mut i, "Prompt 2, \"Still working\"");
+    assert_eq!(prompt(&i).as_deref(), Some("Still working"));
+    run(&mut i, "Prompt 3");
+    assert_eq!(prompt(&i), None);
+    assert_eq!(run(&mut i, "Prompt 3\nput the result"), "Error : Pointer Not Declared");
+    assert_eq!(run(&mut i, "Prompt 7\nput the result"), "Error : Bad Mode Parameter");
+    // GetPassword: the number ask password gives, or empty if canceled.
+    i.canned_answers.push(DialogReply::Text(Some("secret".into())));
+    assert_eq!(run(&mut i, "put GetPassword()"), crate::model::password::first_hash("secret").to_string());
+    i.canned_answers.push(DialogReply::Text(None));
+    assert_eq!(run(&mut i, "put GetPassword(\"Code:\")"), "");
+    assert_eq!(run(&mut i, "put item 1 of GetMode()"), "C");
 }
 
 #[test]

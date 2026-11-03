@@ -54,7 +54,7 @@ mirroring the discs' folders, re-run whenever the importer improves.
 | --- | --- |
 | Open cleanly (levels 1–3) | 820 (748 at the first index) |
 | Tested at level 4 | all 748 (320 without compiled externals, then the 428 with them) |
-| **Work fully (level 4)** | **709** (44 use stubs, marked †; 3 checked by driven steps, marked ‡) |
+| **Work fully (level 4)** | **731** (44 use stubs, marked †; 3 checked by driven steps, marked ‡) |
 
 1,192 of the 1,703 stacks contain compiled XCMDs or XFCNs, 885 distinct
 names between them. Each one either becomes a RandomCard feature or, rarely,
@@ -99,6 +99,7 @@ fixing its first one can uncover the next.
 
 | # | Bug | Stacks | Fix |
 | --- | --- | --- | --- |
+| 47 | Rinaldi externals not built in: LineCount, FullSort, DateSort, GetPassword, Prompt, GetMode (part of #19) | 22 (their demo stacks, US and French, on several discs); all 22 now work fully | Built in (src/runtime/rinaldi.rs), with his answers to "!" and "?" and his error texts. LineCount counts a field's lines as RandomCard wraps them (the print code's layout, now shared). FullSort sorts lines or items by ASCII, case, international order, embedded number, date or time, ascending, descending, random or a given order, on any chunk, and keeps FullSortList for co-sorting. Prompt is a locked text window. GetPassword answers the number `ask password` does. Tour: Fields card, "Count Lines". |
 | 46 | Broken on the disc: Technical Notes Stack's Select Folder button | 16 (Technical Notes Stack 4.0.2 to 4.1.5); 8 newly working, the others had passed without reaching it | Card 2's illustrations "Select Folder" button had `put cd fld "StackPictPath" into oldpath of cd id 82133`, which real HyperCard can't compile either; its twin, the index button, has `put cd fld "StackIndexPath" of cd id 82133 into oldpath`. Fixed in the stack files by putting the words in that order (same length, in the live CARD block; six files also hold a dead copy in a FREE block, left alone). Originals in `examples/apple/devcds/ORIGINALS/`. The same recheck found APDAlog Stack (Volume 07) now stopping at the BigPop external, and Technical Notes Stack 3.1 at a missing card button. |
 | 44 | RandomCard's Home stack lacked HyperCard's own Home cards (was #40) | 4 (Stack Dump 1.2.2; the KL Launchers in Launch 1.2 and Launcher 1.3; Prototyping Toolkit 2.0's Start Here) | These stacks replace Home's script, and their getHomeInfo goes to card "User Preferences" of stack "Home" for the user's name, level and Power Keys, then to cards "stacks", "applications" and "documents" for the search paths. Home now has those cards (added to an existing Home when it loads). The level on them follows the user level, and the level set from Home's own card is kept in Settings. The folders on the Stacks card are searched for stacks, as in HyperCard, and `stack "Home"` names the Home stack whatever its file is called. |
 | 45 | Broken on the disc: a typo in the stack's own script (was #26) | 3 (FullRename 1.4 (US), 1993-05, 1993-08, 1993-11) | `selectDir("Folder to rename"")` had an extra quote, which real HyperCard rejects too. Fixed in the stack file itself: the quote became a space, a one-byte change in a CARD block (no checksum). The untouched files are in `examples/apple/devcds/ORIGINALS/`. |

@@ -62,6 +62,9 @@ impl Interp {
         if let Some(v) = self.file_function(name, args) {
             return Some(v);
         }
+        if let Some(v) = self.rinaldi_function(name, args) {
+            return Some(v);
+        }
         let arg = |i: usize| args.get(i).cloned().unwrap_or_default();
         let path = |p: Option<PathBuf>| p.map(|p| super::paths::shown(&p)).unwrap_or_default();
         Some(Ok(match name {
@@ -280,6 +283,9 @@ impl Interp {
     /// Run an external command, or answer `None` if there's no such external.
     pub(super) fn external_command(&mut self, name: &str, args: &[String]) -> Option<R<()>> {
         if let Some(r) = self.file_command(name, args) {
+            return Some(r);
+        }
+        if let Some(r) = self.rinaldi_command(name, args) {
             return Some(r);
         }
         let arg = |i: usize| args.get(i).cloned().unwrap_or_default();
