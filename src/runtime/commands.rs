@@ -79,6 +79,7 @@ impl Interp {
                 let it = match reply {
                     DialogReply::Button(b) => b,
                     DialogReply::Text(t) => t.unwrap_or_else(|| labels[0].clone()),
+                    DialogReply::List(..) => labels[0].clone(),
                 };
                 self.set_var("it", it);
                 Ok(())
@@ -95,7 +96,7 @@ impl Interp {
                         self.set_var("it", t);
                         self.result.clear();
                     }
-                    DialogReply::Text(None) => {
+                    DialogReply::Text(None) | DialogReply::List(..) => {
                         self.set_var("it", String::new());
                         self.result = "Cancel".into();
                     }
@@ -1094,7 +1095,7 @@ impl Interp {
         let reply = self.dialog(Dialog::Ask { prompt: prompt.into(), default: String::new(), password: true })?;
         Ok(match reply {
             DialogReply::Text(Some(t)) | DialogReply::Button(t) => Some(t),
-            DialogReply::Text(None) => None,
+            DialogReply::Text(None) | DialogReply::List(..) => None,
         })
     }
 

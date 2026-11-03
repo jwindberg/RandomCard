@@ -789,6 +789,18 @@ impl App {
             }
             return;
         }
+        if let Dialog::List(list) = &d {
+            if !self.dialog_init {
+                self.dialog_init = true;
+                self.list = super::list_dialog::ListState::new(list);
+            }
+            if let Some(r) = self.list_dialog(ctx, list) {
+                lock(&self.rt.world).dialog = None;
+                self.dialog_init = false;
+                let _ = self.rt.dialog_replies.send(r);
+            }
+            return;
+        }
         if !self.dialog_init {
             self.dialog_init = true;
             if let Dialog::Ask { default, .. } = &d {
@@ -819,7 +831,7 @@ impl App {
                         reply = Some(DialogReply::Button(b.clone()));
                     }
                 }
-                Dialog::Menu { .. } => {}
+                Dialog::Menu { .. } | Dialog::List(_) => {}
                 Dialog::Ask { prompt, password, .. } => {
                     ui.label(RichText::new(prompt).size(14.0));
                     let resp = ui.add(

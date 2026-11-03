@@ -283,7 +283,7 @@ impl Textures {
 }
 
 /// The nearest built-in font: monospaced for Courier and Monaco.
-fn font_id(font: &str, size: u32) -> FontId {
+pub(super) fn font_id(font: &str, size: u32) -> FontId {
     let font = font.to_ascii_lowercase();
     let family = if font.contains("courier") || font.contains("monaco") || font.contains("mono") {
         FontFamily::Monospace

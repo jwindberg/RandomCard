@@ -1,13 +1,13 @@
 //! More of Frédéric Rinaldi's externals, the ones that aren't about files
 //! (those are in files.rs): LineCount, FullSort, DateSort, GetPassword,
 //! Prompt, GetMode, MacType, Switch, CapsLock, ClipInfo, ATalkZones,
-//! GlobalList and WindName. Apple carried his collection on its Developer CDs, a
+//! GlobalList, WindName and ListSelect. Apple carried his collection on its Developer CDs, a
 //! demo stack for each. RandomCard does them itself, by the same names and
 //! with the same answers. As his did, each answers "!" with its notice and
 //! "?" with its syntax, and reports a problem as text starting "Error :".
 
 use super::interp::{Interp, R, to_int};
-use super::world::{Dialog, DialogReply, ObjRef, ScriptWindow, WindowKind};
+use super::world::{Dialog, DialogReply, ListDialog, ObjRef, ScriptWindow, WindowKind};
 use crate::model::{PartKind, Rect};
 
 /// Each one's usual name and the syntax it answers to "?".
@@ -29,6 +29,11 @@ const SYNTAX: &[(&str, &str, &str)] = &[
     ("atalkzones", "ATalkZones", "ATalkZones()"),
     ("globallist", "GlobalList", "GlobalList([<ListAll>])"),
     ("windname", "WindName", "WindName <title string>"),
+    (
+        "listselect",
+        "ListSelect",
+        "ListSelect(<mode>,<list> [,\"s=#[,#]\"][,\"NoDoubleClick\"][,prompt][,OK][,Cancel][,loc|Rect][,sep][,DLOG ID][,font[,size]])",
+    ),
 ];
 
 /// The answer to "!" or "?", if that's what was asked.
@@ -38,6 +43,7 @@ fn help(name: &str, args: &[String]) -> Option<String> {
         Some("!") => Some(format!("{proper} 2.0 — built into RandomCard, after Frédéric Rinaldi's external")),
         Some("?") => Some(syntax.to_string()),
         Some("=") if name == "switch" => Some("The text with its lines made items, or its items made lines".into()),
+        Some("=") if name == "listselect" => Some("The chosen items, or their numbers, and ListSelectExit".into()),
         _ => None,
     }
 }
@@ -61,6 +67,7 @@ impl Interp {
                 | "clipinfo"
                 | "atalkzones"
                 | "globallist"
+                | "listselect"
         ) {
             return None;
         }
@@ -125,8 +132,47 @@ impl Interp {
                 }
                 _ => "Error : Parameter must be true or false".into(),
             },
+            "listselect" => match self.list_select(args) {
+                Ok(r) | Err(r) => r,
+            },
             _ => unreachable!(),
         }))
+    }
+
+    /// ListSelect: a dialog to choose items of a list. It sets the global
+    /// ListSelectExit to the button that closed it (or "TabKey"), or
+    /// "Error".
+    fn list_select(&mut self, args: &[String]) -> Result<String, String> {
+        let exit = |i: &mut Self, e: &str| {
+            i.globals.insert("listselectexit".into(), e.into());
+        };
+        let parsed = parse_list_select(args);
+        let (d, numbers, order, sep) = match parsed {
+            Ok(p) => p,
+            Err(e) => {
+                exit(self, "Error");
+                return Err(e);
+            }
+        };
+        let reply = self.dialog(Dialog::List(d.clone())).unwrap_or(DialogReply::Text(None));
+        let (chosen, how) = match reply {
+            DialogReply::List(c, how) => (c, how),
+            _ => (vec![], "Cancelled".to_string()),
+        };
+        // His later versions name the button; a hidden one keeps the word.
+        let how = match how.as_str() {
+            "Validated" if !d.ok.is_empty() => d.ok.clone(),
+            "Cancelled" if !d.cancel.is_empty() => d.cancel.clone(),
+            _ => how,
+        };
+        let cancelled = how == "Cancelled" || (!d.cancel.is_empty() && how == d.cancel);
+        exit(self, &how);
+        if cancelled || d.mode == 0 {
+            return Ok(String::new());
+        }
+        let out: Vec<String> =
+            chosen.iter().map(|&i| if numbers { (order[i] + 1).to_string() } else { d.items[i].clone() }).collect();
+        Ok(out.join(&sep))
     }
 
     /// One of these commands, or None if it isn't one. Problems go in the
@@ -219,6 +265,85 @@ impl Interp {
             _ => Err("Error : Bad Mode Parameter".into()),
         }
     }
+}
+
+/// ListSelect's parameters: the dialog, whether to answer numbers, each
+/// shown line's place in the list given, and the separator for the answer.
+/// After the mode and list, the order doesn't matter: each is known by its
+/// look, and the plain strings left are the prompt, OK and Cancel in turn.
+fn parse_list_select(args: &[String]) -> Result<(ListDialog, bool, Vec<usize>, String), String> {
+    let missing = || "Error : Missing Parameter(s)".to_string();
+    let mode = args.first().ok_or_else(missing)?.trim().to_ascii_lowercase();
+    let list = args.get(1).ok_or_else(missing)?;
+    let sorted = mode.starts_with('*');
+    let numbers = mode.ends_with('#');
+    let m = mode.trim_start_matches('*').trim_end_matches('#');
+    let mode = match m {
+        "0" | "n" | "no" => 0,
+        "1" | "o" | "on" | "one" => 1,
+        "2" | "c" | "co" | "con" => 2,
+        "3" | "d" | "di" | "dis" => 3,
+        _ => return Err("Error : Bad Mode Parameter".into()),
+    };
+    let list = list.strip_suffix('\n').unwrap_or(list);
+    let items: Vec<String> =
+        if list.contains('\n') { list.split('\n').map(String::from).collect() } else { list.split(',').map(String::from).collect() };
+    let mut order: Vec<usize> = (0..items.len()).collect();
+    if sorted {
+        order.sort_by_key(|&i| intl_key(&items[i]));
+    }
+    let mut d = ListDialog {
+        items: order.iter().map(|&i| items[i].clone()).collect(),
+        mode,
+        selected: vec![0],
+        ok: "OK".into(),
+        cancel: "Cancel".into(),
+        double_click: true,
+        ..Default::default()
+    };
+    let mut sep = ",".to_string();
+    let mut texts = 0;
+    for a in &args[2..] {
+        let t = a.trim();
+        let lower = t.to_ascii_lowercase();
+        let nums: Option<Vec<i32>> = t.split(',').map(|n| n.trim().parse().ok()).collect();
+        if let Some(sel) = lower.strip_prefix("s=") {
+            d.selected = sel.split(',').filter_map(|n| n.trim().parse::<usize>().ok()).filter(|&n| n > 0).map(|n| n - 1).collect();
+        } else if lower == "nodoubleclick" {
+            d.double_click = false;
+        } else if let Some(nums) = nums.as_ref().filter(|n| n.len() == 2 || n.len() == 4) {
+            d.at = Some((nums[0], nums[1]));
+            if let [l, t, r, b] = nums[..] {
+                for (k, bad) in [(1, r <= l), (2, b <= t)] {
+                    if bad {
+                        return Err(format!("Error : Bad Rectangle Parameter {}", k + 2));
+                    }
+                }
+                d.size = Some((r - l, b - t));
+            }
+        } else if nums.as_ref().is_some_and(|n| n.len() == 1) {
+            // A DLOG resource of the stack's: RandomCard draws its own.
+        } else if a.chars().count() == 1 {
+            sep = a.clone();
+        } else if !t.is_empty() && crate::model::metrics::has_family(t.split(',').next().unwrap_or_default().trim()) {
+            let mut parts = t.split(',');
+            let name = parts.next().unwrap_or_default().trim().to_string();
+            let size = match parts.next() {
+                Some(n) => n.trim().parse::<u16>().map_err(|_| "Error : Bad Font size".to_string())?,
+                None => 12,
+            };
+            d.font = Some((name, size));
+        } else {
+            match texts {
+                0 => d.prompt = a.clone(),
+                1 => d.ok = a.clone(),
+                2 => d.cancel = a.clone(),
+                _ => {}
+            }
+            texts += 1;
+        }
+    }
+    Ok((d, numbers, order, sep))
 }
 
 /// Switch: a list of lines made items, or of items made lines. Text with

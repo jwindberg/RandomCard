@@ -140,7 +140,7 @@ they never call.
 | Name | Kind | Found in | What it did | Decision | RandomCard | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | Dialog | XFCN | 9 stacks, called in 9 | An alert with chosen buttons and font: `dialog(msg, "OK", 1, Chicago, Plain, 12)`. | Built in | As `answer` | Done |
-| ListSelect | XFCN | 2 stacks, called in 2 | A dialog for choosing one line from a list (by Frédéric Rinaldi). | Built in | As a new list-choosing dialog | Planned |
+| ListSelect | XFCN | Rinaldi collection (9 demo stacks); Qstack, called in 2 | A dialog for choosing one line, a run of lines or any lines from a list, by Frédéric Rinaldi. | Built in | src/runtime/rinaldi.rs, with a list dialog (src/ui/list_dialog.rs); a stack's own DLOG isn't used | Done |
 | XScrollBox | XFCN | 3 stacks, called in 3 | A dialog with a scrolling list to choose from (Dartmouth, 1989). | Built in | As the list-choosing dialog | Planned |
 | PopUpMenu | XFCN | 3 stacks, called in 3 | A popup menu at a point, returning the chosen item's number. | Built in | As a popup menu function, using popup buttons' menus | Done |
 | MakeSendMe5 | XCMD | Q & A stacks | Sends an AppleLink message (to, cc, subject, text); MakeSendMe4 is the older version. | Built in | A new message in the user's mail program | Done |

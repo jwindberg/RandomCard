@@ -41,7 +41,7 @@ impl Interp {
         let checked = checked.clamp(0, items.len() as i64) as u32;
         Ok(match self.dialog(Dialog::Menu { items, left, top, checked })? {
             DialogReply::Text(Some(n)) | DialogReply::Button(n) => n.parse().ok(),
-            DialogReply::Text(None) => None,
+            DialogReply::Text(None) | DialogReply::List(..) => None,
         })
     }
 
@@ -264,6 +264,7 @@ impl Interp {
                 match self.dialog(Dialog::Answer { prompt: arg(0), buttons: buttons.clone() }) {
                     Ok(DialogReply::Button(b)) => b,
                     Ok(DialogReply::Text(t)) => t.unwrap_or_else(|| buttons[0].clone()),
+                    Ok(DialogReply::List(..)) => buttons[0].clone(),
                     Err(e) => return Some(Err(e)),
                 }
             }

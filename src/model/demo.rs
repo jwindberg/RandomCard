@@ -647,6 +647,14 @@ end tabKey
     );
     switch.style = PartStyle::RoundRect;
     b.card_part(c, switch);
+    // ListSelect: choose any of the fields, sorted, to flash them.
+    let mut flash = b.button(
+        "Flash Fields",
+        Rect::new(300, 314, 400, 336),
+        "on mouseUp\n  global ListSelectExit\n  put ListSelect(\"*DIS\", \"Lined,Wide,No Wrap,Scrolling\", \"Choose fields to flash (Shift or Command for more):\", \"s=1,4\") into chosen\n  if chosen is empty then exit mouseUp\n  repeat 3 times\n    repeat with i = 1 to the number of items of chosen\n      hide cd fld (item i of chosen)\n    end repeat\n    wait 8 ticks\n    repeat with i = 1 to the number of items of chosen\n      show cd fld (item i of chosen)\n    end repeat\n    wait 8 ticks\n  end repeat\n  put \"Flashed\" && chosen && \"(you left with\" && ListSelectExit & \")\"\nend mouseUp",
+    );
+    flash.style = PartStyle::RoundRect;
+    b.card_part(c, flash);
 
     // ----- Printing and finding -----
     let c = b.card(main, "Print & Find");

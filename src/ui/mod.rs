@@ -5,6 +5,7 @@ mod debugger;
 mod editing;
 mod menus;
 mod levels;
+mod list_dialog;
 #[cfg(target_os = "macos")]
 mod native_menu;
 mod painting;
@@ -120,6 +121,8 @@ pub struct App {
     error: Option<ErrorAlert>,
     ask_text: String,
     dialog_init: bool,
+    /// The open ListSelect dialog's choices.
+    list: list_dialog::ListState,
     msg_buffer: String,
     msg_has_focus: bool,
     /// Give the message box keyboard focus (after blind typing).
@@ -217,6 +220,7 @@ impl App {
             error: None,
             ask_text: String::new(),
             dialog_init: false,
+            list: Default::default(),
             msg_buffer: String::new(),
             msg_has_focus: false,
             focus_msg_box: false,

@@ -347,6 +347,9 @@ fn demo_stack_runs() {
     assert!(!lock(&i.world).script_windows.iter().any(|t| t.name == "Prompt"));
     i.canned_answers.push(DialogReply::Button("OK".into()));
     assert_eq!(click(&mut i, "Fields", "Switch"), None);
+    i.canned_answers.push(DialogReply::List(vec![0, 3], "Validated".into()));
+    assert_eq!(click(&mut i, "Fields", "Flash Fields"), None);
+    assert!(lock(&i.world).msg.contains("Flashed Lined,Wide"), "{}", lock(&i.world).msg);
     run(&mut i, "go to card \"Debugging\"");
     for b in ["List Globals", "This Computer"] {
         i.canned_answers.push(DialogReply::Button("OK".into()));
@@ -1467,6 +1470,27 @@ fn rinaldi_externals() {
     run(&mut i, "WindName \"My Window\"");
     let serial = lock(&i.world).stack_serial;
     assert_eq!(lock(&i.world).window_title, Some((serial, "My Window".to_string())));
+    // ListSelect: names or numbers (in the list given, even sorted), by the
+    // separator asked for, and ListSelectExit.
+    let exit = |i: &mut Interp| run(i, "global ListSelectExit\nput ListSelectExit");
+    i.canned_answers.push(DialogReply::List(vec![0, 2], "Validated".into()));
+    assert_eq!(run(&mut i, "put ListSelect(\"DIS\", \"a,b,c\", \"Pick:\")"), "a,c");
+    assert_eq!(exit(&mut i), "OK");
+    i.canned_answers.push(DialogReply::List(vec![0], "Validated".into()));
+    assert_eq!(run(&mut i, "put ListSelect(\"*1#\", \"pear\" & return & \"apple\", empty, return, \"Take\")"), "2");
+    assert_eq!(exit(&mut i), "Take");
+    i.canned_answers.push(DialogReply::List(vec![0, 1], "Validated".into()));
+    assert_eq!(run(&mut i, "put ListSelect(\"CON\", \"a,b,c\", return)"), "a\nb");
+    i.canned_answers.push(DialogReply::List(vec![], "Cancelled".into()));
+    assert_eq!(run(&mut i, "put ListSelect(\"ONE\", \"a,b\", \"Pick\", \"Go\", \"Stop\")"), "");
+    assert_eq!(exit(&mut i), "Stop");
+    assert_eq!(run(&mut i, "put ListSelect(\"X\", \"a,b\")"), "Error : Bad Mode Parameter");
+    assert_eq!(exit(&mut i), "Error");
+    assert_eq!(run(&mut i, "put ListSelect(\"ONE\")"), "Error : Missing Parameter(s)");
+    assert_eq!(run(&mut i, "put ListSelect(1, \"a,b\", \"Monaco,big\")"), "Error : Bad Font size");
+    // With no one to answer, it's cancelled.
+    assert_eq!(run(&mut i, "put ListSelect(1, \"a,b\")"), "");
+    assert_eq!(exit(&mut i), "Cancel");
     // A SuperCard branch's `top of window` compiles, as the card window.
     assert_eq!(run(&mut i, "put top of window"), run(&mut i, "put top of cd window"));
 }

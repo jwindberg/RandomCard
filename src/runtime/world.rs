@@ -355,12 +355,35 @@ pub enum Dialog {
     /// A pop-up menu at a point on the card, for externals like PopUpMenu.
     /// The reply is the chosen item's number, from 1, or None.
     Menu { items: Vec<String>, left: i32, top: i32, checked: u32 },
+    /// A list to choose from, for ListSelect. Mode 0 shows it without
+    /// selection, 1 lets one line be chosen, 2 a run of lines, 3 any lines.
+    /// Empty button names hide those buttons. The reply is DialogReply::List.
+    List(ListDialog),
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ListDialog {
+    pub prompt: String,
+    pub items: Vec<String>,
+    pub mode: u8,
+    /// Lines chosen at the start, from 0.
+    pub selected: Vec<usize>,
+    pub ok: String,
+    pub cancel: String,
+    pub double_click: bool,
+    pub font: Option<(String, u16)>,
+    /// Where on the screen: the top left, and the bottom right if given.
+    pub at: Option<(i32, i32)>,
+    pub size: Option<(i32, i32)>,
 }
 
 #[derive(Clone, Debug)]
 pub enum DialogReply {
     Button(String),
     Text(Option<String>),
+    /// The lines chosen in a list, from 0, and how the user left it:
+    /// "Validated", "Cancelled" or "TabKey".
+    List(Vec<usize>, String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
