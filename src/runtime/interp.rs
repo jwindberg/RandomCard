@@ -140,6 +140,8 @@ pub struct Interp {
     pub print_job: Option<Vec<Id>>,
     /// Open printed documents in the system's viewer (not in tests).
     pub open_documents: bool,
+    /// startUp has gone to the first stack opened.
+    sent_startup: bool,
     /// Documents printed, newest last.
     pub printed: Vec<std::path::PathBuf>,
 }
@@ -175,6 +177,7 @@ impl Interp {
             paused_lines: Vec::new(),
             print_job: None,
             open_documents: false,
+            sent_startup: false,
             printed: Vec::new(),
         }
     }
@@ -382,6 +385,10 @@ impl Interp {
 
     fn open_stack_messages(&mut self) -> R<()> {
         let card = self.current_card_ref();
+        // HyperCard sends startUp to the first card it shows, before openStack.
+        if !std::mem::replace(&mut self.sent_startup, true) {
+            self.dispatch_top(card, "startUp", vec![])?;
+        }
         for m in ["openStack", "openBackground", "openCard"] {
             self.dispatch_top(card, m, vec![])?;
         }

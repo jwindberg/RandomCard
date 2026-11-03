@@ -502,6 +502,8 @@ pub struct World {
     /// Where each palette was last shown, by lowercased name, so the
     /// `palette` command without a point puts it back there.
     pub palette_locs: HashMap<String, (i32, i32)>,
+    /// A zoomRect animation: from, to, and when it started.
+    pub zoom: Option<(crate::model::Rect, crate::model::Rect, std::time::Instant)>,
     pub dialog: Option<Dialog>,
     /// A script is running.
     pub busy: bool,
@@ -599,6 +601,8 @@ pub struct WatchedMessage {
 
 /// How many cards the Recent dialog shows.
 pub const RECENT_CARDS: usize = 42;
+/// How long a zoomRect animation takes.
+pub const ZOOM_TIME: std::time::Duration = std::time::Duration::from_millis(250);
 
 /// How many messages the message watcher keeps.
 pub const MESSAGE_LOG_LEN: usize = 500;
@@ -650,6 +654,7 @@ impl World {
             requests: Vec::new(),
             script_windows: Vec::new(),
             palette_locs: HashMap::new(),
+            zoom: None,
             dialog: None,
             busy: false,
             found: None,

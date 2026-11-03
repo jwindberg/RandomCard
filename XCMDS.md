@@ -169,6 +169,7 @@ they never call.
 | TNPict | XCMD | 9 stacks, called in 9 | Shows a picture file in a window (Technical Notes stacks). | Built in | As HyperCard 2's `picture` command | Part done: no PICT pictures yet |
 | SelectLineXCMD | XCMD | 8 stacks, called in 8 | Selects a line in a field. | Built in | As `select line … of field`, which RandomCard has | Done |
 | SpinAbout | XCMD | 8 stacks, called in 8 | An animated About box (by Andrew Shebanow, Apple, 1989). | Stub | A bit of fun from 1989; it can do nothing | Done |
+| ZoomRect | XCMD | 3 stacks (Prototyping Interactive Video, Prototyping Toolkit 2.0), called in 3 | Draws the Finder's zoom: a trail of rectangles from one rect to another. | Built in | As `zoomRect rect1, rect2`, drawn over the card | Done |
 | Alert | XCMD | 1 stack, called in 1 | An alert with chosen icon, buttons and sound. | Built in | As `answer` | Planned |
 | DialogList | XFCN | 1 stack, called in 1 | A dialog for choosing from a list. | Built in | As the list-choosing dialog | Planned |
 | DoList | XCMD | 1 stack, called in 1 | A dialog for choosing from a list, with chosen buttons. | Built in | As the list-choosing dialog | Planned |

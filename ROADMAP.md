@@ -432,6 +432,11 @@ can be re-run. What's missing, by feature (details there):
 - **Error dialogs and Recent:** `lock error dialogs`, `lock recent`.
 - **Scripting environment properties:** scriptEditor, scriptTextFont and
   size, the debugger, the environment, and the rest.
+- **The Home stack's own cards:** HyperCard's Home has a "User Preferences"
+  card (User Name, User Level, Power Keys, Text Arrows, Blind Typing) and the
+  search-path cards "stacks", "applications" and "documents". Old Home-stack
+  replacements read them (BUGHUNT #40). RandomCard keeps these in Settings;
+  needs a decision on whether Home should carry the cards, kept in step.
 - **Smaller items:** `ask file … with default`, `doMenu … with` modifier keys,
   `the selectedButton of family`, key commands such as `returnKey` used in
   scripts, and others.

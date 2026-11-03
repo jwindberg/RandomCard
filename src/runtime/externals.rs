@@ -398,6 +398,20 @@ impl Interp {
             },
             // An animated About box from 1989.
             "spinabout" => Ok(()),
+            // ZoomRect fromRect, toRect: the Finder's zoom, a trail of
+            // rectangles growing (or shrinking) from one rect to the other.
+            "zoomrect" => {
+                let n: Vec<i32> =
+                    args.join(",").split(',').filter_map(|v| v.trim().parse::<f64>().ok()).map(|v| v as i32).collect();
+                if n.len() < 8 {
+                    return Some(super::interp::err("ZoomRect needs two rectangles"));
+                }
+                let r = |i: usize| crate::model::Rect::new(n[i], n[i + 1], n[i + 2], n[i + 3]);
+                self.w().zoom = Some((r(0), r(4), std::time::Instant::now()));
+                let r = self.sleep(super::world::ZOOM_TIME);
+                self.w().zoom = None;
+                r
+            }
             // TNPict file, …: shows a PICT file in a window. The stacks pass a
             // bare name ("HIN 017 - Figure 1"), found beside the stack or in
             // a folder there. Errors are reported in the result, as TNPict

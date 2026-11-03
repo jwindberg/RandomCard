@@ -1544,6 +1544,22 @@ impl App {
                 render::draw_scene(&painter, &self.tex, &shown, origin, pressed_button, live_fields);
             }
         }
+        // zoomRect: a trail of four rectangles on their way from one rect to
+        // the other.
+        let zoom = self.world().zoom;
+        if let Some((from, to, start)) = zoom {
+            let t = start.elapsed().as_secs_f32() / crate::runtime::world::ZOOM_TIME.as_secs_f32();
+            let mix = |a: i32, b: i32, t: f32| a as f32 + (b - a) as f32 * t;
+            for k in 0..4 {
+                let t = (t - k as f32 * 0.1).clamp(0.0, 1.0);
+                let r = egui::Rect::from_min_max(
+                    origin + Vec2::new(mix(from.left, to.left, t), mix(from.top, to.top, t)),
+                    origin + Vec2::new(mix(from.right, to.right, t), mix(from.bottom, to.bottom, t)),
+                );
+                painter.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::BLACK), StrokeKind::Inside);
+            }
+            ctx.request_repaint();
+        }
         self.scroll_bar_zones.clear();
         if live_fields {
             let editing = self.editing.as_ref().map(|e| e.obj);

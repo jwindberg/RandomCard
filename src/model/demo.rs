@@ -463,6 +463,11 @@ end mouseUp"#,
     ball.hilite = true;
     ball.auto_hilite = false;
     b.card_part(c, ball);
+    // ZoomRect, the Finder's zoom, from a 1989 XCMD now built in.
+    // Beside Contents, in the navigation row and its style.
+    let mut zoom = b.button("Zoom", Rect::new(190, 314, 256, 336), "on mouseUp\n  zoomRect the rect of me, \"40,96,472,290\"\n  zoomRect \"40,96,472,290\", the rect of me\nend mouseUp");
+    zoom.style = PartStyle::RoundRect;
+    b.card_part(c, zoom);
     b.stack.cards[c].script = r#"-- The ball's state: whether it's moving, and its velocity (a speed, and
 -- a direction across and down). Buttons change the state; idle moves it.
 on openCard

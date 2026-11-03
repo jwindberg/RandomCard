@@ -308,6 +308,16 @@ fn click(i: &mut Interp, card_name: &str, button: &str) -> Option<String> {
 }
 
 #[test]
+fn startup_comes_before_open_stack_once() {
+    let mut i = interp_with(stack());
+    set_script(&i, ObjRef::Stack, "on startUp\n global log\n put \"startUp \" after log\nend startUp\non openStack\n global log\n put \"openStack\" after log\nend openStack");
+    i.handle_event(Event::Startup);
+    assert_eq!(run(&mut i, "global log\nput log"), "startUp openStack");
+    i.handle_event(Event::Startup);
+    assert_eq!(run(&mut i, "global log\nput log"), "startUp openStackopenStack");
+}
+
+#[test]
 fn demo_stack_runs() {
     let mut i = interp_with(Stack::demo());
     i.handle_event(Event::Startup);
@@ -371,6 +381,10 @@ fn demo_stack_runs() {
     assert_eq!(click(&mut i, "Animation", "Stop"), None);
     assert_eq!(idle(&mut i), "266,206");
     assert_eq!(run(&mut i, "put the name of card button 1"), "card button \"Start\"");
+    // ZoomRect animates, then clears itself.
+    assert_eq!(click(&mut i, "Animation", "Zoom"), None);
+    assert!(lock(&i.world).zoom.is_none());
+    assert!(run(&mut i, "zoomRect \"1,2,3\"").contains("two rectangles"));
     // Every Contents button reaches its card.
     for (button, card) in [
         ("Draw Something", "Drawing"),
@@ -1106,6 +1120,15 @@ fn exercise_one(path: &std::path::Path, print: bool) -> Exercised {
     let name = stack.name.clone();
     let original = stack.clone();
     let mut i = interp_with(stack);
+    // RandomCard's Home stack, so `go home` leaves the stack (and the click
+    // comes back with openStack) instead of falling back to card 1.
+    let home = std::env::temp_dir().join(format!("randomcard-harness-home-{}.rcstack", std::process::id()));
+    if !home.exists() {
+        let mut h = Stack::home();
+        h.path = Some(home.clone());
+        h.save(&home).unwrap();
+    }
+    lock(&i.world).home_path = Some(home);
     let abort = i.abort.clone();
     let mut seen = std::collections::BTreeMap::<String, usize>::new();
     let mut step = |i: &mut Interp, what: String, ev: Event| {
@@ -1124,6 +1147,24 @@ fn exercise_one(path: &std::path::Path, print: bool) -> Exercised {
         });
         let start = std::time::Instant::now();
         i.handle_event(ev);
+        // A click that leaves the stack: come back the way a user would, so
+        // the stack gets openStack again (and resets its globals).
+        let left = {
+            let mut w = lock(&i.world);
+            let left = w.stack.name != name;
+            if left {
+                if print {
+                    println!("  ({what} went to stack \"{}\"; going back)", w.stack.name);
+                }
+                w.replace_stack(original.clone());
+            }
+            left.then_some(w.card_id)
+        };
+        if let Some(card) = left {
+            for m in ["openStack", "openBackground", "openCard"] {
+                i.handle_event(Event::Send { target: ObjRef::Card(card), message: m.into(), args: vec![] });
+            }
+        }
         done.store(true, std::sync::atomic::Ordering::SeqCst);
         let _ = watchdog.join();
         if start.elapsed() > std::time::Duration::from_secs(2) {
@@ -1146,12 +1187,6 @@ fn exercise_one(path: &std::path::Path, print: bool) -> Exercised {
                 out.error_count += 1;
                 *n += 1;
             }
-        }
-        if w.stack.name != name {
-            if print {
-                println!("  ({what} went to stack \"{}\"; going back)", w.stack.name);
-            }
-            w.replace_stack(original.clone());
         }
     };
     step(&mut i, "openStack".into(), Event::Startup);
