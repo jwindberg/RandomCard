@@ -1655,6 +1655,15 @@ fn script_windows_from_scripts() {
     i.handle_event(Event::CloseWindow("Notes".into()));
     assert_eq!(lock(&i.world).msg, "Edited true");
     assert_eq!(run(&mut i, "put there is a window \"Notes\""), "false");
+    // C:F Registration Requests shows a field's text read-only.
+    run(&mut i, "TEXWindow \"Notes\", \"Read me\"\nset the locktext of window \"Notes\" to true");
+    assert_eq!(run(&mut i, "put the lockText of window \"Notes\""), "true");
+    // Zooming it again brings it to the front.
+    run(&mut i, "TEXWindow \"Other\", \"\"");
+    run(&mut i, "send \"select\" to window \"Notes\"");
+    assert_eq!(run(&mut i, "put line 1 of the windows"), "Notes");
+    run(&mut i, "close window \"Other\"");
+    run(&mut i, "close window \"Notes\"");
     run(&mut i, "TEXWindow \"Notes\", \"Again\"\nclose window \"Notes\"");
     assert_eq!(run(&mut i, "put there is a window \"Notes\""), "false");
 }

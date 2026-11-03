@@ -181,6 +181,7 @@ impl Interp {
                     size,
                     visible: false,
                     dirty: false,
+                    locked: false,
                     palette: None,
                 });
                 String::new()
@@ -298,6 +299,7 @@ impl Interp {
                     size,
                     visible: true,
                     dirty: false,
+                    locked: false,
                     palette: None,
                 };
                 let mut w = self.w();
@@ -347,6 +349,7 @@ impl Interp {
                     size: 12,
                     visible: true,
                     dirty: false,
+                    locked: false,
                     palette: Some(palette),
                 });
                 drop(w);

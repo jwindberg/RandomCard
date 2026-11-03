@@ -352,6 +352,8 @@ pub enum Cmd {
     CloseFile(Expr),
     /// `close window "Notes"`: a window a script opened.
     CloseWindow(Expr),
+    /// `send "select" to window "Notes"`: a message to a window.
+    SendToWindow { msg: Expr, window: Expr },
     ReadFile { file: Expr, until: Option<Expr>, count: Option<Expr>, at: Option<Expr> },
     WriteFile { data: Expr, file: Expr, at: Option<Expr>, at_end: bool },
     Enable(Expr),

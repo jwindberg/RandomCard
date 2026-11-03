@@ -159,6 +159,35 @@ impl Interp {
                 };
                 self.send_text(&text, target)
             }
+            // HyperCard 2 windows take a few messages: "select" brings one to
+            // the front, showing it; "close" closes it. Others do nothing.
+            Cmd::SendToWindow { msg, window } => {
+                let text = self.eval(msg)?;
+                let name = self.eval(window)?;
+                let name = name.trim();
+                let message = text.split_whitespace().next().unwrap_or("").to_ascii_lowercase();
+                let mut w = self.w();
+                let Some(at) = w.script_windows.iter().position(|t| t.name.eq_ignore_ascii_case(name)) else {
+                    let others = ["card window", "message", "message box", "msg", "tools", "patterns"];
+                    if name.eq_ignore_ascii_case(&w.stack.name) || others.iter().any(|o| o.eq_ignore_ascii_case(name)) {
+                        return Ok(());
+                    }
+                    return err(format!("No such window \"{name}\""));
+                };
+                match message.as_str() {
+                    "select" => {
+                        let mut t = w.script_windows.remove(at);
+                        t.visible = true;
+                        w.script_windows.push(t);
+                        Ok(())
+                    }
+                    "close" => {
+                        drop(w);
+                        self.close_script_window(name, false)
+                    }
+                    _ => Ok(()),
+                }
+            }
             Cmd::Do(e) => {
                 let text = self.eval(e)?;
                 let stmts = parse_statements(&text).or_else(err)?;

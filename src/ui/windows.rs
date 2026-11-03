@@ -654,7 +654,8 @@ impl App {
                                     );
                                 });
                         });
-                    if text != t.text {
+                    // A locked window can be read and copied from, not changed.
+                    if text != t.text && !t.locked {
                         let mut w = lock(&self.rt.world);
                         if let Some(tw) = w.script_windows.iter_mut().find(|x| x.name == t.name) {
                             tw.text = text;

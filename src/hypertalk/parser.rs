@@ -834,7 +834,15 @@ impl Parser {
             }
             "send" => {
                 let msg = self.list_expr()?;
-                let target = if self.accept("to") { Some(self.expr()?) } else { None };
+                let target = if self.accept("to") {
+                    // `send "select" to window "Notes"`: to a HyperCard 2 window.
+                    if self.accept("window") {
+                        return Ok(Cmd::SendToWindow { msg, window: self.expr()? });
+                    }
+                    Some(self.expr()?)
+                } else {
+                    None
+                };
                 Cmd::Send { msg, target }
             }
             "do" => {

@@ -220,6 +220,8 @@ pub struct ScriptWindow {
     pub visible: bool,
     /// Whether the user has changed the text.
     pub dirty: bool,
+    /// A text window the user can read but not change (`the lockText`).
+    pub locked: bool,
     /// A palette window's palette.
     pub palette: Option<std::sync::Arc<crate::model::Palette>>,
 }
@@ -251,6 +253,10 @@ impl ScriptWindow {
             "visible" => self.visible.to_string(),
             "textfont" => self.font.clone(),
             "textsize" => self.size.to_string(),
+            "locktext" => match self.kind {
+                WindowKind::Text => self.locked.to_string(),
+                _ => return None,
+            },
             "fraction" => match self.kind {
                 WindowKind::Progress(f) => crate::hypertalk::value::format_number(f, "0.######"),
                 _ => return None,
@@ -270,7 +276,7 @@ impl ScriptWindow {
             },
             "properties" => match self.kind {
                 WindowKind::Progress(_) => "width,text,fraction,textFont,textSize".into(),
-                WindowKind::Text => "text,textFont,textSize".into(),
+                WindowKind::Text => "text,textFont,textSize,lockText".into(),
                 WindowKind::Palette { .. } => "buttonCount,commands,hilitedButton,properties".into(),
             },
             _ => return None,
@@ -311,6 +317,10 @@ impl ScriptWindow {
             "visible" => self.visible = v.trim().eq_ignore_ascii_case("true"),
             "textfont" => self.font = v.to_string(),
             "textsize" => self.size = int(v)?.clamp(1, 127) as u32,
+            "locktext" => match self.kind {
+                WindowKind::Text => self.locked = v.trim().eq_ignore_ascii_case("true"),
+                _ => return Ok(false),
+            },
             "fraction" => match self.kind {
                 WindowKind::Progress(_) => {
                     let f = v
