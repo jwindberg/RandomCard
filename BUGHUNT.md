@@ -53,8 +53,8 @@ mirroring the discs' folders, re-run whenever the importer improves.
 | Level | Stacks |
 | --- | --- |
 | Open cleanly (levels 1–3) | 820 (748 at the first index) |
-| Tested at level 4 | all 748 (320 without compiled externals, then the 428 with them) |
-| **Work fully (level 4)** | **731** (44 use stubs, marked †; 3 checked by driven steps, marked ‡) |
+| Tested at level 4 | all 748 (320 without compiled externals, then the 428 with them), then 297 more whose scripts parse since #48 |
+| **Work fully (level 4)** | **923** (45 use stubs, marked †; 3 checked by driven steps, marked ‡) |
 
 1,192 of the 1,703 stacks contain compiled XCMDs or XFCNs, 885 distinct
 names between them. Each one either becomes a RandomCard feature or, rarely,
@@ -91,7 +91,7 @@ fixing its first one can uncover the next.
 | 11 | Too much recursion (on click) | 1 | Téléphone, "Dial" | |
 | 12 | No such stack (at open) | 164 | | Companion stacks, Home and help stacks. Sample which stacks they look for before fixing. |
 | 13 | Can't understand / No such function (at open) | 191 | | Mostly externals not built in yet. |
-| 14 | Scripts that don't parse | 410 | | Run the parse-failure probe across all stacks. |
+| 14 | Scripts that don't parse | 149 of the 446 the index listed | play "Boing" e c d g3h. (unquoted notes, 30+); go to Help Index (unquoted names of two words, 53); there is a folder (42); messageName of window wName (22); print field "Name" with appName (13) | #48 fixed the other 297. The probe: `RANDOMCARD_DUMP_ERRORS=1` over the list. |
 | 15 | The stack is damaged (bad first block) | 47 | | Very early stacks, or not stacks at all. |
 | 16 | Clicks that ran into the 2-second limit | 24+ working stacks | Macintosh IIcx guided tours (211 of 583 clicks); Macintosh IIx (14) | Probably animations or loops waiting for a key; check by hand. |
 
@@ -99,6 +99,8 @@ fixing its first one can uncover the next.
 
 | # | Bug | Stacks | Fix |
 | --- | --- | --- | --- |
+| 49 | Rinaldi externals not built in: MacType's six items, Switch, CapsLock, ClipInfo, ATalkZones, GlobalList, WindName (part of #19) | 25 (their demo stacks, US and French); all 25 now work fully | Built in (src/runtime/rinaldi.rs). MacType answers his six items (the system's name for the computer, as his list ended in 1990); Switch turns items to lines and back, by the itemDelimiter; CapsLock reads the last letter typed; ClipInfo gives TEXT or PICT for what was last copied; ATalkZones says there's no node address (no AppleTalk); GlobalList lists the globals, and declaring a global now makes it, as in HyperCard; WindName titles the window until another stack opens. Tour: Keys card (Caps Lock), Fields card "Switch", Debugging card "List Globals", "This Computer" and "Rename Window". |
+| 48 | Scripts that don't parse: `top of window` with no window name | 297 of the 446 the index listed as not parsing; 192 newly working | SuperCard's name for the current window. Rinaldi's later demo stacks (about 270) share a stack script whose SuperCard branch says `return top of window`; HyperCard never runs it but compiles it, and RandomCard couldn't, so their stack scripts were dead and the index kept them from level 4. Bare `window` now means the card window. The 313 rechecked (with #49's) are in RINALDI2.tsv. |
 | 47 | Rinaldi externals not built in: LineCount, FullSort, DateSort, GetPassword, Prompt, GetMode (part of #19) | 22 (their demo stacks, US and French, on several discs); all 22 now work fully | Built in (src/runtime/rinaldi.rs), with his answers to "!" and "?" and his error texts. LineCount counts a field's lines as RandomCard wraps them (the print code's layout, now shared). FullSort sorts lines or items by ASCII, case, international order, embedded number, date or time, ascending, descending, random or a given order, on any chunk, and keeps FullSortList for co-sorting. Prompt is a locked text window. GetPassword answers the number `ask password` does. Tour: Fields card, "Count Lines". |
 | 46 | Broken on the disc: Technical Notes Stack's Select Folder button | 16 (Technical Notes Stack 4.0.2 to 4.1.5); 8 newly working, the others had passed without reaching it | Card 2's illustrations "Select Folder" button had `put cd fld "StackPictPath" into oldpath of cd id 82133`, which real HyperCard can't compile either; its twin, the index button, has `put cd fld "StackIndexPath" of cd id 82133 into oldpath`. Fixed in the stack files by putting the words in that order (same length, in the live CARD block; six files also hold a dead copy in a FREE block, left alone). Originals in `examples/apple/devcds/ORIGINALS/`. The same recheck found APDAlog Stack (Volume 07) now stopping at the BigPop external, and Technical Notes Stack 3.1 at a missing card button. |
 | 44 | RandomCard's Home stack lacked HyperCard's own Home cards (was #40) | 4 (Stack Dump 1.2.2; the KL Launchers in Launch 1.2 and Launcher 1.3; Prototyping Toolkit 2.0's Start Here) | These stacks replace Home's script, and their getHomeInfo goes to card "User Preferences" of stack "Home" for the user's name, level and Power Keys, then to cards "stacks", "applications" and "documents" for the search paths. Home now has those cards (added to an existing Home when it loads). The level on them follows the user level, and the level set from Home's own card is kept in Settings. The folders on the Stacks card are searched for stacks, as in HyperCard, and `stack "Home"` names the Home stack whatever its file is called. |

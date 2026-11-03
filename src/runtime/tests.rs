@@ -345,6 +345,17 @@ fn demo_stack_runs() {
     i.canned_answers.push(DialogReply::Button("OK".into()));
     assert_eq!(click(&mut i, "Fields", "Count Lines"), None);
     assert!(!lock(&i.world).script_windows.iter().any(|t| t.name == "Prompt"));
+    i.canned_answers.push(DialogReply::Button("OK".into()));
+    assert_eq!(click(&mut i, "Fields", "Switch"), None);
+    run(&mut i, "go to card \"Debugging\"");
+    for b in ["List Globals", "This Computer"] {
+        i.canned_answers.push(DialogReply::Button("OK".into()));
+        assert_eq!(click(&mut i, "Debugging", b), None, "{b}");
+    }
+    assert_eq!(run(&mut i, "global tourVisits\nput tourVisits"), "1");
+    i.canned_answers.push(DialogReply::Text(Some("Tour Window".into())));
+    assert_eq!(click(&mut i, "Debugging", "Rename Window"), None);
+    assert_eq!(lock(&i.world).window_title.as_ref().map(|t| t.1.as_str()), Some("Tour Window"));
     run(&mut i, "go to card \"Basics\"");
     // Saved, the stack knows its folder.
     lock(&i.world).stack.path = Some(std::env::temp_dir().join("Tour.rcstack"));
@@ -1440,6 +1451,24 @@ fn rinaldi_externals() {
     i.canned_answers.push(DialogReply::Text(None));
     assert_eq!(run(&mut i, "put GetPassword(\"Code:\")"), "");
     assert_eq!(run(&mut i, "put item 1 of GetMode()"), "C");
+    // MacType's six items; Switch turns items to lines and back.
+    assert_eq!(run(&mut i, "put the number of items of MacType()"), "6");
+    assert_eq!(run(&mut i, "put Switch(\"a,b,c\")"), "a\nb\nc");
+    assert_eq!(run(&mut i, "put Switch(\"a\" & return & \"b\" & return)"), "a,b");
+    assert_eq!(run(&mut i, "set itemDelimiter to \";\"\nput Switch(\"a;b\")"), "a\nb");
+    assert_eq!(run(&mut i, "put CapsLock()"), "false");
+    lock(&i.world).mouse.caps_lock = true;
+    assert_eq!(run(&mut i, "put CapsLock()"), "true");
+    assert_eq!(run(&mut i, "put ClipInfo()"), "");
+    assert_eq!(run(&mut i, "put the number of lines of ATalkZones()"), "1");
+    assert_eq!(run(&mut i, "global zz1, aa2\nput GlobalList(false)"), "aa2,fullsortlist,zz1");
+    assert_eq!(run(&mut i, "put GlobalList(7)"), "Error : Parameter must be true or false");
+    // WindName titles the window until another stack opens.
+    run(&mut i, "WindName \"My Window\"");
+    let serial = lock(&i.world).stack_serial;
+    assert_eq!(lock(&i.world).window_title, Some((serial, "My Window".to_string())));
+    // A SuperCard branch's `top of window` compiles, as the card window.
+    assert_eq!(run(&mut i, "put top of window"), run(&mut i, "put top of cd window"));
 }
 
 #[test]

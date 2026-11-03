@@ -793,6 +793,8 @@ impl Interp {
                 for n in names {
                     self.frame_mut().globals.insert(n.clone());
                     self.frame_mut().vars.remove(n);
+                    // Declaring a global makes it, empty, as in HyperCard.
+                    self.globals.entry(n.clone()).or_default();
                 }
                 Ok(())
             }

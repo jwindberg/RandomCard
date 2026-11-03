@@ -2067,6 +2067,13 @@ impl Parser {
         let Some(w) = self.word_at(n).map(str::to_string) else { return Ok(None) };
         let next = self.word_at(n + 1).unwrap_or_default().to_string();
         match w.as_str() {
+            // `window` with no name, as SuperCard has it: the card window.
+            // Stacks written for both say `top of window` in SuperCard's
+            // branch, which HyperCard never runs but still compiles.
+            "window" if !self.starts_term_at(n + 1) => {
+                self.pos += n + 1;
+                return Ok(Some(ObjSpec::Stack(None)));
+            }
             "me" if n == 0 => {
                 self.advance();
                 return Ok(Some(ObjSpec::Me));

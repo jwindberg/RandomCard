@@ -836,6 +836,27 @@ impl App {
     /// editor for scripts that handle the message; otherwise typing stays
     /// immediate.
     fn keyboard(&mut self, ctx: &egui::Context) {
+        // Whether Caps Lock is on, as the last letter typed shows: a capital
+        // without Shift, or (off the Mac, where Shift undoes Caps Lock) a
+        // small letter with it. A capital with Shift leaves it as it was.
+        // CapsLock() answers this.
+        let caps = ctx.input(|i| {
+            let shift = i.modifiers.shift;
+            i.events.iter().rev().find_map(|e| match e {
+                egui::Event::Text(t) => t.chars().rev().find(|c| c.is_uppercase() || c.is_lowercase()).and_then(|c| {
+                    match (c.is_uppercase(), shift) {
+                        (true, false) => Some(true),
+                        (false, false) => Some(false),
+                        (false, true) => Some(!cfg!(target_os = "macos")),
+                        (true, true) => None,
+                    }
+                }),
+                _ => None,
+            })
+        });
+        if let Some(caps) = caps {
+            self.world().mouse.caps_lock = caps;
+        }
         if self.world().tool != Tool::Browse || self.modal_open() {
             return;
         }
@@ -1919,7 +1940,12 @@ impl eframe::App for App {
         let (title, beeps, busy, menubar, msg_visible) = {
             let w = self.world();
             let dirty = if w.dirty && w.stack.path.is_none() { " (unsaved)" } else { "" };
-            (format!("RandomCard — {}{dirty}", w.stack.name), w.beeps, w.busy, w.menubar_visible, w.msg_visible)
+            let title = match &w.window_title {
+                // WindName's title, until another stack opens.
+                Some((serial, t)) if *serial == w.stack_serial => t.clone(),
+                _ => format!("RandomCard — {}{dirty}", w.stack.name),
+            };
+            (title, w.beeps, w.busy, w.menubar_visible, w.msg_visible)
         };
         self.busy_since = if busy { Some(self.busy_since.unwrap_or_else(Instant::now)) } else { None };
         if title != self.title {
@@ -1967,6 +1993,10 @@ impl eframe::App for App {
         self.show_password_prompt(&ctx);
         self.quit_prompt(&ctx);
         self.clear_picture_prompt(&ctx);
+        // Text copied from a field this frame: ClipInfo reports it.
+        if ctx.output(|o| o.commands.iter().any(|c| matches!(c, egui::OutputCommand::CopyText(_)))) {
+            self.world().clip_types = "TEXT".into();
+        }
 
         if busy || self.anim.is_some() || self.pressed.is_some() || self.flash_until.is_some() {
             ctx.request_repaint();

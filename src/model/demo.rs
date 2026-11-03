@@ -571,6 +571,7 @@ end showState
     b.card_part(c, last);
     b.stack.cards[c].script = r#"on keyDown which
   put "keyDown" && quote & which & quote into field "Last Key"
+  if CapsLock() then put " (Caps Lock is on)" after field "Last Key"
 end keyDown
 
 on arrowKey which
@@ -638,6 +639,14 @@ end tabKey
     );
     count.style = PartStyle::RoundRect;
     b.card_part(c, count);
+    // Switch, from the same collection: items to lines and back.
+    let mut switch = b.button(
+        "Switch",
+        Rect::new(80, 314, 180, 336),
+        "on mouseUp\n  put Switch(\"red,green,blue\") into asLines\n  answer \"Switch makes items lines:\" & return & asLines & return & return & \"and lines items again:\" && Switch(asLines)\nend mouseUp",
+    );
+    switch.style = PartStyle::RoundRect;
+    b.card_part(c, switch);
 
     // ----- Printing and finding -----
     let c = b.card(main, "Print & Find");
@@ -741,6 +750,18 @@ end square"#,
     for (i, (name, script)) in watchers.iter().enumerate() {
         let x = 186 + i as i32 * 150;
         let p = b.button(name, Rect::new(x, 88, x + 140, 116), script);
+        b.card_part(c, p);
+    }
+    // GlobalList, MacType, ClipInfo and WindName, from Frédéric Rinaldi's
+    // externals, built in.
+    let more = [
+        ("List Globals", "on mouseUp\n  global tourVisits\n  add 1 to tourVisits\n  answer \"The globals now:\" && GlobalList(true) & return & return & \"This button has been clicked\" && tourVisits && \"times.\"\nend mouseUp"),
+        ("This Computer", "on mouseUp\n  put MacType() into m\n  put ClipInfo() into clip\n  if clip is empty then put \"nothing\" into clip\n  answer \"System:\" && item 1 of m && item 2 of m & return & \"Processor:\" && item 3 of m & return & \"Copied:\" && clip\nend mouseUp"),
+        ("Rename Window", "on mouseUp\n  ask \"New window title:\" with \"My RandomCard\"\n  if it is not empty then WindName it\nend mouseUp"),
+    ];
+    for (i, (name, script)) in more.iter().enumerate() {
+        let x = 36 + i as i32 * 150;
+        let p = b.button(name, Rect::new(x, 170, x + 140, 198), script);
         b.card_part(c, p);
     }
     let mut answer = b.label("Answer", Rect::new(20, 132, 492, 156), "", 14);

@@ -1,6 +1,7 @@
 //! More of Frédéric Rinaldi's externals, the ones that aren't about files
 //! (those are in files.rs): LineCount, FullSort, DateSort, GetPassword,
-//! Prompt and GetMode. Apple carried his collection on its Developer CDs, a
+//! Prompt, GetMode, MacType, Switch, CapsLock, ClipInfo, ATalkZones,
+//! GlobalList and WindName. Apple carried his collection on its Developer CDs, a
 //! demo stack for each. RandomCard does them itself, by the same names and
 //! with the same answers. As his did, each answers "!" with its notice and
 //! "?" with its syntax, and reports a problem as text starting "Error :".
@@ -21,6 +22,13 @@ const SYNTAX: &[(&str, &str, &str)] = &[
     ("getpassword", "GetPassword", "GetPassword([<prompt>])"),
     ("prompt", "Prompt", "Prompt 1 [,<message> [,<vertical position> [,<width>]]] | Prompt 2,<message> | Prompt 3"),
     ("getmode", "GetMode", "GetMode()"),
+    ("mactype", "MacType", "MacType()"),
+    ("switch", "Switch", "Switch(<container>)"),
+    ("capslock", "CapsLock", "CapsLock()"),
+    ("clipinfo", "ClipInfo", "ClipInfo()"),
+    ("atalkzones", "ATalkZones", "ATalkZones()"),
+    ("globallist", "GlobalList", "GlobalList([<ListAll>])"),
+    ("windname", "WindName", "WindName <title string>"),
 ];
 
 /// The answer to "!" or "?", if that's what was asked.
@@ -29,6 +37,7 @@ fn help(name: &str, args: &[String]) -> Option<String> {
     match args.first().map(|a| a.trim()) {
         Some("!") => Some(format!("{proper} 2.0 — built into RandomCard, after Frédéric Rinaldi's external")),
         Some("?") => Some(syntax.to_string()),
+        Some("=") if name == "switch" => Some("The text with its lines made items, or its items made lines".into()),
         _ => None,
     }
 }
@@ -39,7 +48,20 @@ const PROMPT_WINDOW: &str = "Prompt";
 impl Interp {
     /// One of these functions' answer, or None if it isn't one.
     pub(super) fn rinaldi_function(&mut self, name: &str, args: &[String]) -> Option<R<String>> {
-        if !matches!(name, "linecount" | "fullsort" | "datesort" | "getpassword" | "getmode") {
+        if !matches!(
+            name,
+            "linecount"
+                | "fullsort"
+                | "datesort"
+                | "getpassword"
+                | "getmode"
+                | "mactype"
+                | "switch"
+                | "capslock"
+                | "clipinfo"
+                | "atalkzones"
+                | "globallist"
+        ) {
             return None;
         }
         if let Some(h) = help(name, args) {
@@ -77,6 +99,32 @@ impl Interp {
                 let r = self.w().screen_rect;
                 format!("C,32,1,C,32,{},{}", r.right - r.left, r.bottom - r.top)
             }
+            // The computer, the system's version, the processor, whether
+            // there's a floating-point unit and color, and the keyboard. His
+            // list of Macs ended in 1990, so the computer is the system's
+            // name, as SysEnv gives it.
+            "mactype" => match self.external_function("sysenv", &[])? {
+                Ok(env) => {
+                    let first = env.lines().next().unwrap_or_default().to_string();
+                    let mut items: Vec<&str> = first.split(',').collect();
+                    items.resize(5, "");
+                    format!("{},{},{},true,true,Unknown keyboard", items[0], items[1], items[2])
+                }
+                Err(e) => return Some(Err(e)),
+            },
+            "switch" => switch(&arg(0), &self.item_delimiter),
+            "capslock" => self.w().mouse.caps_lock.to_string(),
+            "clipinfo" => self.w().clip_types.clone(),
+            // RandomCard has no AppleTalk, so no node address to ask about.
+            "atalkzones" => "Error : Couldn't get node address".into(),
+            "globallist" => match arg(0).trim().to_ascii_lowercase().as_str() {
+                "" | "true" | "false" => {
+                    let mut names: Vec<&String> = self.globals.keys().collect();
+                    names.sort();
+                    names.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(",")
+                }
+                _ => "Error : Parameter must be true or false".into(),
+            },
             _ => unreachable!(),
         }))
     }
@@ -84,11 +132,18 @@ impl Interp {
     /// One of these commands, or None if it isn't one. Problems go in the
     /// result.
     pub(super) fn rinaldi_command(&mut self, name: &str, args: &[String]) -> Option<R<()>> {
-        if name != "prompt" {
+        if !matches!(name, "prompt" | "windname") {
             return None;
         }
         if let Some(h) = help(name, args) {
             self.result = h;
+            return Some(Ok(()));
+        }
+        if name == "windname" {
+            // The window's title, until another stack opens.
+            let mut w = self.w();
+            let serial = w.stack_serial;
+            w.window_title = Some((serial, args.join(",")));
             return Some(Ok(()));
         }
         self.result = self.prompt(args).err().unwrap_or_default();
@@ -163,6 +218,17 @@ impl Interp {
             "" => Err("Error : Missing Parameter(s)".into()),
             _ => Err("Error : Bad Mode Parameter".into()),
         }
+    }
+}
+
+/// Switch: a list of lines made items, or of items made lines. Text with
+/// more than one line is lines.
+fn switch(text: &str, delimiter: &str) -> String {
+    let text = text.strip_suffix('\n').unwrap_or(text);
+    if text.contains('\n') {
+        text.lines().collect::<Vec<_>>().join(delimiter)
+    } else {
+        text.split(delimiter).collect::<Vec<_>>().join("\n")
     }
 }
 

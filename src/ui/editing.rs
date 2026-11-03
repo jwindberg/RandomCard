@@ -81,6 +81,8 @@ impl App {
             let hilite = w.stack.hilite(card, layer, id);
             drop(w);
             self.clipboard = Some(Clip::Part { part: Box::new(part), text, styles, hilite });
+            // A button or field stays in RandomCard: nothing other programs read.
+            self.world().clip_types.clear();
             return true;
         }
         let Some(region) = self.paint_selection() else { return false };
@@ -91,6 +93,7 @@ impl App {
             region.lift(&mut pic.clone())
         };
         self.clipboard = Some(Clip::Picture { pixels, rect: region.rect });
+        self.world().clip_types = "PICT".into();
         true
     }
 

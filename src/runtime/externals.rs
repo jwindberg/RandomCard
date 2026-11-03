@@ -85,11 +85,6 @@ impl Interp {
             "filepath" => path(self.file_dialog(&arg(1), FileDialog::Open)),
             // NewFileName(prompt, name): a Save dialog.
             "newfilename" => path(self.file_dialog(&arg(0), FileDialog::Save(arg(1)))),
-            // MacType(): the kind of computer, as SysEnv's first item.
-            "mactype" => match self.external_function("sysenv", &[])? {
-                Ok(env) => env.split(',').next().unwrap_or_default().to_string(),
-                Err(e) => return Some(Err(e)),
-            },
             // PopUpMenu(items, checked item, top, left): a pop-up menu,
             // answering the chosen item's number, or 0. Top and left are on
             // the screen.

@@ -149,11 +149,12 @@ they never call.
 | FileCopy, EraseFile, FullMove, FullRename | XCMD | Rinaldi collection | Copy, delete, move and rename files and folders. | Built in | src/runtime/files.rs, by the same names | Done |
 | GetDir, GetFInfo, FullSFPut, GetBootVol, GetSysFolder | XFCN | Rinaldi collection | List a folder (with filters and layouts), a file's details, a Save dialog, the startup disk, the System Folder. | Built in | src/runtime/files.rs; Mac type and creator answer "????" | Done |
 | LineCount, FullSort, DateSort, GetPassword, GetMode | XFCN | Rinaldi collection | A field's lines as wrapped; sorting lines or items any way (with FullSortList for co-sorting); sorting lines by date; a hidden password, as `ask password`'s number; the screen's mode and size. | Built in | src/runtime/rinaldi.rs | Done |
+| Switch, CapsLock, ClipInfo, ATalkZones, GlobalList, WindName | XFCN, XCMD | Rinaldi collection | Items to lines and back; whether Caps Lock is on; the clipboard's types; AppleTalk zones; the globals; the window's title. | Built in | src/runtime/rinaldi.rs (no AppleTalk: ATalkZones answers its error) | Done |
 | LeafName, FileN, FolderPath, SelectDir | XFCN | Rinaldi demos | The last part of a path; an Open dialog; folder dialogs. | Built in | | Done |
 | FileToRes, ResToFile (FileMaker) | XCMD | Rinaldi collection | Keep a file in a stack's resource fork, and make it again. | Built in, later | Needs somewhere in a stack to keep files | Planned |
 | PopMenu | XFCN | 5 Developer CD stacks | Appropriate Technology's popup menu: (top, left, checked, items), answering "true,item,menu". Another PopMenu takes (point, lines) and answers a line number. | Built in | With PopUpMenu's menu; hierarchical menus are shown flat | Done |
 | FilePath | XFCN | Rinaldi collection | An Open dialog, answering the file's path. | Built in | As FileName | Done |
-| MacType | XFCN | Rinaldi collection | The kind of computer. | Stub | SysEnv's first item | Done |
+| MacType | XFCN | Rinaldi collection | The computer, system version, processor, FPU, color and keyboard. | Built in | src/runtime/rinaldi.rs; the computer is the system's name | Done |
 | PopUpMenu1 | XFCN | 1 stack, called in 1 | A popup menu (another version). | Built in | As PopUpMenu | Planned |
 | HPopUpMenu | XFCN | 2 stacks, called in 2 | A popup menu (by Guy de Picciotto). | Built in | As PopUpMenu | Planned |
 | BigPop | XFCN | 20 stacks, called in 7 | A popup menu for long lists: `BigPop <menu list>[,<top>,<left>]`. | Built in | As PopUpMenu | Planned |

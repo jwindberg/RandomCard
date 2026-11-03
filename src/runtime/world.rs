@@ -184,6 +184,8 @@ pub struct MouseState {
     pub shift: bool,
     pub option: bool,
     pub command: bool,
+    /// Whether Caps Lock is on, as far as the UI can tell from typing.
+    pub caps_lock: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -551,6 +553,12 @@ pub struct World {
     pub home_path: Option<PathBuf>,
     /// Counts stack changes, so the UI can drop windows of the old stack.
     pub stack_serial: u64,
+    /// WindName's title for the window, and the stack_serial it was set
+    /// for: it lasts until another stack opens.
+    pub window_title: Option<(u64, String)>,
+    /// The kinds of data last copied, as the Mac's scrap types ("TEXT",
+    /// "PICT"), for ClipInfo.
+    pub clip_types: String,
     /// Where a script is stopped in the debugger.
     pub debug: Option<DebugPause>,
     /// Checkpoints: a script's owner and a line in it, from 1.
@@ -684,6 +692,8 @@ impl World {
             in_use: Vec::new(),
             home_path: None,
             stack_serial: 0,
+            window_title: None,
+            clip_types: String::new(),
             debug: None,
             checkpoints: Vec::new(),
             globals_view: Vec::new(),
