@@ -181,7 +181,7 @@ impl Interp {
             "menus" => self.w().menus.iter().map(|m| m.name.as_str()).collect::<Vec<_>>().join("\n"),
             "stacks" => {
                 let w = self.w();
-                w.stack.path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| w.stack.name.clone())
+                w.stack.path.as_ref().map(|p| super::paths::shown(p)).unwrap_or_else(|| w.stack.name.clone())
             }
             "stacksinuse" => {
                 let w = self.w();
@@ -189,7 +189,7 @@ impl Interp {
                     .in_use
                     .iter()
                     .filter_map(|n| w.find_other(n, None).and_then(|k| w.other(k)))
-                    .map(|s| s.path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| s.name.clone()))
+                    .map(|s| s.path.as_ref().map(|p| super::paths::shown(p)).unwrap_or_else(|| s.name.clone()))
                     .collect();
                 names.join("\n")
             }
@@ -234,9 +234,12 @@ impl Interp {
                 format!("{},{},{},{}", r.left, r.top, r.right, r.bottom)
             }
             "systemversion" | "osversion" => "1.0".into(),
+            // The separator in the paths scripts see: ":" on macOS, as in
+            // HyperCard, "\" on Windows, "/" elsewhere.
+            "pathseparator" => super::paths::SEPARATOR.into(),
             "osname" => std::env::consts::OS.into(),
             "diskspace" | "heapspace" => "1000000000".into(),
-            "__fileexists" => bool_str(std::path::Path::new(&arg(0)).exists()),
+            "__fileexists" => bool_str(super::paths::native(&arg(0)).exists()),
             // `there is a window "…"`: one of the windows `the windows` lists.
             "__windowexists" => {
                 let windows = self.builtin("windows", NameLength::Default, vec![])?;

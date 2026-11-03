@@ -112,7 +112,7 @@ impl Interp {
                 let picked = self.file_dialog(&title, kind);
                 match picked {
                     Some(p) => {
-                        self.set_var("it", p.display().to_string());
+                        self.set_var("it", super::paths::shown(&p));
                         self.result.clear();
                     }
                     None => {
@@ -317,7 +317,7 @@ impl Interp {
             Cmd::Unmark(what) => self.mark(what, false),
             Cmd::OpenFile(e) => {
                 let name = self.eval(e)?;
-                let content = std::fs::read_to_string(&name).unwrap_or_default();
+                let content = std::fs::read_to_string(super::paths::native(&name)).unwrap_or_default();
                 self.files.insert(name, OpenFile { content, pos: 0, dirty: false });
                 Ok(())
             }
@@ -839,7 +839,7 @@ impl Interp {
         if name.is_empty() {
             return None;
         }
-        for p in [PathBuf::from(name), PathBuf::from(format!("{name}.rcstack"))] {
+        for p in [super::paths::native(name), super::paths::native(&format!("{name}.rcstack"))] {
             if p.is_file() {
                 return Some(p);
             }
@@ -979,7 +979,7 @@ impl Interp {
     /// it has none, as in a card's long name.
     fn stack_place(&self) -> String {
         let w = self.w();
-        w.stack.path.as_ref().map_or(w.stack.name.clone(), |p| p.display().to_string())
+        w.stack.path.as_ref().map_or(w.stack.name.clone(), |p| super::paths::shown(p))
     }
 
     /// `go home`: to the Home stack, or the first card if there's none.
@@ -990,7 +990,7 @@ impl Interp {
         let home = if w.is_home(&w.stack) { Some(&w.stack) } else { w.home_key().and_then(|k| w.other(k)) };
         match home {
             Some(h) => {
-                let place = h.path.as_ref().map_or(h.name.clone(), |p| p.display().to_string());
+                let place = h.path.as_ref().map_or(h.name.clone(), |p| super::paths::shown(p));
                 format!("card id {} of stack \"{place}\"", h.cards[0].id)
             }
             None => "card id 1 of stack \"Home\"".into(),
@@ -2111,7 +2111,7 @@ impl Interp {
     fn save_stack(&mut self, name: Option<String>) -> R<()> {
         let path = match name {
             Some(n) => {
-                let p = std::path::PathBuf::from(&n);
+                let p = super::paths::native(&n);
                 let p = if p.extension().is_none() { p.with_extension("rcstack") } else { p };
                 let dir = self.w().stack.path.as_ref().and_then(|x| x.parent().map(|d| d.to_path_buf()));
                 match dir {

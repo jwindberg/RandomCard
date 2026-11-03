@@ -71,8 +71,8 @@ impl Interp {
     /// A path from a script: as given, or a plain name in the stack's folder.
     fn script_path(&self, given: &str) -> PathBuf {
         let given = given.trim();
-        let p = PathBuf::from(given);
-        if p.is_absolute() || given.contains(std::path::MAIN_SEPARATOR) {
+        let p = super::paths::native(given);
+        if p.is_absolute() || p.components().count() > 1 {
             return p;
         }
         let w = self.w();
@@ -107,7 +107,7 @@ impl Interp {
                 match self.file_dialog(&prompt, FileDialog::Save(arg(1))) {
                     Some(p) => {
                         let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                        let folder = p.parent().map(|d| format!("{}{}", d.display(), std::path::MAIN_SEPARATOR)).unwrap_or_default();
+                        let folder = p.parent().map(super::paths::folder).unwrap_or_default();
                         format!("{name}\n{folder}")
                     }
                     None => String::new(),
@@ -118,12 +118,12 @@ impl Interp {
                 if cfg!(target_os = "windows") {
                     std::env::var("SystemDrive").map(|d| format!("{d}\\")).unwrap_or_else(|_| "C:\\".into())
                 } else {
-                    "/".into()
+                    super::paths::folder(Path::new("/"))
                 }
             }
             // The System Folder's place today: where settings go.
             "getsysfolder" => super::settings::config_dir()
-                .map(|d| format!("{}{}", d.display(), std::path::MAIN_SEPARATOR))
+                .map(|d| super::paths::folder(&d))
                 .unwrap_or_default(),
             _ => unreachable!(),
         }))
@@ -255,7 +255,7 @@ impl Item {
             'y' => time(self.modified),
             'f' => self.files.to_string(),
             'n' => self.name.clone(),
-            'p' => self.path.display().to_string(),
+            'p' => super::paths::shown(&self.path),
             'v' => "Unknown".into(),
             _ => String::new(),
         }

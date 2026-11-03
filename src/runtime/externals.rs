@@ -63,13 +63,13 @@ impl Interp {
             return Some(v);
         }
         let arg = |i: usize| args.get(i).cloned().unwrap_or_default();
-        let path = |p: Option<PathBuf>| p.map(|p| p.display().to_string()).unwrap_or_default();
+        let path = |p: Option<PathBuf>| p.map(|p| super::paths::shown(&p)).unwrap_or_default();
         Some(Ok(match name {
             // FileExists came in two versions. The Developer Technical
             // Support stacks' answers a Mac error code (0 when the file is
             // there); the others answer true or false.
             "fileexists" => {
-                let there = std::path::Path::new(&arg(0)).exists();
+                let there = super::paths::native(&arg(0)).exists();
                 if self.stack_compares_fileexists_with_zero() {
                     if there { "0" } else { "-43" }.into()
                 } else {
@@ -194,7 +194,7 @@ impl Interp {
             // a folder, answering its path with a separator at the end, as
             // a Mac folder path ended in a colon.
             "folderpath" | "selectdir" => match self.file_dialog(&arg(0), FileDialog::Folder) {
-                Some(p) => format!("{}{}", p.display(), std::path::MAIN_SEPARATOR),
+                Some(p) => super::paths::folder(&p),
                 None => String::new(),
             },
             // LeafName(path): the last part of a path, the file or folder's
@@ -216,7 +216,7 @@ impl Interp {
             // error in item 3. The folder ends with a separator, so a stack
             // puts the file's name after it.
             "sysprefs" => match super::settings::config_dir().map(|d| (std::fs::create_dir_all(&d), d)) {
-                Some((Ok(()), d)) => format!("0,{}{},", d.display(), std::path::MAIN_SEPARATOR),
+                Some((Ok(()), d)) => format!("0,{},", super::paths::folder(&d)),
                 _ => ",,FileExistsError".into(),
             },
             // SysEnv(): line 1 is machine, system version, processor, FPU and
@@ -250,6 +250,9 @@ impl Interp {
                 let name = names.get(n % names.len()).copied().unwrap_or_default();
                 if form > 2 { name.chars().take(3).collect() } else { name.to_string() }
             }
+            // FontExists(name[, size]): whether a font is installed. True for
+            // the families RandomCard draws, at any size.
+            "fontexists" => crate::model::metrics::has_family(&arg(0)).to_string(),
             "isnum" => {
                 let s = arg(0);
                 (s.trim().is_empty() || to_number(&s).is_ok()).to_string()
@@ -398,6 +401,12 @@ impl Interp {
             },
             // An animated About box from 1989.
             "spinabout" => Ok(()),
+            // getHomeInfo: HyperCard's Home script loaded the user's
+            // preferences (name, user level, search paths) from its cards.
+            // RandomCard keeps them in its settings, always loaded, so a stack
+            // calling Home's handler has nothing left to wait for. A stack's
+            // own getHomeInfo comes first in the message path.
+            "gethomeinfo" => Ok(()),
             // ZoomRect fromRect, toRect: the Finder's zoom, a trail of
             // rectangles growing (or shrinking) from one rect to the other.
             "zoomrect" => {
@@ -431,7 +440,7 @@ impl Interp {
     /// A file named by a stack: as given, beside the stack, or in a folder
     /// beside the stack (where Apple's CDs put a stack's pictures).
     fn find_beside_stack(&self, name: &str) -> Option<PathBuf> {
-        let given = PathBuf::from(name);
+        let given = super::paths::native(name);
         if given.is_absolute() {
             return given.is_file().then_some(given);
         }
@@ -550,7 +559,7 @@ fn volumes() -> Vec<String> {
             .flatten()
             .map(|e| e.path())
             .filter(|p| p.is_dir())
-            .map(|p| p.display().to_string())
+            .map(|p| super::paths::shown(&p))
             .collect();
         v.sort();
         v

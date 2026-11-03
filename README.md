@@ -166,6 +166,11 @@ stack. Messages travel the HyperCard message path (part → card → background
 `libraryStack` message), `stop using` takes it out (`releaseStack`), and
 `the stacksInUse` lists them. Handlers in Home's script work in every stack.
 
+Paths are each system's own, except on macOS, where scripts see colon paths
+as in HyperCard (`Disk:Folder:Stack`) and file commands take them back.
+`the pathSeparator` (a RandomCard addition) answers ":" on macOS, "\" on
+Windows and "/" elsewhere, so a stack can find its own folder anywhere.
+
 - Control flow: `on`/`function` handlers, `if`/`then`/`else` (single-line,
   block and `else if` chains), `repeat` (forever, N times, while, until,
   `with i = a [down] to b`), `next repeat`, `exit repeat`, `exit handler`,

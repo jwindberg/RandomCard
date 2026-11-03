@@ -38,6 +38,12 @@ pub struct Metrics {
 }
 
 /// The family to measure a font by: unknown fonts were drawn in Geneva.
+/// Whether RandomCard has this font family (any size: sizes it lacks are
+/// scaled, as QuickDraw did).
+pub fn has_family(font: &str) -> bool {
+    data::FONTS.iter().any(|f| f.family.eq_ignore_ascii_case(font.trim()))
+}
+
 fn family_of(font: &str) -> &'static str {
     data::FONTS
         .iter()

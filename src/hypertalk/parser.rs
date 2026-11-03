@@ -20,7 +20,7 @@ const ZERO_ARG_FUNCS: &[&str] = &[
     "commandkey", "cmdkey", "controlkey", "ctrlkey", "result", "tool", "paramcount", "params", "version",
     "selectedtext", "selectedchunk", "selectedline", "selectedfield", "selectedloc", "foundtext",
     "foundchunk", "foundline", "foundfield", "menus", "stacks", "stacksinuse", "windows", "sound", "speech", "voices",
-    "screenrect", "systemversion", "diskspace", "heapspace", "osname", "osversion", "dateitems",
+    "screenrect", "systemversion", "diskspace", "heapspace", "osname", "pathseparator", "osversion", "dateitems",
 ];
 
 const ONE_ARG_FUNCS: &[&str] = &[

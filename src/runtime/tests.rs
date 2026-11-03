@@ -333,10 +333,15 @@ fn demo_stack_runs() {
     i.handle_event(Event::DoMenu("First".into()));
     assert_eq!(click(&mut i, "Contents", "Start with the Basics"), None);
     assert_eq!(current(&i), "Basics");
-    for b in ["Count Words", "Chunks", "Do Some Math", "What Time Is It?"] {
+    for b in ["Count Words", "Chunks", "Do Some Math", "What Time Is It?", "Where Am I?"] {
         i.canned_answers.push(DialogReply::Button("OK".into()));
         assert_eq!(click(&mut i, "Basics", b), None, "{b}");
     }
+    // Saved, the stack knows its folder.
+    lock(&i.world).stack.path = Some(std::env::temp_dir().join("Tour.rcstack"));
+    i.canned_answers.push(DialogReply::Button("OK".into()));
+    assert_eq!(click(&mut i, "Basics", "Where Am I?"), None);
+    lock(&i.world).stack.path = None;
     i.canned_answers.push(DialogReply::Text(Some("Dan".into())));
     i.canned_answers.push(DialogReply::Button("OK".into()));
     assert_eq!(click(&mut i, "Basics", "Say Hello"), None);
@@ -861,6 +866,9 @@ fn stacks_home_and_libraries() {
     let this_stack = |i: &mut Interp| run(i, "put the short name of this stack");
     // Home's script is in every stack's message path.
     assert_eq!(run(&mut i, "put homeVersion()"), "Home 1.0");
+    // A bare Home names the Home stack (Apple's stacks `send "startUp" to Home`).
+    assert!(!run(&mut i, "send \"beep\" to Home").starts_with("ERROR"));
+    assert_eq!(run(&mut i, "put the short name of this stack"), "Main");
     // A library's is too, once it's in use.
     assert!(run(&mut i, "put libFn()").starts_with("ERROR"));
     run(&mut i, "start using stack \"Lib\"");
@@ -1107,6 +1115,18 @@ struct Exercised {
     stopped: usize,
 }
 
+/// Give a test interpreter RandomCard's Home stack, as the app has, so `go
+/// home` leaves the stack instead of falling back to card 1.
+fn give_home(i: &Interp) {
+    let home = std::env::temp_dir().join(format!("randomcard-harness-home-{}.rcstack", std::process::id()));
+    if !home.exists() {
+        let mut h = Stack::home();
+        h.path = Some(home.clone());
+        h.save(&home).unwrap();
+    }
+    lock(&i.world).home_path = Some(home);
+}
+
 /// Open a stack, go to every card and click every button that has a script.
 fn exercise_one(path: &std::path::Path, print: bool) -> Exercised {
     let mut out = Exercised::default();
@@ -1120,20 +1140,12 @@ fn exercise_one(path: &std::path::Path, print: bool) -> Exercised {
     let name = stack.name.clone();
     let original = stack.clone();
     let mut i = interp_with(stack);
-    // RandomCard's Home stack, so `go home` leaves the stack (and the click
-    // comes back with openStack) instead of falling back to card 1.
-    let home = std::env::temp_dir().join(format!("randomcard-harness-home-{}.rcstack", std::process::id()));
-    if !home.exists() {
-        let mut h = Stack::home();
-        h.path = Some(home.clone());
-        h.save(&home).unwrap();
-    }
-    lock(&i.world).home_path = Some(home);
+    give_home(&i);
     let abort = i.abort.clone();
     let mut seen = std::collections::BTreeMap::<String, usize>::new();
-    let mut step = |i: &mut Interp, what: String, ev: Event| {
-        // A click waiting on something that never comes (a loop until the
-        // user types a number) is stopped after two seconds.
+    // A click waiting on something that never comes (a loop until the user
+    // types a number) is stopped after two seconds. Answers whether it was.
+    let with_watchdog = |abort: &Arc<AtomicBool>, f: &mut dyn FnMut()| {
         let done = Arc::new(AtomicBool::new(false));
         let (d, a) = (done.clone(), abort.clone());
         let watchdog = std::thread::spawn(move || {
@@ -1146,9 +1158,25 @@ fn exercise_one(path: &std::path::Path, print: bool) -> Exercised {
             a.store(true, std::sync::atomic::Ordering::SeqCst);
         });
         let start = std::time::Instant::now();
-        i.handle_event(ev);
+        f();
+        done.store(true, std::sync::atomic::Ordering::SeqCst);
+        let _ = watchdog.join();
+        start.elapsed() > std::time::Duration::from_secs(2)
+    };
+    let mut step = |i: &mut Interp, what: String, ev: Event| {
+        let trace = std::env::var("RANDOMCARD_TRACE").is_ok();
+        if trace {
+            eprintln!("> {what}");
+        }
+        let start = std::time::Instant::now();
+        let mut ev = Some(ev);
+        let mut stopped = with_watchdog(&abort, &mut || i.handle_event(ev.take().unwrap()));
+        if trace {
+            eprintln!("  {:?}", start.elapsed());
+        }
         // A click that leaves the stack: come back the way a user would, so
-        // the stack gets openStack again (and resets its globals).
+        // the stack gets openStack again (and resets its globals). Coming
+        // back gets two seconds of its own.
         let left = {
             let mut w = lock(&i.world);
             let left = w.stack.name != name;
@@ -1157,17 +1185,26 @@ fn exercise_one(path: &std::path::Path, print: bool) -> Exercised {
                     println!("  ({what} went to stack \"{}\"; going back)", w.stack.name);
                 }
                 w.replace_stack(original.clone());
+                // The changed copy it left behind stays loaded (it can't be
+                // saved to the read-only disc); a user going back would get
+                // that copy, but the test starts from the original, so drop it.
+                w.others.retain(|o| o.stack.name != name);
+                w.load_home();
+                if trace {
+                    let c = w.stack.card(w.card_id).map(|c| c.parts.iter().map(|p| p.name.clone()).collect::<Vec<_>>());
+                    eprintln!("  back on card {} {:?}", w.card_id, c);
+                }
             }
             left.then_some(w.card_id)
         };
         if let Some(card) = left {
-            for m in ["openStack", "openBackground", "openCard"] {
-                i.handle_event(Event::Send { target: ObjRef::Card(card), message: m.into(), args: vec![] });
-            }
+            stopped |= with_watchdog(&abort, &mut || {
+                for m in ["openStack", "openBackground", "openCard"] {
+                    i.handle_event(Event::Send { target: ObjRef::Card(card), message: m.into(), args: vec![] });
+                }
+            });
         }
-        done.store(true, std::sync::atomic::Ordering::SeqCst);
-        let _ = watchdog.join();
-        if start.elapsed() > std::time::Duration::from_secs(2) {
+        if stopped {
             if print {
                 println!("STOPPED after 2s: {what}");
             }
@@ -1295,10 +1332,28 @@ fn click_every_button() {
 
 
 #[test]
+fn the_path_separator_finds_a_stacks_folder() {
+    let sep = super::paths::SEPARATOR;
+    assert_eq!(eval("the pathSeparator"), sep);
+    let dir = std::env::temp_dir().join(format!("randomcard-sep-{}", std::process::id()));
+    let mut s = stack();
+    s.path = Some(dir.join("Notes.rcstack"));
+    let mut i = interp_with(s);
+    // The Technical Notes stack's way to its folder, with the separator in
+    // place of its ":".
+    let script = "put the long name of this stack into p\ndelete char 1 to 7 of p\ndelete last char of p\n\
+        repeat until last char of p = the pathSeparator\ndelete last char of p\nend repeat\nput p";
+    assert_eq!(run(&mut i, script), super::paths::folder(&dir));
+}
+
+#[test]
 fn externals_done_by_randomcard() {
     assert_eq!(eval("isnum(12.5)"), "true");
     assert_eq!(eval("isnum(\"12a\")"), "false");
     assert_eq!(eval("isnum(empty)"), "true");
+    assert_eq!(eval("fontExists(\"Palatino\", 14)"), "true");
+    assert_eq!(eval("fontExists(\"Zapf Chancery\")"), "false");
+    assert!(!run(&mut interp_with(stack()), "getHomeInfo").starts_with("ERROR"));
     assert_eq!(eval("main(\"Ner jr ybfg va gur jrrqf?\")"), "Are we lost in the weeds?");
     assert_eq!(eval("stringwidth(\"Hi\")"), eval("stringwidth(\"H\") + stringwidth(\"i\")"));
     assert_eq!(eval("item 3 of sysEnv()"), std::env::consts::ARCH);
@@ -2086,10 +2141,24 @@ fn drive_stack() {
             let stack = crate::import::load_any(std::path::Path::new(&path), None)
                 .expect("can't open the stack");
             let mut i = interp_with(stack);
-            i.handle_event(Event::Startup);
-            lock(&i.world).requests.clear();
+            give_home(&i);
+            let start = std::time::Instant::now();
+            // RANDOMCARD_NO_OPEN: skip startUp and openStack, to step
+            // through them by hand.
+            if std::env::var("RANDOMCARD_NO_OPEN").is_err() {
+                i.handle_event(Event::Startup);
+            }
+            println!("opened in {:?}", start.elapsed());
+            for r in lock(&i.world).requests.drain(..) {
+                if let UiRequest::ScriptError { msg, obj, line } = r {
+                    println!("ERROR at open: {msg} ({obj:?} line {line:?})");
+                }
+            }
             for line in script.lines().filter(|l| !l.trim().is_empty()) {
-                println!("{line}  =>  {}", run(&mut i, line));
+                use std::io::Write;
+                print!("{line}  =>  ");
+                let _ = std::io::stdout().flush();
+                println!("{}", run(&mut i, line));
             }
         })
         .unwrap()

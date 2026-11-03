@@ -1322,7 +1322,7 @@ impl Interp {
     pub fn close_file(&mut self, name: &str) -> R<()> {
         if let Some(f) = self.files.remove(name)
             && f.dirty
-            && let Err(e) = std::fs::write(name, f.content)
+            && let Err(e) = std::fs::write(super::paths::native(name), f.content)
         {
             return err(format!("Can't write file \"{name}\": {e}"));
         }
@@ -1330,6 +1330,18 @@ impl Interp {
     }
 
     pub fn parse_object_text(&mut self, text: &str) -> R<ObjRef> {
+        // A bare Home is the Home stack, as in `go home`: Apple's own stacks
+        // `send "startUp" to Home`.
+        if text.trim().eq_ignore_ascii_case("home") {
+            let mut w = self.w();
+            w.load_home();
+            if w.is_home(&w.stack) {
+                return Ok(ObjRef::Stack);
+            }
+            if let Some(key) = w.home_key() {
+                return Ok(ObjRef::OtherStack(key));
+            }
+        }
         match parse_object(text) {
             Some(spec) => self.resolve(&spec),
             None => err(format!("No such object \"{text}\"")),

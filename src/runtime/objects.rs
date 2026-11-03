@@ -301,7 +301,7 @@ impl Interp {
         let w = self.w();
         let s = &w.stack;
         let stack_long = || match &s.path {
-            Some(p) => format!("stack \"{}\"", p.display()),
+            Some(p) => format!("stack \"{}\"", super::paths::shown(p)),
             None => format!("stack \"{}\"", s.name),
         };
         let card_desc = |id: Id| match s.card(id) {
@@ -317,7 +317,7 @@ impl Interp {
             ObjRef::OtherStack(k) => match w.other(k) {
                 Some(o) => match (len, &o.path) {
                     (NameLength::Short, _) => o.name.clone(),
-                    (NameLength::Long, Some(p)) => format!("stack \"{}\"", p.display()),
+                    (NameLength::Long, Some(p)) => format!("stack \"{}\"", super::paths::shown(p)),
                     _ => format!("stack \"{}\"", o.name),
                 },
                 None => "unknown object".into(),

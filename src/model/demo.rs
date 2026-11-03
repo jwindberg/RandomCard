@@ -333,10 +333,11 @@ pub fn build() -> Stack {
         ("Chunks", "on mouseUp\n  put \"apple,banana,cherry\" into fruits\n  put item 2 of fruits into fruit\n  answer \"The second fruit is\" && fruit & \", which starts with\" && quote & char 1 of fruit & quote & \".\"\nend mouseUp"),
         ("Do Some Math", "on mouseUp\n  put 0 into total\n  repeat with i = 1 to 100\n    add i to total\n  end repeat\n  answer \"1 + 2 + ... + 100 =\" && total & return & \"The square root of 2 is\" && sqrt(2)\nend mouseUp"),
         ("What Time Is It?", "on mouseUp\n  answer \"It is\" && the time && \"on\" && the long date & \".\"\nend mouseUp"),
+        ("Where Am I?", "on mouseUp\n  put the pathSeparator into sep\n  put the long name of this stack into p\n  delete char 1 to 7 of p\n  delete last char of p\n  if sep is not in p then\n    answer \"This stack isn't saved yet. Paths here use\" && quote & sep & quote & \", the pathSeparator.\"\n    exit mouseUp\n  end if\n  set the itemDelimiter to sep\n  put the number of items of p into n\n  answer \"This stack is\" && quote & item n of p & quote && \"in\" & return & item 1 to n - 1 of p & sep & return & return & \"Paths here use\" && quote & sep & quote & \", the pathSeparator.\"\nend mouseUp"),
     ];
     for (i, (name, script)) in basics.iter().enumerate() {
-        let y = 48 + i as i32 * 40;
-        let p = b.button(name, Rect::new(360, y, 492, y + 28), script);
+        let y = 48 + i as i32 * 33;
+        let p = b.button(name, Rect::new(360, y, 492, y + 26), script);
         b.card_part(c, p);
     }
 

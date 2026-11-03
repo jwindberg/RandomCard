@@ -212,6 +212,9 @@ of its script works.
   evaluating expressions in the message box while stopped (HyperCard ran
   them in the stopped handler's context), and checkpoints don't move when
   lines are added above them.
+- **Colon paths off the Mac:** a stack that hard-codes ":" to find its
+  folder needs a fix step on Linux and Windows (`the pathSeparator` in place
+  of ":"), as the Technical Notes stacks do (BUGHUNT #42).
 - **Other stacks:** see below.
 - **Speech:** `speak` shells out to `spd-say`/`espeak`/`say`; `the voices`
   and `the speech` aren't real.

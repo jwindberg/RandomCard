@@ -10,6 +10,7 @@ pub mod interp;
 mod menu_commands;
 pub mod menus;
 mod objects;
+pub mod paths;
 mod printing;
 pub mod settings;
 pub mod undo;
