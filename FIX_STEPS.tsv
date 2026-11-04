@@ -17,3 +17,12 @@ Developer Info Assistant	& "CustomLink:CustomLink™")	& "CustomLink" & the path
 Developer Info Assistant	if last char of stackPath = ":" then exit repeat	if last char of stackPath = the pathSeparator then exit repeat	Mac colon paths: the folder separator is the pathSeparator on other systems
 Developer Info Assistant	if last char of tempPath = ":" then exit repeat	if last char of tempPath = the pathSeparator then exit repeat	Mac colon paths: the folder separator is the pathSeparator on other systems
 Developer Info Assistant	if last char of tempDIA is ":" then exit repeat	if last char of tempDIA is the pathSeparator then exit repeat	Mac colon paths: the folder separator is the pathSeparator on other systems
+Technical Notes Stack 3.4	repeat until last char of shortstackpath = ":"	repeat until last char of shortstackpath = the pathSeparator	Mac colon paths: the folder separator is the pathSeparator on other systems
+Technical Notes Stack 3.4	NewName contains ":"	NewName contains the pathSeparator	Mac colon paths: the folder separator is the pathSeparator on other systems
+Technical Notes Stack 3.4	offset(":",NewName)	offset(the pathSeparator,NewName)	Mac colon paths: the folder separator is the pathSeparator on other systems
+Technical Notes Stack 3.4.1	repeat until last char of shortstackpath = ":"	repeat until last char of shortstackpath = the pathSeparator	Mac colon paths: the folder separator is the pathSeparator on other systems
+Technical Notes Stack 3.4.1	NewName contains ":"	NewName contains the pathSeparator	Mac colon paths: the folder separator is the pathSeparator on other systems
+Technical Notes Stack 3.4.1	offset(":",NewName)	offset(the pathSeparator,NewName)	Mac colon paths: the folder separator is the pathSeparator on other systems
+Technical Notes Stack 3.4.2	repeat until last char of shortstackpath = ":"	repeat until last char of shortstackpath = the pathSeparator	Mac colon paths: the folder separator is the pathSeparator on other systems
+Technical Notes Stack 3.4.2	NewName contains ":"	NewName contains the pathSeparator	Mac colon paths: the folder separator is the pathSeparator on other systems
+Technical Notes Stack 3.4.2	offset(":",NewName)	offset(the pathSeparator,NewName)	Mac colon paths: the folder separator is the pathSeparator on other systems
