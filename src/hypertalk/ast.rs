@@ -327,6 +327,9 @@ pub enum Cmd {
     /// `answer program "Send to which program?"`: choosing a program on
     /// the network. RandomCard has none to offer, so it's always cancelled.
     AnswerProgram(Expr),
+    /// `open "Report" [with "TeachText"]`: a document or program, opened
+    /// by the system in its own program.
+    OpenDocument { doc: Expr, app: Option<Expr> },
     Ask { prompt: Expr, default: Option<Expr>, password: bool },
     AskFile { prompt: Expr, default: Option<Expr> },
     Beep(Option<Expr>),

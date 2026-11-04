@@ -1071,8 +1071,18 @@ impl Parser {
                     self.rest_of_line();
                     Cmd::OpenPrinting
                 } else {
-                    self.rest_of_line();
-                    Cmd::NoOp
+                    let start = self.pos;
+                    match self.expr() {
+                        Ok(doc) if self.at_stmt_end() || self.is("with") => {
+                            let app = if self.accept("with") { Some(self.expr()?) } else { None };
+                            Cmd::OpenDocument { doc, app }
+                        }
+                        _ => {
+                            self.pos = start;
+                            self.rest_of_line();
+                            Cmd::NoOp
+                        }
+                    }
                 }
             }
             "close" => {

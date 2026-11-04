@@ -352,6 +352,7 @@ fn demo_stack_runs() {
     assert!(lock(&i.world).msg.contains("Flashed Lined,Wide"), "{}", lock(&i.world).msg);
     let before = i.printed.len();
     assert_eq!(click(&mut i, "Print & Find", "Print PostScript"), None);
+    assert_eq!(click(&mut i, "Print & Find", "Open a Document"), None);
     assert!(i.printed.len() == before + 1 && i.printed.last().unwrap().extension().is_some_and(|e| e == "ps"));
     run(&mut i, "go to card \"Debugging\"");
     for b in ["List Globals", "This Computer"] {
@@ -1550,6 +1551,56 @@ fn hypercard_leniencies_run() {
     assert_eq!(run(&mut i, "put \"a,b\" & return & \"c\" into theList\nput 2 into LN\nput line LN of theList"), "c");
     assert_eq!(run(&mut i, "answer program \"Which?\"\nput the result"), "Cancel");
     assert!(!run(&mut i, "play \"boing\" c#4 g3h.\nput 1").starts_with("ERROR"));
+}
+
+#[test]
+fn hypercard_1_documents_stack() {
+    let dir = std::env::temp_dir().join(format!("randomcard-documents-{}", std::process::id()));
+    let docs = dir.join("Letters");
+    std::fs::create_dir_all(&docs).unwrap();
+    std::fs::write(docs.join("Note.txt"), "hi").unwrap();
+    std::fs::write(docs.join("Draft.txt"), "draft").unwrap();
+    Stack::new("Old").save(&docs.join("Old.rcstack")).unwrap();
+    // Home lists the folder on its Documents card.
+    let home_path = dir.join("Home.rcstack");
+    let mut home = Stack::home();
+    crate::model::home::add_preference_cards(&mut home);
+    let card = home.cards.iter().position(|c| c.name == "Documents").unwrap();
+    let bg = home.cards[card].background;
+    let paths = home.background(bg).unwrap().parts.iter().find(|p| p.name == "Paths").unwrap().id;
+    home.cards[card].bg_text.insert(paths, crate::runtime::paths::shown(&docs));
+    home.save(&home_path).unwrap();
+    // The Documents stack's background, with the fields GetDocs fills.
+    let mut s = Stack::new("Documents");
+    for (n, name) in ["Name", "Creator", "Created", "Modified", "Size", "Type", "Notes", "Where"].iter().enumerate() {
+        s.backgrounds[0].parts.push(Part::new_field(100 + n as Id, name, Rect::new(10, 10 + 20 * n as i32, 300, 28 + 20 * n as i32)));
+    }
+    s.cards[0].name = "About".into();
+    s.path = Some(dir.join("Documents.rcstack"));
+    let mut i = interp_with(s);
+    lock(&i.world).home_path = Some(home_path);
+    run(&mut i, "getHomeInfo");
+    assert_eq!(run(&mut i, "global documents\nput documents"), crate::runtime::paths::shown(&docs));
+    // The Update button's own script.
+    run(&mut i, "global documents\ngetdocs line 1 of documents");
+    assert_eq!(run(&mut i, "put the number of cards"), "4");
+    assert_eq!(run(&mut i, "go to card 2\nput the last item of field \"Name\"").rsplit(['/', '\\', ':']).next(), Some("Draft.txt"));
+    assert_eq!(run(&mut i, "go to card 4\nput field \"Type\" && field \"Creator\""), "STAK WILD");
+    assert_eq!(run(&mut i, "go to card 3\nput field \"Size\""), "2");
+    // Only new files on the next update.
+    run(&mut i, "global documents\ngetdocs line 1 of documents");
+    assert_eq!(run(&mut i, "put the number of cards"), "4");
+    // Open, with the program GetCreator names.
+    assert_eq!(run(&mut i, "put GetCreator(\"WILD\")"), "HyperCard");
+    run(&mut i, "put GetCreator(field \"Creator\") into appName\nopen field \"Name\" with appName");
+    assert_eq!(i.printed.last(), Some(&docs.join("Note.txt")));
+    assert_eq!(run(&mut i, "open \"No Such Program\"\nput the result"), "Cancel");
+    // `show card window at` moves the window.
+    run(&mut i, "show card window at 30,40");
+    assert_eq!(lock(&i.world).window_origin, (30, 40));
+    // Convert leaves what isn't a date alone, as HyperCard did.
+    assert_eq!(run(&mut i, "put \"soon\" into x\nconvert x to long date\nput the result && x"), "Invalid date soon");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

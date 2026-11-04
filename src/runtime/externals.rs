@@ -251,6 +251,8 @@ impl Interp {
             // FontExists(name[, size]): whether a font is installed. True for
             // the families RandomCard draws, at any size.
             "fontexists" => crate::model::metrics::has_family(&arg(0)).to_string(),
+            // GetCreator(code), from HyperCard 1.2's Documents stack.
+            "getcreator" => super::home_docs::creator_name(&arg(0)),
             "isnum" => {
                 let s = arg(0);
                 (s.trim().is_empty() || to_number(&s).is_ok()).to_string()
@@ -399,12 +401,17 @@ impl Interp {
             },
             // An animated About box from 1989.
             "spinabout" => Ok(()),
-            // getHomeInfo: HyperCard's Home script loaded the user's
-            // preferences (name, user level, search paths) from its cards.
-            // RandomCard keeps them in its settings, always loaded, so a stack
-            // calling Home's handler has nothing left to wait for. A stack's
-            // own getHomeInfo comes first in the message path.
-            "gethomeinfo" => Ok(()),
+            // getHomeInfo: HyperCard's Home script loaded the user's name and
+            // search paths from its cards into globals (userName, stacks,
+            // applications, documents). A stack's own getHomeInfo comes first
+            // in the message path.
+            "gethomeinfo" => {
+                self.home_info();
+                Ok(())
+            }
+            // GetDocs folder: HyperCard 1.2's Documents stack, a card for each
+            // file.
+            "getdocs" => self.get_docs(&arg(0)),
             // ZoomRect fromRect, toRect: the Finder's zoom, a trail of
             // rectangles growing (or shrinking) from one rect to the other.
             "zoomrect" => {

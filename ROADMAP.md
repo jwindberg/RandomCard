@@ -427,11 +427,11 @@ can be re-run. What's missing, by feature (details there):
 - **Picture windows:** the `picture` command and its messages. Palettes are
   done, except HyperCard's own Navigator palette (`palette "Navigator"`)
   and color palette pictures, which are kept in black and white.
-- **AppleEvents and other programs:** `request`, `reply`, appleEvent, and
-  opening documents with another application. Needs design: what they mean
-  on today's systems. For now `answer program` parses and is always
-  cancelled (no programs to offer), and `print <document> with <program>`
-  opens the document in the system's viewer.
+- **AppleEvents and other programs:** `request`, `reply` and appleEvent.
+  Needs design: what they mean on today's systems. For now `answer program`
+  parses and is always cancelled (no programs to offer); `open <document>
+  with <program>` and `print <document> with <program>` open the document
+  in the program the system picks, not the one named.
 - **Report printing:** report templates and the print text settings.
 - **Paint import and export.**
 - **Error dialogs and Recent:** `lock error dialogs`, `lock recent`.

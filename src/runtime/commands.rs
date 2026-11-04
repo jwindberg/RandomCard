@@ -103,6 +103,25 @@ impl Interp {
                 }
                 Ok(())
             }
+            // HyperCard asked "Where is …?" for a program it couldn't find;
+            // RandomCard leaves "Cancel" in the result instead.
+            Cmd::OpenDocument { doc, app } => {
+                let doc = self.eval(doc)?;
+                if let Some(app) = app {
+                    self.eval(app)?;
+                }
+                let path = self.script_path(doc.trim());
+                if !path.exists() {
+                    self.result = "Cancel".into();
+                    return Ok(());
+                }
+                self.result.clear();
+                if self.open_documents {
+                    crate::print::open_in_viewer(&path).or_else(err)?;
+                }
+                self.printed.push(path);
+                Ok(())
+            }
             Cmd::AnswerProgram(prompt) => {
                 self.eval(prompt)?;
                 self.set_var("it", String::new());
@@ -548,9 +567,13 @@ impl Interp {
             }
             Cmd::Convert { value, to } => {
                 let v = self.eval(value)?;
+                // As in HyperCard, what isn't a date is left as it was, with
+                // "Invalid date" in the result.
                 let Some(dt) = dates::parse_date(&v) else {
-                    return err(format!("Invalid date: \"{v}\""));
+                    self.result = "Invalid date".into();
+                    return Ok(());
                 };
+                self.result.clear();
                 let Some(out) = dates::convert(dt, to) else {
                     return err(format!("Can't convert to \"{to}\""));
                 };
@@ -755,6 +778,14 @@ impl Interp {
                 let o = self.resolve_dynamic(e)?;
                 if o == ObjRef::MsgBox {
                     self.w().msg_visible = show;
+                    return Ok(());
+                }
+                // `show card window at 0,0`: the card window is always shown,
+                // so only the place changes.
+                if o == ObjRef::Stack {
+                    if let Some(at) = at {
+                        self.set_property(o, "loc", &at)?;
+                    }
                     return Ok(());
                 }
                 self.set_property(o, "visible", if show { "true" } else { "false" })?;

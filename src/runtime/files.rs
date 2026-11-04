@@ -69,7 +69,7 @@ fn error(e: &std::io::Error, path: &Path) -> String {
 
 impl Interp {
     /// A path from a script: as given, or a plain name in the stack's folder.
-    fn script_path(&self, given: &str) -> PathBuf {
+    pub(super) fn script_path(&self, given: &str) -> PathBuf {
         let given = given.trim();
         let p = super::paths::native(given);
         if p.is_absolute() || p.components().count() > 1 {

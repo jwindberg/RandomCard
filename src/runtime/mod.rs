@@ -11,6 +11,7 @@ mod menu_commands;
 pub mod menus;
 mod objects;
 pub mod paths;
+mod home_docs;
 mod rinaldi;
 mod printing;
 pub mod settings;
@@ -62,6 +63,8 @@ pub fn start(stack: Stack, open: Option<std::path::PathBuf>, user_level: u8, hom
             interp.debug_rx = Some(debug_rx);
             interp.open_documents = true;
             interp.audio = crate::sound::Player::new();
+            // Home's startUp ran getHomeInfo, filling its globals.
+            interp.home_info();
             interp.run(event_rx)
         })
         .expect("can't start script thread");

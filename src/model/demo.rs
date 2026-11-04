@@ -675,6 +675,8 @@ end tabKey
         ("Find Bill", "on mouseUp\n  visual effect dissolve\n  find \"Bill\"\nend mouseUp"),
         ("Find…", "on mouseUp\n  doMenu \"Find…\"\nend mouseUp"),
         ("Recent", "on mouseUp\n  doMenu \"Recent\"\nend mouseUp"),
+        // `open`: a document in the program the system picks.
+        ("Open a Document", "on mouseUp\n  answer file \"Open which document?\"\n  if it is empty then exit mouseUp\n  open it\n  if the result is not empty then answer \"Couldn't open\" && it\nend mouseUp"),
         // SendPS, from Frédéric Rinaldi's externals: PostScript to the viewer.
         ("Print PostScript", "on mouseUp\n  put \"%!PS\" & return & \"/Times-Bold findfont 36 scalefont setfont\" & return into ps\n  put \"72 700 moveto (Hello from RandomCard!) show\" & return after ps\n  put \"newpath 300 450 120 0 360 arc 0.5 setgray fill\" & return & \"showpage\" after ps\n  SendPS ps\n  if the result is not empty then answer the result\nend mouseUp"),
     ];
