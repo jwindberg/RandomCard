@@ -1227,9 +1227,12 @@ fn exercise_one(path: &std::path::Path, print: bool) -> Exercised {
     // The discs' folders here are named with quotation marks ("The Silence
     // Of The ROMs"), which no Mac path had and which break scripts taking
     // `word 2 of the long name`: open the stack through a link without them.
+    // The link stands for the outermost folder with quotes (the disc's), so
+    // folders beside the stack's, where companions are, come along.
     let linked;
-    let path = if path.to_string_lossy().contains('"')
-        && let Some(dir) = path.parent()
+    let quoted = path.ancestors().filter(|a| a.file_name().is_some_and(|n| n.to_string_lossy().contains('"'))).last();
+    let path = if let Some(dir) = quoted
+        && let Ok(rest) = path.strip_prefix(dir)
     {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -1238,8 +1241,8 @@ fn exercise_one(path: &std::path::Path, print: bool) -> Exercised {
         let _ = std::fs::create_dir_all(link.parent().unwrap());
         #[cfg(unix)]
         let _ = std::os::unix::fs::symlink(std::fs::canonicalize(dir).unwrap_or(dir.to_path_buf()), &link);
-        linked = link.join(path.file_name().unwrap());
-        if linked.exists() { linked.as_path() } else { path }
+        linked = link.join(rest);
+        if linked.exists() && !rest.to_string_lossy().contains('"') { linked.as_path() } else { path }
     } else {
         path
     };
