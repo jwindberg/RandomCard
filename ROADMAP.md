@@ -350,13 +350,18 @@ together, and black on white is just the default.
    picture is kept at one byte a pixel and saved exactly as before; one
    with color is saved as a PNG. Printing shows colors as the nearer of
    black and white until step 5.
-2. **The color palette.** In the tool panel under the patterns: line and
-   fill swatches, a picker for any color, recent colors and an eyedropper.
-   Every paint tool draws its pattern in those colors. Scripts set them
-   with the names later xTalks used (`the penColor`, `the brushColor`).
-   Tools stay pixel-exact, without antialiasing, so the bucket fills
-   cleanly. Invert, Darken, Lighten, Trace Edges, the lasso and transparent
-   paste each get a color meaning.
+2. ~~**The color palette.**~~ Done: in the tool panel under the
+   patterns, Line and Fill swatches with a picker and an eyedropper each,
+   and recent colors that set whichever of Line or Fill is chosen. A
+   pattern's set bits paint in the fill color and its clear bits white;
+   the pencil, lines, borders and text use the line color. Scripts use
+   `the penColor` and `the brushColor` (a name, `r,g,b` or `#rrggbb`).
+   Tools stay pixel-exact, so the bucket fills one exact color. Invert
+   gives each color its opposite, Trace Edges outlines in the paint's own
+   color, and Darken and Lighten still sprinkle black or white. The
+   Tour's Drawing card
+   paints balloons in color. Still to come: two-color patterns (a
+   background color for the clear bits), and painting with transparency.
 3. **Images.** PNG and JPEG pasted or dropped onto a card become a paint
    selection, as pasted art was in HyperCard; with them, HyperCard 2.x's
    Import Paint and Export Paint.

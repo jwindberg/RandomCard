@@ -194,6 +194,12 @@ Windows and "/" elsewhere, so a stack can find its own folder anywhere.
   bucket fill, a pencil dot, or placing the text tool), and `type` with the
   text tool paints text in `the textFont`, `textSize` and `textStyle`.
   `the brush`, `the lineSize` and `the polySides` work too.
+- Painting in color, beyond HyperCard: `the penColor` (lines, borders, the
+  pencil and text) and `the brushColor` (the pattern's set bits: brush,
+  spray, bucket and filled shapes), as a name (`red`), `255,128,0` or
+  `#FF8000`. The tool panel has the same two colors, each with a picker
+  and an eyedropper, and recent colors that set whichever of Line or Fill
+  is chosen.
 - Commands: put, get, set, add, subtract, multiply, divide, answer, ask
   (including password and file variants), go (including back and forth),
   find (normal, whole, word, chars and string), sort (lines, items or cards,

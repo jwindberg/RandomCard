@@ -350,6 +350,18 @@ fn demo_stack_runs() {
     i.canned_answers.push(DialogReply::List(vec![0, 3], "Validated".into()));
     assert_eq!(click(&mut i, "Fields", "Flash Fields"), None);
     assert!(lock(&i.world).msg.contains("Flashed Lined,Wide"), "{}", lock(&i.world).msg);
+    // Painting in color from a script, with the colors put back after.
+    assert_eq!(click(&mut i, "Drawing", "Paint in Color"), None);
+    {
+        let w = lock(&i.world);
+        let pic = &w.stack.card(w.card_id).unwrap().picture;
+        assert!(pic.has_color());
+        assert_eq!(pic.get(381, 110), crate::model::Pixel::rgba(255, 0, 0, 255), "the red balloon's middle");
+        assert_eq!(pic.get(368, 110), crate::model::Pixel::rgba(0, 0, 128, 255), "its navy border");
+        assert_eq!((w.line_color, w.fill_color, w.tool), (crate::model::Pixel::BLACK, crate::model::Pixel::BLACK, crate::runtime::world::Tool::Browse));
+    }
+    assert_eq!(run(&mut i, "set the brushColor to \"#FF8000\"\nput the brushColor"), "255,128,0");
+    run(&mut i, "set the brushColor to black");
     let before = i.printed.len();
     assert_eq!(click(&mut i, "Print & Find", "Print PostScript"), None);
     assert_eq!(click(&mut i, "Print & Find", "Open a Document"), None);

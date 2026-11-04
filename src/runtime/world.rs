@@ -560,6 +560,10 @@ pub struct World {
     pub pattern: usize,
     pub brush: u32,
     pub poly_sides: u32,
+    /// The paint colors: lines, borders, the pencil and text
+    /// (`the penColor`), and the pattern's set bits (`the brushColor`).
+    pub line_color: crate::model::Pixel,
+    pub fill_color: crate::model::Pixel,
     /// Font, size and style for painted text.
     pub paint_font: String,
     pub paint_text_size: u32,
@@ -712,6 +716,8 @@ impl World {
             pattern: 1,
             brush: 3,
             poly_sides: 4,
+            line_color: crate::model::Pixel::BLACK,
+            fill_color: crate::model::Pixel::BLACK,
             paint_font: "Geneva".into(),
             paint_text_size: 12,
             paint_text_style: "plain".into(),
@@ -923,6 +929,8 @@ impl World {
             pattern: self.stack.pattern(self.pattern),
             brush: self.brush,
             poly_sides: self.poly_sides,
+            line_color: self.line_color,
+            fill_color: self.fill_color,
         }
     }
 }

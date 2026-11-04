@@ -1,4 +1,5 @@
-//! The paint tools, pattern palette, selections, Paint menu and paint undo.
+//! The paint tools, pattern and color palettes, selections, Paint menu and
+//! paint undo.
 
 use eframe::egui::{
     self, Color32, FontFamily, FontId, PointerButton, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextureHandle,
@@ -6,7 +7,7 @@ use eframe::egui::{
 };
 
 use crate::model::{Picture, Pixel};
-use crate::paint::{self, Ink, PaintOp, Region};
+use crate::paint::{self, PaintOp, Region};
 use crate::runtime::world::Tool;
 
 use super::{App, render, windows};
@@ -30,6 +31,39 @@ pub struct TextEntry {
     pos: (i32, i32),
     text: String,
     focus: bool,
+}
+
+/// Which paint color a swatch or the eyedropper sets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ColorSlot {
+    Line,
+    Fill,
+}
+
+/// The recent colors before any are chosen: black, white and a rainbow.
+pub const STARTING_COLORS: [Pixel; 10] = [
+    Pixel::BLACK,
+    Pixel::WHITE,
+    Pixel([128, 128, 128, 255]),
+    Pixel([220, 40, 40, 255]),
+    Pixel([245, 140, 20, 255]),
+    Pixel([245, 210, 30, 255]),
+    Pixel([40, 160, 60, 255]),
+    Pixel([30, 160, 220, 255]),
+    Pixel([40, 70, 200, 255]),
+    Pixel([140, 60, 180, 255]),
+];
+
+const RECENT_COLORS: usize = 10;
+
+pub fn color32(p: Pixel) -> Color32 {
+    let [r, g, b, a] = p.0;
+    Color32::from_rgba_unmultiplied(r, g, b, a)
+}
+
+fn pixel(c: Color32) -> Pixel {
+    let [r, g, b, a] = c.to_srgba_unmultiplied();
+    Pixel::rgba(r, g, b, a.max(1))
 }
 
 fn translated(region: &Region, dx: i32, dy: i32) -> Region {
@@ -73,7 +107,7 @@ impl App {
 
     pub(super) fn palette(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
-        let (tool, filled, line_size, edit_bg, pattern, brush, sides, patterns) = {
+        let (tool, filled, line_size, edit_bg, pattern, brush, sides, patterns, line_color, fill_color) = {
             let w = self.world();
             (
                 w.tool,
@@ -84,6 +118,8 @@ impl App {
                 w.brush,
                 w.poly_sides,
                 w.stack.patterns.clone(),
+                w.line_color,
+                w.fill_color,
             )
         };
         // A scroll bar with its own room, so it doesn't cover the patterns.
@@ -107,7 +143,7 @@ impl App {
             });
             ui.separator();
             ui.label(RichText::new("Pattern").strong());
-            let textures = self.pattern_textures(&ctx, &patterns);
+            let textures = self.pattern_textures(&ctx, &patterns, fill_color);
             egui::Grid::new("patterns").spacing([2.0, 2.0]).min_col_width(0.0).show(ui, |ui| {
                 for (i, tex) in textures.iter().enumerate() {
                     let (rect, resp) = ui.allocate_exact_size(Vec2::new(20.0, 14.0), Sense::click());
@@ -125,12 +161,14 @@ impl App {
                 }
             });
             ui.separator();
+            self.color_palette(ui, line_color, fill_color);
+            ui.separator();
             let mut f = filled;
             if ui.checkbox(&mut f, "Filled").changed() {
                 self.world().fill_shapes = f;
             }
             egui::Grid::new("paint-settings").num_columns(2).show(ui, |ui| {
-                ui.label("Line");
+                ui.label("Line size");
                 let mut ls = line_size;
                 if ui.add(egui::DragValue::new(&mut ls).range(1..=8)).changed() {
                     self.world().line_size = ls;
@@ -162,10 +200,120 @@ impl App {
         });
     }
 
-    /// Repeating 8×8 textures for pattern swatches, rebuilt when the stack's
-    /// patterns change.
-    fn pattern_textures(&mut self, ctx: &egui::Context, patterns: &[[u8; 8]]) -> Vec<egui::TextureId> {
-        if self.pattern_textures.as_ref().is_none_or(|(cached, _)| cached != patterns) {
+    /// The color palette: the line and fill colors, each with a picker and
+    /// an eyedropper, and the recent colors. Clicking "Line" or "Fill"
+    /// chooses which color the recent colors set; using a color's picker or
+    /// eyedropper chooses it too.
+    fn color_palette(&mut self, ui: &mut egui::Ui, line_color: Pixel, fill_color: Pixel) {
+        ui.label(RichText::new("Color").strong());
+        egui::Grid::new("paint-colors").num_columns(3).spacing([4.0, 2.0]).show(ui, |ui| {
+            for (slot, name, color, tip) in [
+                (ColorSlot::Line, "Line", line_color, "Lines, borders, the pencil and text"),
+                (ColorSlot::Fill, "Fill", fill_color, "The pattern: brush, spray, bucket and filled shapes"),
+            ] {
+                let chosen = self.color_target == slot;
+                let label = ui
+                    .add_sized([40.0, 20.0], egui::Button::selectable(chosen, name))
+                    .on_hover_text(format!("{tip}. Click so the colors below set it."));
+                if label.clicked() {
+                    self.color_target = slot;
+                }
+                let mut c = color32(color);
+                let resp = egui::color_picker::color_edit_button_srgba(ui, &mut c, egui::color_picker::Alpha::Opaque);
+                if resp.clicked() {
+                    self.color_target = slot;
+                }
+                if resp.changed() {
+                    self.set_paint_color(slot, pixel(c), false);
+                }
+                let picking = self.eyedropper == Some(slot);
+                let dropper = ui
+                    .add(egui::Button::selectable(picking, RichText::new("💧").size(13.0)))
+                    .on_hover_text(format!("Pick the {} color from the card", name.to_lowercase()));
+                if dropper.clicked() {
+                    self.eyedropper = if picking { None } else { Some(slot) };
+                    self.color_target = slot;
+                }
+                ui.end_row();
+            }
+        });
+        let recent = self.recent_colors.clone();
+        let target = self.color_target;
+        let tip = format!("Set the {} color", if target == ColorSlot::Line { "line" } else { "fill" });
+        egui::Grid::new("recent-colors").spacing([2.0, 2.0]).min_col_width(0.0).show(ui, |ui| {
+            for (i, color) in recent.iter().enumerate() {
+                let (rect, resp) = ui.allocate_exact_size(Vec2::new(18.0, 14.0), Sense::click());
+                ui.painter().rect_filled(rect, 0.0, color32(*color));
+                ui.painter().rect_stroke(rect, 0.0, Stroke::new(1.0, Color32::GRAY), StrokeKind::Outside);
+                // The row stays put while choosing; colors move up when
+                // they're painted with.
+                if resp.on_hover_text(&tip).clicked() {
+                    self.set_paint_color(target, *color, false);
+                }
+                if i % 5 == 4 {
+                    ui.end_row();
+                }
+            }
+        });
+    }
+
+    /// Set a paint color, remembering it among the recent colors.
+    pub(super) fn set_paint_color(&mut self, slot: ColorSlot, color: Pixel, remember: bool) {
+        {
+            let mut w = self.world();
+            match slot {
+                ColorSlot::Line => w.line_color = color,
+                ColorSlot::Fill => w.fill_color = color,
+            }
+        }
+        if remember {
+            self.remember_color(color);
+        }
+    }
+
+    /// The colors a tool is about to paint with become recent colors.
+    fn remember_used(&mut self, tool: Tool, s: &paint::Settings) {
+        let fills = matches!(tool, Tool::Brush | Tool::Spray | Tool::Bucket)
+            || s.filled && matches!(tool, Tool::Rect | Tool::RoundRect | Tool::Oval | Tool::RegularPolygon | Tool::Polygon);
+        if fills {
+            self.remember_color(s.fill_color);
+        }
+        if !matches!(tool, Tool::Brush | Tool::Spray | Tool::Bucket | Tool::Eraser) {
+            self.remember_color(s.line_color);
+        }
+    }
+
+    fn remember_color(&mut self, color: Pixel) {
+        if self.recent_colors.first() == Some(&color) {
+            return;
+        }
+        self.recent_colors.retain(|c| *c != color);
+        self.recent_colors.insert(0, color);
+        self.recent_colors.truncate(RECENT_COLORS);
+    }
+
+    /// With the eyedropper: a click on the card takes the color shown there
+    /// (the card's paint, else the background's, else white).
+    pub(super) fn eyedropper_input(&mut self, resp: &egui::Response, origin: Pos2) {
+        if !resp.clicked() {
+            return;
+        }
+        let (Some(slot), Some(q)) = (self.eyedropper, resp.interact_pointer_pos()) else { return };
+        let (x, y) = ((q.x - origin.x).floor() as i32, (q.y - origin.y).floor() as i32);
+        let color = {
+            let w = self.world();
+            let card = w.stack.card(w.card_id).map(|c| c.picture.get(x, y)).unwrap_or(Pixel::CLEAR);
+            let bg = w.stack.background(w.bg_id()).map(|b| b.picture.get(x, y)).unwrap_or(Pixel::CLEAR);
+            paint::paper(if card.is_clear() { bg } else { card })
+        };
+        self.set_paint_color(slot, color, true);
+        self.eyedropper = None;
+    }
+
+    /// Repeating 8×8 textures for pattern swatches, in the fill color,
+    /// rebuilt when the stack's patterns or the color change.
+    fn pattern_textures(&mut self, ctx: &egui::Context, patterns: &[[u8; 8]], color: Pixel) -> Vec<egui::TextureId> {
+        if self.pattern_textures.as_ref().is_none_or(|(cached, c, _)| cached != patterns || *c != color) {
             let textures = patterns
                 .iter()
                 .enumerate()
@@ -174,16 +322,16 @@ impl App {
                     for (y, row) in rows.iter().enumerate() {
                         for x in 0..8 {
                             if row & (0x80 >> x) != 0 {
-                                img.pixels[y * 8 + x] = Color32::BLACK;
+                                img.pixels[y * 8 + x] = color32(color);
                             }
                         }
                     }
                     ctx.load_texture(format!("pattern-{i}"), img, egui::TextureOptions::NEAREST_REPEAT)
                 })
                 .collect();
-            self.pattern_textures = Some((patterns.to_vec(), textures));
+            self.pattern_textures = Some((patterns.to_vec(), color, textures));
         }
-        self.pattern_textures.as_ref().map(|(_, t)| t.iter().map(|h| h.id()).collect()).unwrap_or_default()
+        self.pattern_textures.as_ref().map(|(_, _, t)| t.iter().map(|h| h.id()).collect()).unwrap_or_default()
     }
 
     // ----- pictures and undo -----
@@ -217,16 +365,17 @@ impl App {
         if resp.drag_started_by(PointerButton::Primary) || resp.clicked() && self.stroke.is_none() {
             let start = resp.interact_pointer_pos().map(to_card).unwrap_or(p);
             self.push_undo();
+            self.remember_used(tool, &settings);
             if tool == Tool::Bucket {
                 self.with_picture(|pic| paint::fill(pic, start.0, start.1, settings.ink()));
                 return;
             }
-            // The pencil draws white over black, like MacPaint.
+            // The pencil draws white over its own color, like MacPaint.
             let color = if tool == Tool::Pencil {
-                let dark = self.with_picture(|pic| paint::is_dark(pic.get(start.0, start.1))).unwrap_or(false);
-                if dark { Pixel::WHITE } else { Pixel::BLACK }
+                self.with_picture(|pic| paint::pencil_color(pic, start.0, start.1, settings.line_color))
+                    .unwrap_or(settings.line_color)
             } else {
-                Pixel::BLACK
+                settings.line_color
             };
             self.stroke = Some(PaintStroke { start, last: start, color });
             if freehand(tool) {
@@ -373,12 +522,13 @@ impl App {
         }
         let s = self.world().paint_settings();
         self.push_undo();
+        self.remember_used(Tool::Polygon, &s);
         self.with_picture(|pic| {
             if closed || s.filled {
-                paint::polygon(pic, &pts, s.line_size, s.filled.then(|| s.ink()));
+                paint::polygon(pic, &pts, s.outline(), s.filled.then(|| s.ink()));
             } else {
                 for seg in pts.windows(2) {
-                    paint::line(pic, seg[0].0, seg[0].1, seg[1].0, seg[1].1, s.line_size, Pixel::BLACK);
+                    paint::line(pic, seg[0].0, seg[0].1, seg[1].0, seg[1].1, s.line_size, s.line_color);
                 }
             }
         });
@@ -396,9 +546,14 @@ impl App {
     }
 
     pub(super) fn text_tool_editor(&mut self, ui: &mut egui::Ui, origin: Pos2) {
-        let (size, font, card_size) = {
+        let (size, font, card_size, color) = {
             let w = self.world();
-            (w.paint_text_size, w.paint_font.to_ascii_lowercase(), Vec2::new(w.stack.width as f32, w.stack.height as f32))
+            (
+                w.paint_text_size,
+                w.paint_font.to_ascii_lowercase(),
+                Vec2::new(w.stack.width as f32, w.stack.height as f32),
+                color32(w.line_color),
+            )
         };
         let Some(entry) = &mut self.text_entry else { return };
         let family = if font.contains("courier") || font.contains("monaco") || font.contains("mono") {
@@ -415,7 +570,7 @@ impl App {
                 .frame(egui::Frame::NONE)
                 .margin(Vec2::ZERO)
                 .font(FontId::new(size as f32, family))
-                .text_color(Color32::BLACK)
+                .text_color(color)
                 .desired_width(rect.width()),
         );
         if entry.focus {
@@ -430,12 +585,14 @@ impl App {
         if entry.text.is_empty() {
             return;
         }
-        let (size, font, style) = {
+        let (size, font, style, color) = {
             let w = self.world();
-            (w.paint_text_size, w.paint_font.clone(), w.paint_text_style.clone())
+            (w.paint_text_size, w.paint_font.clone(), w.paint_text_style.clone(), w.line_color)
         };
         self.push_undo();
-        self.with_picture(|pic| paint::draw_text(pic, entry.pos.0, entry.pos.1, &entry.text, size, &font, &style));
+        self.remember_color(color);
+        let how = paint::PaintText { size, font: &font, style: &style, color };
+        self.with_picture(|pic| paint::draw_text(pic, entry.pos.0, entry.pos.1, &entry.text, &how));
     }
 
     // ----- Paint menu -----
@@ -458,7 +615,7 @@ impl App {
             Some(Marquee::Selected { region }) => Some(region.clone()),
             _ => None,
         };
-        let ink = Ink::Pattern(self.world().paint_settings().pattern);
+        let ink = self.world().paint_settings().ink();
         self.push_undo();
         let new_rect = self.with_picture(|pic| {
             let region = selection.clone().unwrap_or_else(|| Region::all(pic));

@@ -417,6 +417,8 @@ impl Interp {
             "pattern" => w.pattern.to_string(),
             "brush" => w.brush.to_string(),
             "polysides" => w.poly_sides.to_string(),
+            "pencolor" => crate::model::color::color_text(rgb(w.line_color)),
+            "brushcolor" => crate::model::color::color_text(rgb(w.fill_color)),
             "textfont" => w.paint_font.clone(),
             "textsize" => w.paint_text_size.to_string(),
             "textstyle" => w.paint_text_style.clone(),
@@ -451,6 +453,15 @@ impl Interp {
             "pattern" => self.w().pattern = to_int(v)?.clamp(1, 40) as usize,
             "brush" => self.w().brush = to_int(v)?.clamp(1, 32) as u32,
             "polysides" => self.w().poly_sides = to_int(v)?.clamp(3, 50) as u32,
+            // The paint colors: lines and text, and the pattern.
+            "pencolor" | "brushcolor" => {
+                let Some([r, g, b]) = crate::model::color::parse_color(v) else {
+                    return err(format!("Expected a color but found \"{v}\""));
+                };
+                let c = crate::model::Pixel::rgba(r, g, b, 255);
+                let mut w = self.w();
+                if name == "pencolor" { w.line_color = c } else { w.fill_color = c }
+            }
             // With no object, the text properties are those of painted text.
             "textfont" => self.w().paint_font = v.to_string(),
             "textsize" => self.w().paint_text_size = to_int(v)?.clamp(6, 128) as u32,
@@ -993,3 +1004,9 @@ fn set_rect_prop(r: &mut Rect, name: &str, v: &str) -> R<bool> {
     }
     Ok(true)
 }
+
+/// A paint color's red, green and blue.
+fn rgb(p: crate::model::Pixel) -> crate::model::color::Rgb {
+    [p.0[0], p.0[1], p.0[2]]
+}
+

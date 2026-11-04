@@ -1,5 +1,5 @@
-//! Painted text for the text paint tool and `type`: glyphs rasterised
-//! straight into the 1-bit picture.
+//! Painted text for the text paint tool and `type`: glyphs rasterized
+//! straight into the picture, in the line color.
 
 use ab_glyph::{Font, FontRef, PxScale, ScaleFont, point};
 
@@ -7,9 +7,19 @@ use crate::model::{Picture, Pixel};
 
 const INK_COVERAGE: f32 = 0.3;
 
+/// How painted text looks.
+#[derive(Clone, Copy)]
+pub struct PaintText<'a> {
+    pub size: u32,
+    pub font: &'a str,
+    pub style: &'a str,
+    pub color: Pixel,
+}
+
 /// Draw text with its first line's top-left at (x, y); returns where the
 /// next character would go, for typing more. Lines are separated by "\n".
-pub fn draw_text(pic: &mut Picture, x: i32, y: i32, text: &str, size: u32, font: &str, style: &str) -> (i32, i32) {
+pub fn draw_text(pic: &mut Picture, x: i32, y: i32, text: &str, how: &PaintText) -> (i32, i32) {
+    let PaintText { size, font, style, color } = *how;
     let mono = {
         let f = font.to_ascii_lowercase();
         f.contains("courier") || f.contains("monaco") || f.contains("mono")
@@ -39,14 +49,14 @@ pub fn draw_text(pic: &mut Picture, x: i32, y: i32, text: &str, size: u32, font:
             last = Some(id);
             let Some(outline) = font.outline_glyph(glyph) else { continue };
             let bounds = outline.px_bounds();
-            // A 1-bit picture: ink any pixel the glyph covers noticeably, so
+            // Painting isn't smoothed: ink any pixel the glyph covers noticeably, so
             // the thin strokes of a light font stay connected.
             outline.draw(|gx, gy, coverage| {
                 if coverage >= INK_COVERAGE {
                     let (px, py) = (bounds.min.x as i32 + gx as i32, bounds.min.y as i32 + gy as i32);
-                    pic.set(px, py, Pixel::BLACK);
+                    pic.set(px, py, color);
                     if bold {
-                        pic.set(px + 1, py, Pixel::BLACK);
+                        pic.set(px + 1, py, color);
                     }
                 }
             });
@@ -54,7 +64,7 @@ pub fn draw_text(pic: &mut Picture, x: i32, y: i32, text: &str, size: u32, font:
         if underline {
             let uy = caret.y as i32 + 2;
             for ux in start_x as i32..caret.x as i32 {
-                pic.set(ux, uy, Pixel::BLACK);
+                pic.set(ux, uy, color);
             }
         }
     }
@@ -68,12 +78,12 @@ mod tests {
     #[test]
     fn draws_ink_and_advances() {
         let mut p = Picture::new(120, 60);
-        let (x, y) = draw_text(&mut p, 5, 5, "Hi", 24, "Geneva", "plain");
+        let (x, y) = draw_text(&mut p, 5, 5, "Hi", &PaintText { size: 24, font: "Geneva", style: "plain", color: Pixel::BLACK });
         assert!(x > 20 && y == 5);
         assert!(p.iter().any(|x| x == Pixel::BLACK));
         // A second line moves down.
         let mut q = Picture::new(120, 80);
-        let (_, y2) = draw_text(&mut q, 5, 5, "a\nb", 18, "Geneva", "plain");
+        let (_, y2) = draw_text(&mut q, 5, 5, "a\nb", &PaintText { size: 18, font: "Geneva", style: "plain", color: Pixel::BLACK });
         assert!(y2 > 20);
     }
 }

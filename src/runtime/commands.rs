@@ -549,9 +549,11 @@ impl Interp {
                 if w.tool == Tool::Text
                     && let Some((x, y)) = w.text_point
                 {
-                    let (font, size, style) = (w.paint_font.clone(), w.paint_text_size, w.paint_text_style.clone());
+                    let (font, size, style, color) =
+                        (w.paint_font.clone(), w.paint_text_size, w.paint_text_style.clone(), w.line_color);
                     if let Some(pic) = w.layer_picture_mut() {
-                        let next = crate::paint::draw_text(pic, x, y, &text, size, &font, &style);
+                        let how = crate::paint::PaintText { size, font: &font, style: &style, color };
+                        let next = crate::paint::draw_text(pic, x, y, &text, &how);
                         w.text_point = Some(next);
                     }
                     w.picture_rev += 1;

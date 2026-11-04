@@ -115,7 +115,14 @@ pub struct App {
     /// Text tool: text being typed, not yet painted.
     text_entry: Option<TextEntry>,
     /// Swatch textures for the stack's patterns.
-    pattern_textures: Option<(Vec<[u8; 8]>, Vec<TextureHandle>)>,
+    /// Pattern swatches, in the fill color, for the stack's patterns.
+    pattern_textures: Option<(Vec<[u8; 8]>, crate::model::Pixel, Vec<TextureHandle>)>,
+    /// Colors chosen lately, most recent first, for the tool panel.
+    recent_colors: Vec<crate::model::Pixel>,
+    /// The eyedropper is waiting for a click on the card, to set this color.
+    eyedropper: Option<painting::ColorSlot>,
+    /// Which paint color the recent colors set.
+    color_target: painting::ColorSlot,
     infos: Vec<InfoWindow>,
     editors: Vec<ScriptEditor>,
     error: Option<ErrorAlert>,
@@ -217,6 +224,9 @@ impl App {
             polygon: None,
             text_entry: None,
             pattern_textures: None,
+            recent_colors: painting::STARTING_COLORS.to_vec(),
+            eyedropper: None,
+            color_target: painting::ColorSlot::Fill,
             infos: Vec::new(),
             editors: Vec::new(),
             error: None,
@@ -1671,7 +1681,10 @@ impl App {
             }
         }
 
-        match tool {
+        if self.eyedropper.is_some() {
+            self.eyedropper_input(&resp, origin);
+        } else {
+            match tool {
             Tool::Browse => {
                 self.browse_input(&ctx, &resp, origin, &live);
                 self.field_editor(ui, origin, &live);
@@ -1694,6 +1707,7 @@ impl App {
                 if tool == Tool::Text {
                     self.text_tool_editor(ui, origin);
                 }
+            }
             }
         }
 

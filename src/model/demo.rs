@@ -212,7 +212,7 @@ fn tour_palette() -> super::Palette {
     let mut buttons = Vec::new();
     for (i, (label, message)) in cells.iter().enumerate() {
         let (l, t) = ((i as i32 % 2) * cell_w, (i as i32 / 2) * cell_h);
-        crate::paint::draw_text(&mut pic, l + 10, t + 5, label, 12, "Geneva", "bold");
+        crate::paint::draw_text(&mut pic, l + 10, t + 5, label, &crate::paint::PaintText { size: 12, font: "Geneva", style: "bold", color: Pixel::BLACK });
         let rect = Rect::new(l + 1, t + 1, l + cell_w, t + cell_h);
         buttons.push(super::PaletteButton { rect, message: message.to_string() });
     }
@@ -428,6 +428,45 @@ end mouseUp"#,
         12,
     );
     b.card_part(c, hint);
+    // Painting in color from a script: the pattern's set bits are in the
+    // brush color, lines and borders in the pen color.
+    let balloons = b.button(
+        "Paint in Color",
+        Rect::new(372, 40, 492, 62),
+        r#"
+on mouseUp
+  put the penColor into oldPen
+  put the brushColor into oldBrush
+  put the filled into oldFilled
+  put the pattern into oldPattern
+  put "red,orange,lime,purple" into colors
+  choose oval tool
+  set the filled to true
+  set the lineSize to 1
+  set the penColor to "navy"
+  repeat with i = 1 to 4
+    put 368 + 30 * (i - 1) into x
+    put 80 + 14 * (i mod 2) into y
+    set the brushColor to item i of colors
+    -- The last balloon shows a pattern in color.
+    if i = 4 then set the pattern to 3 else set the pattern to 1
+    drag from x & "," & y to (x + 26) & "," & (y + 32)
+  end repeat
+  choose line tool
+  set the penColor to "gray"
+  repeat with i = 1 to 4
+    put 368 + 30 * (i - 1) into x
+    put 80 + 14 * (i mod 2) into y
+    drag from (x + 13) & "," & (y + 33) to "425,215"
+  end repeat
+  set the pattern to oldPattern
+  set the filled to oldFilled
+  set the penColor to oldPen
+  set the brushColor to oldBrush
+  choose browse tool
+end mouseUp"#,
+    );
+    b.card_part(c, Part { style: PartStyle::Standard, ..balloons });
 
     // ----- Animation -----
     // A small state machine in the card's script: whether the ball is

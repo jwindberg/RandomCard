@@ -1,30 +1,63 @@
-//! Raster painting on 1-bit-plus-transparency pictures, shared by the paint
-//! tools and by scripts (`drag from … to …`, `click at`, `type`).
+//! Raster painting on pictures, shared by the paint tools and by scripts
+//! (`drag from … to …`, `click at`, `type`). As in QuickDraw, a pattern is
+//! a mask: its black bits paint in a color (the fill color) and its white
+//! bits in white. Lines, borders, the pencil and text use the line color.
+//! With both colors black, painting is HyperCard's black and white.
 
 mod text;
 
 use crate::model::{Picture, Pixel};
-pub use text::draw_text;
+pub use text::{PaintText, draw_text};
 
-/// What paint is laid down with: a solid pixel value or an 8×8 pattern.
+/// What paint is laid down with: a solid pixel value, or an 8×8 pattern
+/// whose black bits are in `color` and white bits white.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Ink {
     Solid(Pixel),
-    Pattern([u8; 8]),
+    Pattern { rows: [u8; 8], color: Pixel },
 }
 
 impl Ink {
+    /// A black-and-white pattern.
+    #[cfg(test)]
+    pub fn pattern(rows: [u8; 8]) -> Ink {
+        Ink::Pattern { rows, color: Pixel::BLACK }
+    }
+
+    /// Whether the pattern's bit at (x, y) is set (always, for solid ink).
+    pub fn covers(&self, x: i32, y: i32) -> bool {
+        match self {
+            Ink::Solid(_) => true,
+            Ink::Pattern { rows, .. } => rows[y.rem_euclid(8) as usize] & (0x80 >> x.rem_euclid(8)) != 0,
+        }
+    }
+
     pub fn at(&self, x: i32, y: i32) -> Pixel {
         match self {
             Ink::Solid(p) => *p,
-            Ink::Pattern(rows) => {
-                if rows[y.rem_euclid(8) as usize] & (0x80 >> x.rem_euclid(8)) != 0 {
-                    Pixel::BLACK
+            Ink::Pattern { color, .. } => {
+                if self.covers(x, y) {
+                    *color
                 } else {
                     Pixel::WHITE
                 }
             }
         }
+    }
+}
+
+/// The lines a shape is drawn with: their width and color.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Outline {
+    pub size: u32,
+    pub color: Pixel,
+}
+
+impl Outline {
+    /// HyperCard's: black, `size` pixels wide.
+    #[cfg(test)]
+    pub fn black(size: u32) -> Outline {
+        Outline { size, color: Pixel::BLACK }
     }
 }
 
@@ -73,8 +106,16 @@ pub const DEFAULT_PATTERNS: [[u8; 8]; 40] = [
     [0xaa, 0x44, 0xaa, 0x11, 0xaa, 0x44, 0xaa, 0x11], // textured gray
 ];
 
-pub fn is_dark(p: Pixel) -> bool {
-    p == Pixel::BLACK
+/// A pixel as it shows on paper: clear is white.
+pub fn paper(p: Pixel) -> Pixel {
+    if p.is_clear() { Pixel::WHITE } else { p }
+}
+
+/// The color a pencil stroke starting at (x, y) draws in: the line color,
+/// or white when it starts on that color, as MacPaint's pencil erased by
+/// starting on black.
+pub fn pencil_color(pic: &Picture, x: i32, y: i32, line: Pixel) -> Pixel {
+    if paper(pic.get(x, y)) == paper(line) && paper(line) != Pixel::WHITE { Pixel::WHITE } else { line }
 }
 
 /// A square pen of `size` pixels centered on (x, y).
@@ -174,22 +215,22 @@ fn norm(x0: i32, y0: i32, x1: i32, y1: i32) -> (i32, i32, i32, i32) {
 }
 
 /// Paint every pixel of a bounding box for which `inside` holds: the border
-/// band black, and the interior with `fill` when given.
+/// band in the outline's color, and the interior with `fill` when given.
 fn shape(
     pic: &mut Picture,
     (l, t, r, b): (i32, i32, i32, i32),
-    size: u32,
+    outline: Outline,
     fill: Option<Ink>,
     inside: impl Fn(i32, i32, i32) -> bool,
 ) {
-    let s = size.max(1) as i32;
+    let s = outline.size.max(1) as i32;
     for y in t..=b {
         for x in l..=r {
             if !inside(x, y, 0) {
                 continue;
             }
             if !inside(x, y, s) {
-                pic.set(x, y, Pixel::BLACK);
+                pic.set(x, y, outline.color);
             } else if let Some(ink) = fill {
                 pic.set(x, y, ink.at(x, y));
             }
@@ -197,9 +238,9 @@ fn shape(
     }
 }
 
-pub fn rect(pic: &mut Picture, x0: i32, y0: i32, x1: i32, y1: i32, size: u32, fill: Option<Ink>) {
+pub fn rect(pic: &mut Picture, x0: i32, y0: i32, x1: i32, y1: i32, outline: Outline, fill: Option<Ink>) {
     let (l, t, r, b) = norm(x0, y0, x1, y1);
-    shape(pic, (l, t, r, b), size, fill, |x, y, s| x >= l + s && x <= r - s && y >= t + s && y <= b - s);
+    shape(pic, (l, t, r, b), outline, fill, |x, y, s| x >= l + s && x <= r - s && y >= t + s && y <= b - s);
 }
 
 /// Whether (x, y) lies inside a rounded rectangle.
@@ -214,9 +255,9 @@ fn in_round_rect(x: i32, y: i32, l: i32, t: i32, r: i32, b: i32, radius: i32) ->
     dx * dx + dy * dy <= rad * rad
 }
 
-pub fn round_rect(pic: &mut Picture, x0: i32, y0: i32, x1: i32, y1: i32, size: u32, fill: Option<Ink>) {
+pub fn round_rect(pic: &mut Picture, x0: i32, y0: i32, x1: i32, y1: i32, outline: Outline, fill: Option<Ink>) {
     let (l, t, r, b) = norm(x0, y0, x1, y1);
-    shape(pic, (l, t, r, b), size, fill, |x, y, s| in_round_rect(x, y, l + s, t + s, r - s, b - s, 10 - s));
+    shape(pic, (l, t, r, b), outline, fill, |x, y, s| in_round_rect(x, y, l + s, t + s, r - s, b - s, 10 - s));
 }
 
 /// Whether pixel (x, y) lies inside the ellipse filling pixels l..=r, t..=b.
@@ -227,10 +268,10 @@ fn in_ellipse(x: i32, y: i32, l: f32, t: f32, r: f32, b: f32) -> bool {
     dx * dx + dy * dy <= 1.0
 }
 
-pub fn oval(pic: &mut Picture, x0: i32, y0: i32, x1: i32, y1: i32, size: u32, fill: Option<Ink>) {
+pub fn oval(pic: &mut Picture, x0: i32, y0: i32, x1: i32, y1: i32, outline: Outline, fill: Option<Ink>) {
     let (l, t, r, b) = norm(x0, y0, x1, y1);
     let (lf, tf, rf, bf) = (l as f32, t as f32, r as f32, b as f32);
-    shape(pic, (l, t, r, b), size, fill, |x, y, s| {
+    shape(pic, (l, t, r, b), outline, fill, |x, y, s| {
         let s = s as f32;
         in_ellipse(x, y, lf + s, tf + s, rf - s, bf - s)
     });
@@ -251,8 +292,8 @@ pub fn in_polygon(points: &[(i32, i32)], x: i32, y: i32) -> bool {
     inside
 }
 
-/// A closed polygon: filled with `fill` if given, outlined in black.
-pub fn polygon(pic: &mut Picture, points: &[(i32, i32)], size: u32, fill: Option<Ink>) {
+/// A closed polygon: filled with `fill` if given, and outlined.
+pub fn polygon(pic: &mut Picture, points: &[(i32, i32)], outline: Outline, fill: Option<Ink>) {
     if points.len() < 2 {
         return;
     }
@@ -271,7 +312,7 @@ pub fn polygon(pic: &mut Picture, points: &[(i32, i32)], size: u32, fill: Option
     }
     for i in 0..points.len() {
         let (a, b) = (points[i], points[(i + 1) % points.len()]);
-        line(pic, a.0, a.1, b.0, b.1, size, Pixel::BLACK);
+        line(pic, a.0, a.1, b.0, b.1, outline.size, outline.color);
     }
 }
 
@@ -290,13 +331,14 @@ pub fn regular_polygon_points(center: (i32, i32), corner: (i32, i32), sides: u32
 }
 
 /// Bucket fill: the region of same-colored pixels (clear counts as white)
-/// around (x, y), painted with `ink`.
+/// around (x, y), painted with `ink`. Colors must match exactly: painting
+/// is never smoothed, so a shape's edge holds the paint in.
 pub fn fill(pic: &mut Picture, x: i32, y: i32, ink: Ink) {
     let (w, h) = (pic.width as i32, pic.height as i32);
     if x < 0 || y < 0 || x >= w || y >= h {
         return;
     }
-    let target = is_dark(pic.get(x, y));
+    let target = paper(pic.get(x, y));
     // Find the whole region before painting, since a pattern adds both colors.
     let mut seen = vec![false; (w * h) as usize];
     let mut region = Vec::new();
@@ -306,7 +348,7 @@ pub fn fill(pic: &mut Picture, x: i32, y: i32, ink: Ink) {
             continue;
         }
         let i = (y * w + x) as usize;
-        if seen[i] || is_dark(pic.get(x, y)) != target {
+        if seen[i] || paper(pic.get(x, y)) != target {
             continue;
         }
         seen[i] = true;
@@ -314,7 +356,7 @@ pub fn fill(pic: &mut Picture, x: i32, y: i32, ink: Ink) {
         stack.extend([(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]);
     }
     // Filling a solid area with its own color does nothing.
-    if ink == Ink::Solid(if target { Pixel::BLACK } else { Pixel::WHITE }) {
+    if ink == Ink::Solid(target) {
         return;
     }
     for (x, y) in region {
@@ -327,10 +369,9 @@ pub fn spray(pic: &mut Picture, x: i32, y: i32, ink: Ink) {
         let dx: i32 = rand::random_range(-8..=8);
         let dy: i32 = rand::random_range(-8..=8);
         if dx * dx + dy * dy <= 64 {
-            // Spraying a pattern reveals it dot by dot.
-            let p = ink.at(x + dx, y + dy);
-            if p == Pixel::BLACK {
-                pic.set(x + dx, y + dy, p);
+            // Spraying a pattern reveals its set bits dot by dot.
+            if ink.covers(x + dx, y + dy) {
+                pic.set(x + dx, y + dy, ink.at(x + dx, y + dy));
             }
         }
     }
@@ -439,11 +480,14 @@ impl PaintOp {
 pub fn apply_op(pic: &mut Picture, region: &Region, op: PaintOp, ink: Ink) -> (i32, i32, i32, i32) {
     let (l, t, r, b) = region.rect;
     let pixels: Vec<(i32, i32)> = region.pixels().collect();
-    let dark = |p: Pixel| p == Pixel::BLACK;
+    // Painted: anything but white or clear.
+    let painted = |p: Pixel| paper(p) != Pixel::WHITE;
     match op {
         PaintOp::Fill => pixels.iter().for_each(|&(x, y)| pic.set(x, y, ink.at(x, y))),
+        // Each color becomes its opposite: black and white swap, as before.
         PaintOp::Invert => pixels.iter().for_each(|&(x, y)| {
-            pic.set(x, y, if dark(pic.get(x, y)) { Pixel::WHITE } else { Pixel::BLACK });
+            let Pixel([r, g, b, a]) = paper(pic.get(x, y));
+            pic.set(x, y, Pixel([255 - r, 255 - g, 255 - b, a]));
         }),
         PaintOp::Darken | PaintOp::Lighten => {
             // Sprinkle one pixel in eight towards black or white.
@@ -454,15 +498,18 @@ pub fn apply_op(pic: &mut Picture, region: &Region, op: PaintOp, ink: Ink) -> (i
             }
         }
         PaintOp::TraceEdges => {
-            // Outline shapes: pixels next to black become black, black becomes white.
+            // Outline shapes: unpainted pixels next to paint take its color,
+            // and the paint becomes white.
             let before = pic.clone();
             for &(x, y) in &pixels {
-                let near = [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|(dx, dy)| dark(before.get(x + dx, y + dy)));
-                let p = before.get(x, y);
-                if dark(p) {
+                let near = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+                    .iter()
+                    .map(|(dx, dy)| before.get(x + dx, y + dy))
+                    .find(|p| painted(*p));
+                if painted(before.get(x, y)) {
                     pic.set(x, y, Pixel::WHITE);
-                } else if near {
-                    pic.set(x, y, Pixel::BLACK);
+                } else if let Some(p) = near {
+                    pic.set(x, y, p);
                 }
             }
         }
@@ -515,11 +562,20 @@ pub struct Settings {
     pub pattern: [u8; 8],
     pub brush: u32,
     pub poly_sides: u32,
+    /// The pencil, lines, shape borders and text (`the penColor`).
+    pub line_color: Pixel,
+    /// The pattern's set bits: brush, spray, bucket and shape interiors
+    /// (`the brushColor`).
+    pub fill_color: Pixel,
 }
 
 impl Settings {
     pub fn ink(&self) -> Ink {
-        Ink::Pattern(self.pattern)
+        Ink::Pattern { rows: self.pattern, color: self.fill_color }
+    }
+
+    pub fn outline(&self) -> Outline {
+        Outline { size: self.line_size, color: self.line_color }
     }
 
     fn fill(&self) -> Option<Ink> {
@@ -547,7 +603,7 @@ pub enum DragTool {
 pub fn apply_drag(pic: &mut Picture, tool: DragTool, a: (i32, i32), b: (i32, i32), s: &Settings) {
     match tool {
         DragTool::Pencil => {
-            let color = if is_dark(pic.get(a.0, a.1)) { Pixel::WHITE } else { Pixel::BLACK };
+            let color = pencil_color(pic, a.0, a.1, s.line_color);
             line(pic, a.0, a.1, b.0, b.1, 1, color);
         }
         DragTool::Brush => {
@@ -556,13 +612,13 @@ pub fn apply_drag(pic: &mut Picture, tool: DragTool, a: (i32, i32), b: (i32, i32
         }
         DragTool::Eraser => line(pic, a.0, a.1, b.0, b.1, 16, Pixel::CLEAR),
         DragTool::Spray => line_with(a.0, a.1, b.0, b.1, |x, y| spray(pic, x, y, s.ink())),
-        DragTool::Curve | DragTool::Line => line(pic, a.0, a.1, b.0, b.1, s.line_size, Pixel::BLACK),
-        DragTool::Rect => rect(pic, a.0, a.1, b.0, b.1, s.line_size, s.fill()),
-        DragTool::RoundRect => round_rect(pic, a.0, a.1, b.0, b.1, s.line_size, s.fill()),
-        DragTool::Oval => oval(pic, a.0, a.1, b.0, b.1, s.line_size, s.fill()),
+        DragTool::Curve | DragTool::Line => line(pic, a.0, a.1, b.0, b.1, s.line_size, s.line_color),
+        DragTool::Rect => rect(pic, a.0, a.1, b.0, b.1, s.outline(), s.fill()),
+        DragTool::RoundRect => round_rect(pic, a.0, a.1, b.0, b.1, s.outline(), s.fill()),
+        DragTool::Oval => oval(pic, a.0, a.1, b.0, b.1, s.outline(), s.fill()),
         DragTool::RegularPolygon => {
             let pts = regular_polygon_points(a, b, s.poly_sides);
-            polygon(pic, &pts, s.line_size, s.fill());
+            polygon(pic, &pts, s.outline(), s.fill());
         }
     }
 }
@@ -574,7 +630,7 @@ mod tests {
     #[test]
     fn fill_bounded() {
         let mut p = Picture::new(20, 20);
-        rect(&mut p, 2, 2, 10, 10, 1, None);
+        rect(&mut p, 2, 2, 10, 10, Outline::black(1), None);
         fill(&mut p, 5, 5, Ink::Solid(Pixel::BLACK));
         assert_eq!(p.get(5, 5), Pixel::BLACK);
         assert_eq!(p.get(15, 15), Pixel::CLEAR);
@@ -585,7 +641,7 @@ mod tests {
     #[test]
     fn pattern_fill_covers_the_whole_region() {
         let mut p = Picture::new(16, 16);
-        fill(&mut p, 0, 0, Ink::Pattern(DEFAULT_PATTERNS[2]));
+        fill(&mut p, 0, 0, Ink::pattern(DEFAULT_PATTERNS[2]));
         // A 50% gray: alternating black and white everywhere.
         assert_eq!(p.get(0, 0), Pixel::BLACK);
         assert_eq!(p.get(1, 0), Pixel::WHITE);
@@ -596,13 +652,13 @@ mod tests {
     #[test]
     fn shapes() {
         let mut p = Picture::new(30, 30);
-        oval(&mut p, 0, 0, 29, 29, 1, None);
+        oval(&mut p, 0, 0, 29, 29, Outline::black(1), None);
         assert_eq!(p.get(15, 0), Pixel::BLACK);
         assert_eq!(p.get(15, 15), Pixel::CLEAR);
         line(&mut p, 0, 0, 29, 29, 1, Pixel::BLACK);
         assert_eq!(p.get(10, 10), Pixel::BLACK);
         let mut q = Picture::new(30, 30);
-        rect(&mut q, 0, 0, 29, 29, 2, Some(Ink::Solid(Pixel::WHITE)));
+        rect(&mut q, 0, 0, 29, 29, Outline::black(2), Some(Ink::Solid(Pixel::WHITE)));
         assert_eq!((q.get(1, 15), q.get(15, 15)), (Pixel::BLACK, Pixel::WHITE));
     }
 
@@ -615,7 +671,7 @@ mod tests {
         assert_eq!(pts.len(), 4);
         assert_eq!(pts[0], (60, 50));
         let mut p = Picture::new(100, 100);
-        polygon(&mut p, &pts, 1, Some(Ink::Solid(Pixel::WHITE)));
+        polygon(&mut p, &pts, Outline::black(1), Some(Ink::Solid(Pixel::WHITE)));
         assert_eq!(p.get(50, 50), Pixel::WHITE);
         assert_eq!(p.get(60, 50), Pixel::BLACK);
     }
@@ -642,8 +698,41 @@ mod tests {
         assert_eq!(brush_shape(6).len(), 4);
         assert_eq!(brush_shape(17), brush_shape(1));
         let mut p = Picture::new(20, 20);
-        let s = Settings { line_size: 1, filled: false, pattern: [0xff; 8], brush: 10, poly_sides: 4 };
+        let s = Settings { line_size: 1, filled: false, pattern: [0xff; 8], brush: 10, poly_sides: 4, line_color: Pixel::BLACK, fill_color: Pixel::BLACK };
         apply_drag(&mut p, DragTool::Brush, (10, 10), (10, 10), &s);
         assert_eq!((p.get(6, 10), p.get(10, 11)), (Pixel::BLACK, Pixel::CLEAR));
+    }
+
+    #[test]
+    fn painting_in_color() {
+        let red = Pixel::rgba(220, 30, 30, 255);
+        let blue = Pixel::rgba(30, 60, 220, 255);
+        let s = Settings { line_size: 2, filled: true, pattern: DEFAULT_PATTERNS[2], brush: 1, poly_sides: 4, line_color: blue, fill_color: red };
+        let mut p = Picture::new(40, 40);
+        apply_drag(&mut p, DragTool::Rect, (0, 0), (39, 39), &s);
+        // A blue border, and the gray pattern in red and white inside.
+        assert_eq!(p.get(0, 20), blue);
+        assert_eq!((p.get(10, 10), p.get(11, 10)), (red, Pixel::WHITE));
+        // The bucket fills exactly one color's region.
+        fill(&mut p, 11, 10, Ink::Solid(blue));
+        assert_eq!((p.get(11, 10), p.get(10, 10)), (blue, red));
+        // The pencil draws its color, or white when it starts on it.
+        assert_eq!(pencil_color(&p, 0, 20, blue), Pixel::WHITE);
+        assert_eq!(pencil_color(&p, 10, 10, blue), blue);
+        // Black-and-white settings paint exactly as before.
+        let mut q = Picture::new(4, 4);
+        fill(&mut q, 0, 0, Ink::pattern(DEFAULT_PATTERNS[2]));
+        assert!(!q.has_color());
+    }
+
+    #[test]
+    fn color_paint_ops() {
+        let mut p = Picture::new(3, 1);
+        p.set(1, 0, Pixel::rgba(200, 100, 0, 255));
+        let all = Region::all(&p);
+        apply_op(&mut p, &all, PaintOp::TraceEdges, Ink::Solid(Pixel::BLACK));
+        assert_eq!((p.get(0, 0), p.get(1, 0)), (Pixel::rgba(200, 100, 0, 255), Pixel::WHITE));
+        apply_op(&mut p, &all, PaintOp::Invert, Ink::Solid(Pixel::BLACK));
+        assert_eq!((p.get(0, 0), p.get(1, 0)), (Pixel::rgba(55, 155, 255, 255), Pixel::BLACK));
     }
 }
