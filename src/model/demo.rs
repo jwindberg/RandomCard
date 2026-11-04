@@ -77,13 +77,13 @@ fn style_text(field: &mut Part, needle: &str, style: &TextStyle) {
 
 fn hline(p: &mut Picture, x0: i32, x1: i32, y: i32) {
     for x in x0..=x1 {
-        p.set(x, y, Pixel::Black);
+        p.set(x, y, Pixel::BLACK);
     }
 }
 
 fn vline(p: &mut Picture, x: i32, y0: i32, y1: i32) {
     for y in y0..=y1 {
-        p.set(x, y, Pixel::Black);
+        p.set(x, y, Pixel::BLACK);
     }
 }
 
@@ -92,7 +92,7 @@ fn line(p: &mut Picture, x0: i32, y0: i32, x1: i32, y1: i32) {
     for i in 0..=steps {
         let x = x0 + (x1 - x0) * i / steps;
         let y = y0 + (y1 - y0) * i / steps;
-        p.set(x, y, Pixel::Black);
+        p.set(x, y, Pixel::BLACK);
     }
 }
 
@@ -108,7 +108,7 @@ fn circle(p: &mut Picture, cx: i32, cy: i32, r: i32, filled: bool) {
         for x in -r..=r {
             let d = x * x + y * y;
             if d <= r * r && (filled || d >= (r - 1) * (r - 1)) {
-                p.set(cx + x, cy + y, Pixel::Black);
+                p.set(cx + x, cy + y, Pixel::BLACK);
             }
         }
     }
@@ -118,7 +118,7 @@ fn house(p: &mut Picture) {
     // A little house with a sun, drawn the way you might with the paint tools.
     for y in 191..260 {
         for x in 91..209 {
-            p.set(x, y, Pixel::White);
+            p.set(x, y, Pixel::WHITE);
         }
     }
     frame(p, 90, 190, 210, 260);
@@ -202,7 +202,7 @@ fn tour_palette() -> super::Palette {
     let mut pic = Picture::new(w as u32, h as u32);
     for y in 0..h {
         for x in 0..w {
-            pic.set(x, y, Pixel::White);
+            pic.set(x, y, Pixel::WHITE);
         }
     }
     frame(&mut pic, 0, 0, w - 1, h - 1);

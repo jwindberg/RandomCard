@@ -44,9 +44,9 @@ pub fn draw_text(pic: &mut Picture, x: i32, y: i32, text: &str, size: u32, font:
             outline.draw(|gx, gy, coverage| {
                 if coverage >= INK_COVERAGE {
                     let (px, py) = (bounds.min.x as i32 + gx as i32, bounds.min.y as i32 + gy as i32);
-                    pic.set(px, py, Pixel::Black);
+                    pic.set(px, py, Pixel::BLACK);
                     if bold {
-                        pic.set(px + 1, py, Pixel::Black);
+                        pic.set(px + 1, py, Pixel::BLACK);
                     }
                 }
             });
@@ -54,7 +54,7 @@ pub fn draw_text(pic: &mut Picture, x: i32, y: i32, text: &str, size: u32, font:
         if underline {
             let uy = caret.y as i32 + 2;
             for ux in start_x as i32..caret.x as i32 {
-                pic.set(ux, uy, Pixel::Black);
+                pic.set(ux, uy, Pixel::BLACK);
             }
         }
     }
@@ -70,7 +70,7 @@ mod tests {
         let mut p = Picture::new(120, 60);
         let (x, y) = draw_text(&mut p, 5, 5, "Hi", 24, "Geneva", "plain");
         assert!(x > 20 && y == 5);
-        assert!(p.pixels.contains(&Pixel::Black));
+        assert!(p.iter().any(|x| x == Pixel::BLACK));
         // A second line moves down.
         let mut q = Picture::new(120, 80);
         let (_, y2) = draw_text(&mut q, 5, 5, "a\nb", 18, "Geneva", "plain");

@@ -182,15 +182,15 @@ pub fn decode_icon(data: &[u8], name: &str) -> Option<Icon> {
     let mut pic = Picture::new(32, 32);
     for y in 0..32 {
         for x in 0..32 {
-            pic.set(x, y, if black(x, y) { Pixel::Black } else { Pixel::White });
+            pic.set(x, y, if black(x, y) { Pixel::BLACK } else { Pixel::WHITE });
         }
     }
     let mut stack: Vec<(i32, i32)> = (0..32).flat_map(|i| [(i, 0), (i, 31), (0, i), (31, i)]).collect();
     while let Some((x, y)) = stack.pop() {
-        if !(0..32).contains(&x) || !(0..32).contains(&y) || pic.get(x, y) != Pixel::White {
+        if !(0..32).contains(&x) || !(0..32).contains(&y) || pic.get(x, y) != Pixel::WHITE {
             continue;
         }
-        pic.set(x, y, Pixel::Clear);
+        pic.set(x, y, Pixel::CLEAR);
         stack.extend([(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]);
     }
     Some(Icon { name: name.to_string(), picture: pic })
@@ -549,9 +549,9 @@ pub mod tests {
         let icons = icons(&fork);
         let icon = &icons[&128];
         assert_eq!(icon.name, "Box");
-        assert_eq!(icon.picture.get(0, 0), Pixel::Clear);
-        assert_eq!(icon.picture.get(8, 8), Pixel::Black);
-        assert_eq!(icon.picture.get(15, 15), Pixel::White);
+        assert_eq!(icon.picture.get(0, 0), Pixel::CLEAR);
+        assert_eq!(icon.picture.get(8, 8), Pixel::BLACK);
+        assert_eq!(icon.picture.get(15, 15), Pixel::WHITE);
     }
 
     #[test]
@@ -574,8 +574,8 @@ pub mod tests {
         let p = &palettes[&7];
         assert_eq!(p.name, "Tools");
         assert_eq!((p.picture.width, p.picture.height), (16, 2));
-        assert_eq!(p.picture.get(0, 0), Pixel::Black);
-        assert_eq!(p.picture.get(8, 0), Pixel::White);
+        assert_eq!(p.picture.get(0, 0), Pixel::BLACK);
+        assert_eq!(p.picture.get(8, 0), Pixel::WHITE);
         assert_eq!(p.buttons.len(), 2);
         assert_eq!((p.buttons[0].rect, p.buttons[0].message.as_str()), (Rect::new(0, 0, 8, 2), "ones"));
         assert_eq!((p.buttons[1].rect, p.buttons[1].message.as_str()), (Rect::new(8, 0, 16, 2), "two"));

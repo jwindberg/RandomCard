@@ -205,9 +205,9 @@ mod tests {
         assert_eq!(w.stack.card(card).unwrap().parts.len(), 1);
         // Pictures
         w.record_picture();
-        w.layer_picture_mut().unwrap().set(1, 1, Pixel::Black);
+        w.layer_picture_mut().unwrap().set(1, 1, Pixel::BLACK);
         w.undo();
-        assert_eq!(w.stack.card(card).unwrap().picture.get(1, 1), Pixel::Clear);
+        assert_eq!(w.stack.card(card).unwrap().picture.get(1, 1), Pixel::CLEAR);
         // Cards: delete, undo brings it back, redo deletes again.
         let mut extra = w.stack.cards[0].clone();
         extra.id = 77;

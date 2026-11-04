@@ -110,12 +110,11 @@ impl Canvas<'_> {
         let row = w.div_ceil(8);
         let mut bits = vec![0u8; row * h];
         let mut any = false;
-        for y in 0..h {
-            for x in 0..w {
-                if pic.pixels[y * w + x] == kind {
-                    bits[y * row + x / 8] |= 0x80 >> (x % 8);
-                    any = true;
-                }
+        for (i, px) in pic.iter().enumerate() {
+            let (x, y) = (i % w, i / w);
+            if printed(px) == kind {
+                bits[y * row + x / 8] |= 0x80 >> (x % 8);
+                any = true;
             }
         }
         if !any {
@@ -128,8 +127,10 @@ impl Canvas<'_> {
     }
 
     fn picture(&mut self, pic: &Picture, at: (i32, i32)) {
-        self.picture_pixels(pic, Pixel::White, at, WHITE);
-        self.picture_pixels(pic, Pixel::Black, at, BLACK);
+        // Printing is black and white for now: colors print as the nearer
+        // of the two.
+        self.picture_pixels(pic, Pixel::WHITE, at, WHITE);
+        self.picture_pixels(pic, Pixel::BLACK, at, BLACK);
     }
 
     /// Black text placed by `layout`, from the origin.
@@ -351,13 +352,11 @@ fn draw_button(c: &mut Canvas, stack: &Stack, card: Id, layer: Layer, p: &Part) 
         if let Some(icon) = stack.icons.get(&p.icon) {
             let mut pic = icon.picture.clone();
             if hilite {
-                for px in &mut pic.pixels {
-                    *px = match *px {
-                        Pixel::Black => Pixel::White,
-                        Pixel::White => Pixel::Black,
-                        other => other,
-                    };
-                }
+                pic.map(|px| match px {
+                    Pixel::BLACK => Pixel::WHITE,
+                    Pixel::WHITE => Pixel::BLACK,
+                    other => other,
+                });
             }
             c.picture(&pic, (left as i32, top as i32));
         }
@@ -494,6 +493,17 @@ fn draw_field(c: &mut Canvas, stack: &Stack, card: Id, layer: Layer, p: &Part) {
     c.op("Q");
 }
 
+/// A pixel as printed in black and white: clear, or the nearer of white
+/// and black.
+fn printed(p: Pixel) -> Pixel {
+    if p.is_clear() {
+        return Pixel::CLEAR;
+    }
+    let [r, g, b, _] = p.0;
+    let luma = 299 * r as u32 + 587 * g as u32 + 114 * b as u32;
+    if luma >= 128_000 { Pixel::WHITE } else { Pixel::BLACK }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -505,3 +515,4 @@ mod tests {
         assert_eq!(pdf_font("New York", "bold,italic"), "Times-BoldItalic");
     }
 }
+

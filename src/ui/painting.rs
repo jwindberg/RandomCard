@@ -224,9 +224,9 @@ impl App {
             // The pencil draws white over black, like MacPaint.
             let color = if tool == Tool::Pencil {
                 let dark = self.with_picture(|pic| paint::is_dark(pic.get(start.0, start.1))).unwrap_or(false);
-                if dark { Pixel::White } else { Pixel::Black }
+                if dark { Pixel::WHITE } else { Pixel::BLACK }
             } else {
-                Pixel::Black
+                Pixel::BLACK
             };
             self.stroke = Some(PaintStroke { start, last: start, color });
             if freehand(tool) {
@@ -378,7 +378,7 @@ impl App {
                 paint::polygon(pic, &pts, s.line_size, s.filled.then(|| s.ink()));
             } else {
                 for seg in pts.windows(2) {
-                    paint::line(pic, seg[0].0, seg[0].1, seg[1].0, seg[1].1, s.line_size, Pixel::Black);
+                    paint::line(pic, seg[0].0, seg[0].1, seg[1].0, seg[1].1, s.line_size, Pixel::BLACK);
                 }
             }
         });

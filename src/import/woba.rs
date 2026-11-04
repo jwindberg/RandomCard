@@ -238,9 +238,9 @@ pub fn decode(card: QdRect, mask_rect: QdRect, mask: &[u8], image_rect: QdRect, 
         for x in 0..card.width() {
             let (cx, cy) = (card.left + x, card.top + y);
             if image.get(cx, cy) {
-                pic.set(x, y, Pixel::Black);
+                pic.set(x, y, Pixel::BLACK);
             } else if mask.get(cx, cy) {
-                pic.set(x, y, Pixel::White);
+                pic.set(x, y, Pixel::WHITE);
             }
         }
     }
@@ -254,7 +254,7 @@ mod tests {
     const CARD: QdRect = QdRect { top: 0, left: 0, bottom: 4, right: 32 };
 
     fn black_row(pic: &Picture, y: i32) -> Vec<bool> {
-        (0..32).map(|x| pic.get(x, y) == Pixel::Black).collect()
+        (0..32).map(|x| pic.get(x, y) == Pixel::BLACK).collect()
     }
 
     #[test]
@@ -262,12 +262,12 @@ mod tests {
         // 0x80: one row of literal bytes; 0x82: a black row; 0x81: a white row.
         let data = [0x80, 0xF0, 0x00, 0x00, 0x0F, 0x82, 0x81, 0x80, 0x01, 0x02, 0x03, 0x04];
         let pic = decode(CARD, QdRect::default(), &[], CARD, &data).unwrap();
-        assert_eq!(pic.get(0, 0), Pixel::Black);
-        assert_eq!(pic.get(4, 0), Pixel::Clear);
-        assert_eq!(pic.get(31, 0), Pixel::Black);
+        assert_eq!(pic.get(0, 0), Pixel::BLACK);
+        assert_eq!(pic.get(4, 0), Pixel::CLEAR);
+        assert_eq!(pic.get(31, 0), Pixel::BLACK);
         assert!(black_row(&pic, 1).iter().all(|b| *b));
         assert!(black_row(&pic, 2).iter().all(|b| !*b));
-        assert_eq!(pic.get(7, 3), Pixel::Black);
+        assert_eq!(pic.get(7, 3), Pixel::BLACK);
     }
 
     #[test]
@@ -293,9 +293,9 @@ mod tests {
     fn mask_without_data_is_a_filled_rect() {
         let mask = QdRect { top: 1, left: 2, bottom: 3, right: 6 };
         let pic = decode(CARD, mask, &[], QdRect::default(), &[]).unwrap();
-        assert_eq!(pic.get(2, 1), Pixel::White);
-        assert_eq!(pic.get(5, 2), Pixel::White);
-        assert_eq!(pic.get(6, 2), Pixel::Clear);
-        assert_eq!(pic.get(0, 0), Pixel::Clear);
+        assert_eq!(pic.get(2, 1), Pixel::WHITE);
+        assert_eq!(pic.get(5, 2), Pixel::WHITE);
+        assert_eq!(pic.get(6, 2), Pixel::CLEAR);
+        assert_eq!(pic.get(0, 0), Pixel::CLEAR);
     }
 }

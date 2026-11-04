@@ -787,7 +787,7 @@ mod tests {
     #[test]
     fn save_and_load_round_trip() {
         let mut stack = Stack::demo();
-        stack.cards[0].picture.set(5, 5, Pixel::Black);
+        stack.cards[0].picture.set(5, 5, Pixel::BLACK);
         let sound = Sound { name: "Ding".into(), rate: 11025.0, base_note: 62, loop_start: 2, loop_end: 4, samples: vec![0, -32768, 32767, 12] };
         stack.sounds.insert(7, sound.clone());
         let dir = std::env::temp_dir().join(format!("randomcard-test-{}", std::process::id()));

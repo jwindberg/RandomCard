@@ -26,7 +26,7 @@ impl Pict {
             for x in 0..self.width {
                 let [r, g, b, _] = self.rgba[(y * self.width + x) as usize];
                 let luma = 299 * r as u32 + 587 * g as u32 + 114 * b as u32;
-                p.set(x as i32, y as i32, if luma < 128_000 { Pixel::Black } else { Pixel::White });
+                p.set(x as i32, y as i32, if luma < 128_000 { Pixel::BLACK } else { Pixel::WHITE });
             }
         }
         p

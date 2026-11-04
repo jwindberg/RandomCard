@@ -1,9 +1,16 @@
 # RandomCard roadmap
 
-What's left to make RandomCard a faithful HyperCard 2.x, grouped by area.
-Each section says what exists today, what's missing, and where the work
-would go. The suggested order at the end ranks items by how much they
-matter to people building or importing stacks.
+What's left for RandomCard, grouped by area. Work now follows three
+tracks: HyperCard features still missing, HyperCard 2.4's own features,
+and new features HyperCard never had, color first. Each section says what
+exists today, what's missing, and where the work would go. The suggested
+order at the end is shaped by what RandomCard's users ask for.
+
+The drive to make every stack on Apple's Developer CDs work ended at 1,029
+working (WORKING_STACKS.md). Those stacks are now a regression suite: a
+failing one matters only when it shows a missing HyperCard feature. Stacks
+that assume the old Mac OS (colon paths, old system calls) are updated by
+fix steps on our copies (FIX_STEPS.tsv), not by compatibility code.
 
 ## Design principles
 
@@ -56,7 +63,7 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 | Script-modifiable menus | Complete, except submenus |
 | Home, stacks in use, going between stacks | One stack window at a time |
 | Printing | Cards and text, as PDF; no report printing |
-| Externals (XCMDs) | Missing |
+| Externals (XCMDs) | The common ones built in as features ([XCMDS.md](XCMDS.md)) |
 | Color | AddColor from imported stacks, on screen only; no color painting, parts or text yet |
 
 ## Using and authoring stacks
@@ -212,9 +219,6 @@ of its script works.
   evaluating expressions in the message box while stopped (HyperCard ran
   them in the stopped handler's context), and checkpoints don't move when
   lines are added above them.
-- **Colon paths off the Mac:** a stack that hard-codes ":" to find its
-  folder needs a fix step on Linux and Windows (`the pathSeparator` in place
-  of ":"), as the Technical Notes stacks do (BUGHUNT #42).
 - **Other stacks:** see below.
 - **Speech:** `speak` shells out to `spd-say`/`espeak`/`say`; `the voices`
   and `the speech` aren't real.
@@ -277,13 +281,54 @@ resources) for buttons, fields and rectangles.
   commands (`colorCard`, `addColor colorButton`…) aren't implemented, so
   scripts can't change colors.
 - **XCMDs and XFCNs.** These are 68k/PowerPC code and can't run directly.
-  See item 4 of the suggested order: a framework for externals written in
-  Rust, starting with versions of the common ones.
+  The common ones are built in as features; see Externals below.
 - **PICT resources:** bitmaps decode (src/import/pict.rs); QuickDraw's
   drawing opcodes (lines, shapes, text) don't yet. Palettes use it;
   `picture` windows will.
 - **Checksum validation** of LIST and PAGE blocks, for clearer errors on
   damaged stacks.
+
+## Externals
+
+[XCMDS.md](XCMDS.md) lists every external found in real stacks and decides each
+one: built into RandomCard, kept as an external, stubbed, or still unknown.
+Nearly all have become RandomCard features. For the rare rest, the design:
+
+- **One interface.** An external is a Rust type with a name, saying
+  whether it's a command or a function. It gets its arguments as text,
+  and a context for calling back into RandomCard: evaluating an
+  expression, sending a message, reading and setting globals and field
+  text, and setting `the result`. These are the services HyperCard's
+  XCMD callbacks offered.
+- **The same place in the message path.** As in HyperCard, externals are
+  tried after the last handler (stack, stacks in use, Home), so a script
+  handler with the same name always wins.
+- **Built in.** One Rust file each in `src/externals/`, registered by
+  name. First come the ones HyperCard shipped or stacks commonly used:
+  `FontExists`, `Palette` (the Navigator palette), `PictureWindow` (with
+  a PICT decoder) and AddColor's commands. More come from the test
+  results.
+- **Features first.** HyperCard ran on one kind of Mac, so a stack could
+  carry 68000 code. RandomCard runs on x86, ARM and more, where compiled
+  code in a stack would need a build for each of them. So what an
+  external did becomes a RandomCard feature wherever possible, and
+  nearly always it is.
+- **Compiled externals, rarely.** For a feature that truly can't be part
+  of RandomCard, compiled externals will be supported, written in Rust
+  against the same interface. They should be the rare exception, and
+  they're low priority: how they're packaged for each platform (inside
+  a stack, beside it, or in `~/.config/randomcard/externals/`) is
+  decided when the first one is needed. Many of Apple's own externals
+  were shortcuts for features HyperCard lacked; the real need is
+  custom work such as robots or unusual hardware.
+- **An example, and a stack for it.** RandomCard ships one example
+  external, with a stack of its own that shows how to write and use
+  one. That's the only stack that uses an external: stacks that show
+  ordinary features, the Tour among them, never do.
+- **Imported stacks.** The importer lists the XCMDs and XFCNs in a
+  stack's resource fork. A call to one that has no Rust version says
+  "This stack uses the XCMD 'X', which RandomCard doesn't have", and
+  Stack Info shows the list.
 
 ## Color
 
@@ -295,24 +340,34 @@ as modern software has.
 rectangles and color pictures) shows on screen but doesn't print. Nothing
 else can be colored.
 
-**The plan, roughly in order:**
-- **Color pictures.** Card and background pictures that hold color, with
-  today's 1-bit pictures and patterns as a special case, so imported stacks
-  load and look the same.
-- **Painting in color.** A color picker (any color, an eyedropper, recent
-  colors), separate line and fill colors for every paint tool, color
-  patterns and gradients, and opacity.
-- **Colored parts.** Fill, text and frame colors for buttons and fields in
-  their Info windows, and as properties scripts can set (in the spirit of
-  later xTalks: `the foreColor`, `the backColor`). AddColor items become
-  part of this rather than a layer on top.
-- **Colored text.** A color in text style runs, beside font, size and
-  style.
-- **Images.** PNG and JPEG pictures pasted or dropped onto cards, and
-  high-resolution pictures.
-- **Printing in color**, including AddColor.
-- **AddColor's commands** for scripts (also under externals, item 4 of the
-  suggested order).
+**The plan, in order.** On the Mac, a pattern was a mask: its black bits
+drew in the foreground color and its white bits in the background color.
+RandomCard does the same, so a pattern palette and a color palette work
+together, and black on white is just the default.
+
+1. ~~**Color pictures, with no visible change.**~~ Done: pictures hold
+   any color with transparency (`Pixel` is RGBA). A black-and-white
+   picture is kept at one byte a pixel and saved exactly as before; one
+   with color is saved as a PNG. Printing shows colors as the nearer of
+   black and white until step 5.
+2. **The color palette.** In the tool panel under the patterns: line and
+   fill swatches, a picker for any color, recent colors and an eyedropper.
+   Every paint tool draws its pattern in those colors. Scripts set them
+   with the names later xTalks used (`the penColor`, `the brushColor`).
+   Tools stay pixel-exact, without antialiasing, so the bucket fills
+   cleanly. Invert, Darken, Lighten, Trace Edges, the lasso and transparent
+   paste each get a color meaning.
+3. **Images.** PNG and JPEG pasted or dropped onto a card become a paint
+   selection, as pasted art was in HyperCard; with them, HyperCard 2.x's
+   Import Paint and Export Paint.
+4. **Colored parts and text.** Fill, text and frame colors for buttons and
+   fields in their Info windows and as properties (`the foreColor`,
+   `the backColor`), and a color in text style runs. AddColor's items
+   become part colors rather than a layer on top, with its commands for
+   scripts.
+5. **Printing in color**, including AddColor.
+
+A new release follows steps 1 and 2.
 
 ## Testing
 
@@ -332,122 +387,37 @@ else can be colored.
 Done so far: keyboard messages, paint tools and patterns, clipboard and undo,
 using and authoring stacks, the selection, styled text, scriptable menus,
 Home and stacks in use, HyperCard 1.x import and AddColor, font metrics,
-printing and the debugger.
+printing, the debugger, Find and Recent, popup buttons, the stack-testing
+harness, and externals as built-in features (XCMDS.md).
 
-Next, ranked by what people who built HyperCard stacks will need first:
+The order follows what RandomCard's users ask for, so it will change with
+their feedback. For now:
 
-1. ~~Find and Recent dialogs.~~ Done: Go ▸ Find… (Ctrl+F) readies `find ""`
-   in the message box, and Go ▸ Recent (Ctrl+R) shows miniatures of the
-   last 42 cards. Recent covers the current stack only, until history
-   spans stacks.
-2. ~~Popup buttons and the standard button style.~~ Done: popups import
-   with their items, title width and chosen item, show their menu when
-   clicked, and answer `the selectedText`, `selectedLine` and
-   `selectedChunk`; `select line 2 of button 1` chooses an item. The Tour's
-   Dice card has one.
-3. **Real stacks as tests.** A harness that opens each stack in a folder,
-   sends `openStack`, clicks every button, and reports script errors and
-   unknown commands. Run against a collection of real stacks, it shows
-   which commands, styles and XCMDs matter most, and picks the first
-   built-in externals below.
-4. **Externals: XCMDs and XFCNs in Rust.** [XCMDS.md](XCMDS.md) lists every
-   external found in real stacks and decides each one: built into RandomCard,
-   kept as an external, stubbed, or still unknown. Nearly all become
-   RandomCard features. For the rare rest, a framework where anyone can add
-   commands and functions in Rust, as HyperCard developers once did in
-   Pascal, C or assembly:
-   - **One interface.** An external is a Rust type with a name, saying
-     whether it's a command or a function. It gets its arguments as text,
-     and a context for calling back into RandomCard: evaluating an
-     expression, sending a message, reading and setting globals and field
-     text, and setting `the result`. These are the services HyperCard's
-     XCMD callbacks offered.
-   - **The same place in the message path.** As in HyperCard, externals are
-     tried after the last handler (stack, stacks in use, Home), so a script
-     handler with the same name always wins.
-   - **Built in.** One Rust file each in `src/externals/`, registered by
-     name. First come the ones HyperCard shipped or stacks commonly used:
-     `FontExists`, `Palette` (the Navigator palette), `PictureWindow` (with
-     a PICT decoder) and AddColor's commands. More come from the test
-     results.
-   - **Features first.** HyperCard ran on one kind of Mac, so a stack could
-     carry 68000 code. RandomCard runs on x86, ARM and more, where compiled
-     code in a stack would need a build for each of them. So what an
-     external did becomes a RandomCard feature wherever possible, and
-     nearly always it is.
-   - **Compiled externals, rarely.** For a feature that truly can't be part
-     of RandomCard, compiled externals will be supported, written in Rust
-     against the same interface. They should be the rare exception, and
-     they're low priority: how they're packaged for each platform (inside
-     a stack, beside it, or in `~/.config/randomcard/externals/`) is
-     decided when the first one is needed. Many of Apple's own externals
-     were shortcuts for features HyperCard lacked; the real need is
-     custom work such as robots or unusual hardware.
-   - **An example, and a stack for it.** RandomCard ships one example
-     external, with a stack of its own that shows how to write and use
-     one. That's the only stack that uses an external: stacks that show
-     ordinary features, the Tour among them, never do.
-   - **Imported stacks.** The importer lists the XCMDs and XFCNs in a
-     stack's resource fork. A call to one that has no Rust version says
-     "This stack uses the XCMD 'X', which RandomCard doesn't have", and
-     Stack Info shows the list.
-5. **The script editor.** Find and replace, going to a line (`edit script
-   of … at line`), and syntax coloring.
-6. **FatBits and an icon editor.** Drawing custom icons and touching up
-   pictures pixel by pixel.
-7. **The rest of painting.** The Options and Patterns menus, editing
-   patterns, Shift for straight lines and perfect shapes, and Pickup, Scale
-   and Revert. Double-clicking the eraser clears the whole picture, as in
-   HyperCard; it asks first with the same prompt as Edit ▸ Clear Picture.
-8. **Multiple windows.** `go to stack … in a new window`, and
+1. **Color, steps 1 and 2:** color pictures, then the color palette (see
+   Color). Then a new release.
+2. **Small, clearly good features,** between larger pieces: the script
+   editor's find and replace and go to line; Shift for straight lines and
+   perfect shapes; copying styled text between fields; Compact Stack and
+   Delete Stack.
+3. **Color, steps 3 to 5:** images with Import and Export Paint, colored
+   parts and text, printing in color.
+4. **HyperCard 2.4's own features:** audit them in the real HyperCard
+   2.4.1 (Basilisk II, `examples/apple/emulator-2.4/run.sh`): QuickTime
+   from HyperTalk, URLs, the new script editor, and its menus and tools.
+5. **The card window:** global rect and loc, scrolling (hBarLoc, vBarLoc),
+   zoom, `moveWindow` and `sizeWindow`, and card size changes.
+6. **Multiple windows.** `go to stack … in a new window`, and
    `the stacks`. Start with the tool windows: script editors, the Variable
    and Message Watchers, and Info windows are drawn inside the main window
    today, so stepping through a script covers the card being debugged.
-   Each should be a real OS window (an egui viewport) that can be moved
-   anywhere, including another monitor. Check that the debugger's keys
-   (F10, F11, F5) work in the script window. Small alerts and dialogs stay
-   in the main window, as in HyperCard. Linux, Mac and Windows support
-   this through winit; a Haiku backend needs to as well.
-9. **Report printing, MACE sound, Compact Stack and Delete Stack.**
-10. **Objects in other stacks.** First check what HyperCard allowed. Its
-    scripts usually reached other stacks with `lock screen`, `go`, `get`
-    and `go back`, and that idiom has to work across stacks either way.
-11. **Color.** Long term and large: the Color section's plan, from color
-    pictures and a color picker to colored parts and text, images, and
-    printing in color. Each step lands on its own.
-
-## HyperCard 2.4.1 compliance
-
-RandomCard aims to do everything HyperCard 2.4.1, the last version, could.
-COMPLIANCE.md audits it against Apple's 2.4.1 documentation, with probes that
-can be re-run. What's missing, by feature (details there):
-
-- **HyperCard 2 windows:** global rect and loc, the card window's scroll
-  (hBarLoc, vBarLoc), zoom, hide and show window, moveWindow and sizeWindow.
-- **Picture windows:** the `picture` command and its messages. Palettes are
-  done, except HyperCard's own Navigator palette (`palette "Navigator"`)
-  and color palette pictures, which are kept in black and white.
-- **AppleEvents and other programs:** `request`, `reply` and appleEvent.
-  Needs design: what they mean on today's systems. For now `answer program`
-  parses and is always cancelled (no programs to offer); `open <document>
-  with <program>` and `print <document> with <program>` open the document
-  in the program the system picks, not the one named.
-- **Report printing:** report templates and the print text settings.
-- **Paint import and export.**
-- **Error dialogs and Recent:** `lock error dialogs`, `lock recent`.
-- **Scripting environment properties:** scriptEditor, scriptTextFont and
-  size, the debugger, the environment, and the rest.
-- **The Home stack's own cards:** HyperCard's Home has a "User Preferences"
-  card (User Name, User Level, Power Keys, Text Arrows, Blind Typing) and the
-  search-path cards "stacks", "applications" and "documents". Old Home-stack
-  replacements read them (BUGHUNT #40). RandomCard keeps these in Settings;
-  needs a decision on whether Home should carry the cards, kept in step.
-- **Smaller items:** `ask file … with default`, `doMenu … with` modifier keys,
-  `the selectedButton of family`, key commands such as `returnKey` used in
-  scripts, and others.
-- **Still to audit:** 2.4 and 2.4.1's new features (QuickTime from HyperTalk,
-  URLs, the new script editor) and the application itself (menus, tools,
-  color).
+   Each should be a real OS window (an egui viewport). Small alerts and
+   dialogs stay in the main window, as in HyperCard.
+7. **FatBits, an icon editor and the rest of painting:** the Options and
+   Patterns menus, editing patterns, Pickup, Scale and Revert.
+8. **Objects in other stacks,** and history across stacks.
+9. **Report printing, MACE sound, picture windows.**
+10. **Needs a design first:** AppleEvents (`request`, `reply`): what they
+    mean on today's systems. Home's User Preferences and search-path cards.
 
 ## Future
 

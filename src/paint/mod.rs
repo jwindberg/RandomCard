@@ -19,9 +19,9 @@ impl Ink {
             Ink::Solid(p) => *p,
             Ink::Pattern(rows) => {
                 if rows[y.rem_euclid(8) as usize] & (0x80 >> x.rem_euclid(8)) != 0 {
-                    Pixel::Black
+                    Pixel::BLACK
                 } else {
-                    Pixel::White
+                    Pixel::WHITE
                 }
             }
         }
@@ -74,7 +74,7 @@ pub const DEFAULT_PATTERNS: [[u8; 8]; 40] = [
 ];
 
 pub fn is_dark(p: Pixel) -> bool {
-    p == Pixel::Black
+    p == Pixel::BLACK
 }
 
 /// A square pen of `size` pixels centered on (x, y).
@@ -189,7 +189,7 @@ fn shape(
                 continue;
             }
             if !inside(x, y, s) {
-                pic.set(x, y, Pixel::Black);
+                pic.set(x, y, Pixel::BLACK);
             } else if let Some(ink) = fill {
                 pic.set(x, y, ink.at(x, y));
             }
@@ -271,7 +271,7 @@ pub fn polygon(pic: &mut Picture, points: &[(i32, i32)], size: u32, fill: Option
     }
     for i in 0..points.len() {
         let (a, b) = (points[i], points[(i + 1) % points.len()]);
-        line(pic, a.0, a.1, b.0, b.1, size, Pixel::Black);
+        line(pic, a.0, a.1, b.0, b.1, size, Pixel::BLACK);
     }
 }
 
@@ -314,7 +314,7 @@ pub fn fill(pic: &mut Picture, x: i32, y: i32, ink: Ink) {
         stack.extend([(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]);
     }
     // Filling a solid area with its own color does nothing.
-    if ink == Ink::Solid(if target { Pixel::Black } else { Pixel::White }) {
+    if ink == Ink::Solid(if target { Pixel::BLACK } else { Pixel::WHITE }) {
         return;
     }
     for (x, y) in region {
@@ -329,7 +329,7 @@ pub fn spray(pic: &mut Picture, x: i32, y: i32, ink: Ink) {
         if dx * dx + dy * dy <= 64 {
             // Spraying a pattern reveals it dot by dot.
             let p = ink.at(x + dx, y + dy);
-            if p == Pixel::Black {
+            if p == Pixel::BLACK {
                 pic.set(x + dx, y + dy, p);
             }
         }
@@ -341,7 +341,7 @@ pub fn paste(pic: &mut Picture, src: &Picture, x: i32, y: i32) {
     for sy in 0..src.height as i32 {
         for sx in 0..src.width as i32 {
             let p = src.get(sx, sy);
-            if p != Pixel::Clear {
+            if p != Pixel::CLEAR {
                 pic.set(x + sx, y + sy, p);
             }
         }
@@ -376,7 +376,7 @@ impl Region {
         let mut out = Picture::new((r - l).max(0) as u32, (b - t).max(0) as u32);
         for (x, y) in self.pixels().collect::<Vec<_>>() {
             out.set(x - l, y - t, pic.get(x, y));
-            pic.set(x, y, Pixel::Clear);
+            pic.set(x, y, Pixel::CLEAR);
         }
         out
     }
@@ -439,17 +439,17 @@ impl PaintOp {
 pub fn apply_op(pic: &mut Picture, region: &Region, op: PaintOp, ink: Ink) -> (i32, i32, i32, i32) {
     let (l, t, r, b) = region.rect;
     let pixels: Vec<(i32, i32)> = region.pixels().collect();
-    let dark = |p: Pixel| p == Pixel::Black;
+    let dark = |p: Pixel| p == Pixel::BLACK;
     match op {
         PaintOp::Fill => pixels.iter().for_each(|&(x, y)| pic.set(x, y, ink.at(x, y))),
         PaintOp::Invert => pixels.iter().for_each(|&(x, y)| {
-            pic.set(x, y, if dark(pic.get(x, y)) { Pixel::White } else { Pixel::Black });
+            pic.set(x, y, if dark(pic.get(x, y)) { Pixel::WHITE } else { Pixel::BLACK });
         }),
         PaintOp::Darken | PaintOp::Lighten => {
             // Sprinkle one pixel in eight towards black or white.
             for &(x, y) in &pixels {
                 if rand::random_range(0..8) == 0 {
-                    pic.set(x, y, if op == PaintOp::Darken { Pixel::Black } else { Pixel::White });
+                    pic.set(x, y, if op == PaintOp::Darken { Pixel::BLACK } else { Pixel::WHITE });
                 }
             }
         }
@@ -460,9 +460,9 @@ pub fn apply_op(pic: &mut Picture, region: &Region, op: PaintOp, ink: Ink) -> (i
                 let near = [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|(dx, dy)| dark(before.get(x + dx, y + dy)));
                 let p = before.get(x, y);
                 if dark(p) {
-                    pic.set(x, y, Pixel::White);
+                    pic.set(x, y, Pixel::WHITE);
                 } else if near {
-                    pic.set(x, y, Pixel::Black);
+                    pic.set(x, y, Pixel::BLACK);
                 }
             }
         }
@@ -472,7 +472,7 @@ pub fn apply_op(pic: &mut Picture, region: &Region, op: PaintOp, ink: Ink) -> (i
             for y in 0..h {
                 for x in 0..w {
                     let p = lifted.get(x, y);
-                    if p != Pixel::Clear {
+                    if p != Pixel::CLEAR {
                         let (nx, ny) = if op == PaintOp::FlipHorizontal { (w - 1 - x, y) } else { (x, h - 1 - y) };
                         pic.set(l + nx, t + ny, p);
                     }
@@ -485,7 +485,7 @@ pub fn apply_op(pic: &mut Picture, region: &Region, op: PaintOp, ink: Ink) -> (i
             for y in 0..h {
                 for x in 0..w {
                     let p = lifted.get(x, y);
-                    if p != Pixel::Clear {
+                    if p != Pixel::CLEAR {
                         let (nx, ny) = if op == PaintOp::RotateRight { (h - 1 - y, x) } else { (y, w - 1 - x) };
                         pic.set(l + nx, t + ny, p);
                     }
@@ -494,13 +494,13 @@ pub fn apply_op(pic: &mut Picture, region: &Region, op: PaintOp, ink: Ink) -> (i
             return (l, t, l + (b - t), t + (r - l));
         }
         PaintOp::Opaque => pixels.iter().for_each(|&(x, y)| {
-            if pic.get(x, y) == Pixel::Clear {
-                pic.set(x, y, Pixel::White);
+            if pic.get(x, y) == Pixel::CLEAR {
+                pic.set(x, y, Pixel::WHITE);
             }
         }),
         PaintOp::Transparent => pixels.iter().for_each(|&(x, y)| {
-            if pic.get(x, y) == Pixel::White {
-                pic.set(x, y, Pixel::Clear);
+            if pic.get(x, y) == Pixel::WHITE {
+                pic.set(x, y, Pixel::CLEAR);
             }
         }),
     }
@@ -547,16 +547,16 @@ pub enum DragTool {
 pub fn apply_drag(pic: &mut Picture, tool: DragTool, a: (i32, i32), b: (i32, i32), s: &Settings) {
     match tool {
         DragTool::Pencil => {
-            let color = if is_dark(pic.get(a.0, a.1)) { Pixel::White } else { Pixel::Black };
+            let color = if is_dark(pic.get(a.0, a.1)) { Pixel::WHITE } else { Pixel::BLACK };
             line(pic, a.0, a.1, b.0, b.1, 1, color);
         }
         DragTool::Brush => {
             let shape = brush_shape(s.brush);
             line_with(a.0, a.1, b.0, b.1, |x, y| stamp(pic, x, y, &shape, s.ink()));
         }
-        DragTool::Eraser => line(pic, a.0, a.1, b.0, b.1, 16, Pixel::Clear),
+        DragTool::Eraser => line(pic, a.0, a.1, b.0, b.1, 16, Pixel::CLEAR),
         DragTool::Spray => line_with(a.0, a.1, b.0, b.1, |x, y| spray(pic, x, y, s.ink())),
-        DragTool::Curve | DragTool::Line => line(pic, a.0, a.1, b.0, b.1, s.line_size, Pixel::Black),
+        DragTool::Curve | DragTool::Line => line(pic, a.0, a.1, b.0, b.1, s.line_size, Pixel::BLACK),
         DragTool::Rect => rect(pic, a.0, a.1, b.0, b.1, s.line_size, s.fill()),
         DragTool::RoundRect => round_rect(pic, a.0, a.1, b.0, b.1, s.line_size, s.fill()),
         DragTool::Oval => oval(pic, a.0, a.1, b.0, b.1, s.line_size, s.fill()),
@@ -575,11 +575,11 @@ mod tests {
     fn fill_bounded() {
         let mut p = Picture::new(20, 20);
         rect(&mut p, 2, 2, 10, 10, 1, None);
-        fill(&mut p, 5, 5, Ink::Solid(Pixel::Black));
-        assert_eq!(p.get(5, 5), Pixel::Black);
-        assert_eq!(p.get(15, 15), Pixel::Clear);
-        fill(&mut p, 15, 15, Ink::Solid(Pixel::Black));
-        assert_eq!(p.get(0, 0), Pixel::Black);
+        fill(&mut p, 5, 5, Ink::Solid(Pixel::BLACK));
+        assert_eq!(p.get(5, 5), Pixel::BLACK);
+        assert_eq!(p.get(15, 15), Pixel::CLEAR);
+        fill(&mut p, 15, 15, Ink::Solid(Pixel::BLACK));
+        assert_eq!(p.get(0, 0), Pixel::BLACK);
     }
 
     #[test]
@@ -587,23 +587,23 @@ mod tests {
         let mut p = Picture::new(16, 16);
         fill(&mut p, 0, 0, Ink::Pattern(DEFAULT_PATTERNS[2]));
         // A 50% gray: alternating black and white everywhere.
-        assert_eq!(p.get(0, 0), Pixel::Black);
-        assert_eq!(p.get(1, 0), Pixel::White);
-        assert_eq!(p.get(15, 15), Pixel::Black);
-        assert_eq!(p.get(14, 15), Pixel::White);
+        assert_eq!(p.get(0, 0), Pixel::BLACK);
+        assert_eq!(p.get(1, 0), Pixel::WHITE);
+        assert_eq!(p.get(15, 15), Pixel::BLACK);
+        assert_eq!(p.get(14, 15), Pixel::WHITE);
     }
 
     #[test]
     fn shapes() {
         let mut p = Picture::new(30, 30);
         oval(&mut p, 0, 0, 29, 29, 1, None);
-        assert_eq!(p.get(15, 0), Pixel::Black);
-        assert_eq!(p.get(15, 15), Pixel::Clear);
-        line(&mut p, 0, 0, 29, 29, 1, Pixel::Black);
-        assert_eq!(p.get(10, 10), Pixel::Black);
+        assert_eq!(p.get(15, 0), Pixel::BLACK);
+        assert_eq!(p.get(15, 15), Pixel::CLEAR);
+        line(&mut p, 0, 0, 29, 29, 1, Pixel::BLACK);
+        assert_eq!(p.get(10, 10), Pixel::BLACK);
         let mut q = Picture::new(30, 30);
-        rect(&mut q, 0, 0, 29, 29, 2, Some(Ink::Solid(Pixel::White)));
-        assert_eq!((q.get(1, 15), q.get(15, 15)), (Pixel::Black, Pixel::White));
+        rect(&mut q, 0, 0, 29, 29, 2, Some(Ink::Solid(Pixel::WHITE)));
+        assert_eq!((q.get(1, 15), q.get(15, 15)), (Pixel::BLACK, Pixel::WHITE));
     }
 
     #[test]
@@ -615,25 +615,25 @@ mod tests {
         assert_eq!(pts.len(), 4);
         assert_eq!(pts[0], (60, 50));
         let mut p = Picture::new(100, 100);
-        polygon(&mut p, &pts, 1, Some(Ink::Solid(Pixel::White)));
-        assert_eq!(p.get(50, 50), Pixel::White);
-        assert_eq!(p.get(60, 50), Pixel::Black);
+        polygon(&mut p, &pts, 1, Some(Ink::Solid(Pixel::WHITE)));
+        assert_eq!(p.get(50, 50), Pixel::WHITE);
+        assert_eq!(p.get(60, 50), Pixel::BLACK);
     }
 
     #[test]
     fn paint_ops() {
         let mut p = Picture::new(4, 2);
-        p.set(0, 0, Pixel::Black);
+        p.set(0, 0, Pixel::BLACK);
         let all = Region::all(&p);
-        apply_op(&mut p, &all, PaintOp::Invert, Ink::Solid(Pixel::Black));
-        assert_eq!((p.get(0, 0), p.get(1, 0)), (Pixel::White, Pixel::Black));
-        apply_op(&mut p, &all, PaintOp::FlipHorizontal, Ink::Solid(Pixel::Black));
-        assert_eq!(p.get(3, 0), Pixel::White);
+        apply_op(&mut p, &all, PaintOp::Invert, Ink::Solid(Pixel::BLACK));
+        assert_eq!((p.get(0, 0), p.get(1, 0)), (Pixel::WHITE, Pixel::BLACK));
+        apply_op(&mut p, &all, PaintOp::FlipHorizontal, Ink::Solid(Pixel::BLACK));
+        assert_eq!(p.get(3, 0), Pixel::WHITE);
         let mut q = Picture::new(4, 4);
-        q.set(3, 0, Pixel::Black);
-        let rect = apply_op(&mut q, &Region { rect: (0, 0, 4, 1), lasso: None }, PaintOp::RotateRight, Ink::Solid(Pixel::Black));
+        q.set(3, 0, Pixel::BLACK);
+        let rect = apply_op(&mut q, &Region { rect: (0, 0, 4, 1), lasso: None }, PaintOp::RotateRight, Ink::Solid(Pixel::BLACK));
         assert_eq!(rect, (0, 0, 1, 4));
-        assert_eq!(q.get(0, 3), Pixel::Black);
+        assert_eq!(q.get(0, 3), Pixel::BLACK);
         assert_eq!(PaintOp::parse("trace edges"), Some(PaintOp::TraceEdges));
     }
 
@@ -644,6 +644,6 @@ mod tests {
         let mut p = Picture::new(20, 20);
         let s = Settings { line_size: 1, filled: false, pattern: [0xff; 8], brush: 10, poly_sides: 4 };
         apply_drag(&mut p, DragTool::Brush, (10, 10), (10, 10), &s);
-        assert_eq!((p.get(6, 10), p.get(10, 11)), (Pixel::Black, Pixel::Clear));
+        assert_eq!((p.get(6, 10), p.get(10, 11)), (Pixel::BLACK, Pixel::CLEAR));
     }
 }

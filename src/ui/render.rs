@@ -139,11 +139,12 @@ pub struct Textures {
 
 pub fn picture_image(p: &Picture) -> egui::ColorImage {
     let mut img = egui::ColorImage::filled([p.width as usize, p.height as usize], Color32::TRANSPARENT);
-    for (i, px) in p.pixels.iter().enumerate() {
+    for (i, px) in p.iter().enumerate() {
         img.pixels[i] = match px {
-            Pixel::Clear => Color32::TRANSPARENT,
-            Pixel::White => WHITE,
-            Pixel::Black => BLACK,
+            Pixel::CLEAR => Color32::TRANSPARENT,
+            Pixel::WHITE => WHITE,
+            Pixel::BLACK => BLACK,
+            Pixel([r, g, b, a]) => Color32::from_rgba_unmultiplied(r, g, b, a),
         };
     }
     img
