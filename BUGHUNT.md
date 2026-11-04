@@ -56,6 +56,9 @@ mirroring the discs' folders, re-run whenever the importer improves.
 | Tested at level 4 | all 748 (320 without compiled externals, then the 428 with them), then 297 more whose scripts parse since #48, then the other 149 (#53) |
 | **Work fully (level 4)** | **1,004** (48 use stubs, marked †; 3 checked by driven steps, marked ‡) |
 
+On 2026-11-03, after #53 (quoted words), every stack tested so far (1,385) was
+clicked again (FULL2.tsv): no stack that worked stopped working.
+
 1,192 of the 1,703 stacks contain compiled XCMDs or XFCNs, 885 distinct
 names between them. Each one either becomes a RandomCard feature or, rarely,
 stays an external; see XCMDS.md.
