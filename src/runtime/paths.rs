@@ -102,13 +102,12 @@ fn from_mac(s: &str, boot: &str) -> PathBuf {
     p
 }
 
-#[cfg(test)]
+// Mac colon paths are used on macOS only, and these cases are POSIX paths,
+// which Windows doesn't treat as absolute.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
-    // Mac colon paths are used on macOS only, and these cases are POSIX
-    // paths, which Windows doesn't treat as absolute.
-    #[cfg(unix)]
     #[test]
     fn mac_paths_both_ways() {
         let boot = "Macintosh HD";
