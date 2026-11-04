@@ -1569,8 +1569,10 @@ fn rinaldi_externals() {
     assert_eq!(run(&mut i, "SendPS empty\nput the result"), "Error : Missing parameter");
     // Notification waits only when RandomCard is in the background.
     assert_eq!(run(&mut i, "Notification\nput the result"), "");
-    // A SuperCard branch's `top of window` compiles, as the card window.
-    assert_eq!(run(&mut i, "put top of window"), run(&mut i, "put top of cd window"));
+    // A SuperCard branch's `top of window` breaks only its own handler,
+    // which HyperCard never runs (checked in HyperCard 2.4.1).
+    set_script(&i, ObjRef::Stack, "on works\n  put 42\nend works\nfunction SCTop\n  return top of window\nend SCTop");
+    assert_eq!(run(&mut i, "works"), "42");
 }
 
 #[test]
@@ -1584,7 +1586,6 @@ fn hypercard_leniencies_run() {
     std::fs::write(&doc, "hello").unwrap();
     run(&mut i, &format!("print \"{}\" with \"TeachText\"", crate::runtime::paths::shown(&doc)));
     assert_eq!(i.printed.last(), Some(&doc));
-    assert_eq!(run(&mut i, "put \"a,b\" & return & \"c\" into theList\nput 2 into LN\nput line LN of theList"), "c");
     assert_eq!(run(&mut i, "answer program \"Which?\"\nput the result"), "Cancel");
     assert!(!run(&mut i, "play \"boing\" c#4 g3h.\nput 1").starts_with("ERROR"));
 }

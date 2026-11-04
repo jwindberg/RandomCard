@@ -667,8 +667,7 @@ impl Parser {
             RepeatKind::Until(self.expr()?)
         } else if self.accept("with") {
             let var = self.symbol()?;
-            // `repeat with i is 1 to 10` works in HyperCard too.
-            if !self.accept_sym("=") && !self.accept("is") {
+            if !self.accept_sym("=") {
                 return Err(self.err_here("Expected \"=\""));
             }
             let from = self.expr()?;
@@ -2189,22 +2188,7 @@ impl Parser {
                 return Ok(None);
             }
             self.advance();
-            // `line LN of theList`: a variable that shares a function's
-            // name. Read as `ln of theList`, nothing would be left for the
-            // chunk's `of`, so take the word alone.
-            let save = self.pos;
-            let index = self.expr()?;
-            let word_of = matches!(self.toks[save].tok, Tok::Word(_))
-                && matches!(self.toks.get(save + 1).map(|t| &t.tok), Some(Tok::Word(w)) if w == "of");
-            let index = if !matches!(self.word(), Some("of" | "in" | "to")) && word_of {
-                self.pos = save;
-                let text = self.toks[self.pos].text.clone();
-                self.advance();
-                Expr::Var(text)
-            } else {
-                index
-            };
-            (kind, ChunkIndex::Expr(Box::new(index)))
+            (kind, ChunkIndex::Expr(Box::new(self.expr()?)))
         } else {
             return Ok(None);
         };
@@ -2244,13 +2228,6 @@ impl Parser {
         let Some(w) = self.word_at(n).map(str::to_string) else { return Ok(None) };
         let next = self.word_at(n + 1).unwrap_or_default().to_string();
         match w.as_str() {
-            // `window` with no name, as SuperCard has it: the card window.
-            // Stacks written for both say `top of window` in SuperCard's
-            // branch, which HyperCard never runs but still compiles.
-            "window" if !self.starts_term_at(n + 1) => {
-                self.pos += n + 1;
-                return Ok(Some(ObjSpec::Stack(None)));
-            }
             "me" if n == 0 => {
                 self.advance();
                 return Ok(Some(ObjSpec::Me));
@@ -2556,7 +2533,10 @@ mod tests {
         assert!(matches!(*lhs, Expr::Binary(BinOp::Add, _, _)));
     }
 
-    /// What HyperCard's own stacks wrote, and HyperCard took.
+    /// What HyperCard's own stacks wrote, and HyperCard took: each was
+    /// checked in HyperCard 2.4.1 (2026-11-04). Three that it rejects
+    /// (SuperCard's bare `window`, `line LN of` with LN a variable, and
+    /// `repeat with x is 1`) are fix steps instead.
     #[test]
     fn hypercard_leniencies() {
         // Notes without quotes, as written.
@@ -2588,10 +2568,8 @@ mod tests {
             "put messageName of window wName into mName",
             "if appName is not empty then print field \"Name\" with appName",
             "print n cards",
-            "put line LN of theList into thisEntry",
             "get char 7 to 8 of frameToTime(secs)",
             "set the visible of tool window to true",
-            "repeat with xx is 1 to 100\nend repeat",
             "repeat with i=1 to number(cds of bg \"Practice\")\nend repeat",
             "answer program \"send to which program\"",
             "CL logOn, sysNum, address,,\"NS\"",

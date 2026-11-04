@@ -26,3 +26,10 @@ Technical Notes Stack 3.4.1	offset(":",NewName)	offset(the pathSeparator,NewName
 Technical Notes Stack 3.4.2	repeat until last char of shortstackpath = ":"	repeat until last char of shortstackpath = the pathSeparator	Mac colon paths: the folder separator is the pathSeparator on other systems
 Technical Notes Stack 3.4.2	NewName contains ":"	NewName contains the pathSeparator	Mac colon paths: the folder separator is the pathSeparator on other systems
 Technical Notes Stack 3.4.2	offset(":",NewName)	offset(the pathSeparator,NewName)	Mac colon paths: the folder separator is the pathSeparator on other systems
+the Graffer	repeat with inc is 1 to howMany	repeat with inc = 1 to howMany	`repeat with x is 1`, which HyperCard 2.4.1 rejects too: `=` is its syntax
+XCMD.Flush	repeat with xx is 1 to 100	repeat with xx = 1 to 100	`repeat with x is 1`, which HyperCard 2.4.1 rejects too: `=` is its syntax
+Hyperdex	line LN of	line (LN) of	LN is a variable, but HyperCard 2.4.1 reads `LN of x` as the ln function too: parentheses make it a variable
+Owner's Guide	line LN of	line (LN) of	LN is a variable, but HyperCard 2.4.1 reads `LN of x` as the ln function too: parentheses make it a variable
+Hyperdex 1.0B9	line LN of	line (LN) of	LN is a variable, but HyperCard 2.4.1 reads `LN of x` as the ln function too: parentheses make it a variable
+SpIndexer 2.6	line LN of	line (LN) of	LN is a variable, but HyperCard 2.4.1 reads `LN of x` as the ln function too: parentheses make it a variable
+Hyperdex 1.0B10	line LN of	line (LN) of	LN is a variable, but HyperCard 2.4.1 reads `LN of x` as the ln function too: parentheses make it a variable
