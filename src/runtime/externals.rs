@@ -325,14 +325,10 @@ impl Interp {
                     return Some(super::interp::err(format!("Can't find palette \"{name}\"")));
                 };
                 let key = palette.name.to_lowercase();
-                let at = if arg(1).trim().is_empty() {
-                    None
-                } else {
-                    match parse_point(&arg(1)) {
-                        Some(p) => Some(p),
-                        None => return Some(super::interp::err(format!("Expected a point, not \"{}\"", arg(1)))),
-                    }
-                };
+                // HyperCard's palette was an XCMD reading numbers from its
+                // text: a point that isn't one leaves the palette where it
+                // would go anyway.
+                let at = parse_point(&arg(1));
                 let mut w = self.w();
                 let (x, y) = at.or_else(|| w.palette_locs.get(&key).copied()).unwrap_or((10, 20));
                 w.palette_locs.insert(key, (x, y));

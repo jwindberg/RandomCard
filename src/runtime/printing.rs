@@ -39,6 +39,19 @@ impl Interp {
                 let w = self.w();
                 w.stack.cards.iter().cycle().skip(w.card_index()).take(n.min(w.stack.cards.len())).map(|c| c.id).collect()
             }
+            PrintWhat::Document { doc, app } => {
+                let doc = self.eval(doc)?;
+                self.eval(app)?;
+                let path = super::paths::native(doc.trim());
+                if !path.is_file() {
+                    return err(format!("Can't find the document \"{}\"", doc.trim()));
+                }
+                if self.open_documents {
+                    print::open_in_viewer(&path).or_else(|e| err(&e))?;
+                }
+                self.printed.push(path);
+                return Ok(());
+            }
             PrintWhat::Text(e) => {
                 // `print field 1` prints the field's text in its own font.
                 if matches!(e, Expr::Object(ObjSpec::Part { kind: Some(PartKind::Field), .. }))

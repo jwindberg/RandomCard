@@ -522,7 +522,8 @@ end showState
     b.card_part(c, about);
     let sounds = [
         ("Boing", "on mouseUp\n  play \"boing\"\nend mouseUp"),
-        ("Flute", "on mouseUp\n  play \"flute\" \"e4q g a b a g e h\"\nend mouseUp"),
+        // Notes can go without quotes, as many old stacks wrote them.
+        ("Flute", "on mouseUp\n  play \"flute\" e4q g a b a g e4h. r f#4e g a#4q b4h\nend mouseUp"),
         ("Dial", "on mouseUp\n  dial \"555-0187\"\nend mouseUp"),
         ("Stop", "on mouseUp\n  play stop\nend mouseUp"),
     ];

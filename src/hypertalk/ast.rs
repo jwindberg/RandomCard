@@ -277,6 +277,9 @@ pub enum PrintWhat {
     Cards(Expr),
     /// Text, or a field's text.
     Text(Expr),
+    /// `print "Report" with "TeachText"`: a document, by the program named.
+    /// RandomCard opens it in the system's viewer, as it does its own PDFs.
+    Document { doc: Expr, app: Expr },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -321,6 +324,9 @@ pub enum Cmd {
     Divide { dest: Expr, value: Expr },
     Answer { prompt: Expr, buttons: Vec<Expr> },
     AnswerFile(Expr),
+    /// `answer program "Send to which program?"`: choosing a program on
+    /// the network. RandomCard has none to offer, so it's always cancelled.
+    AnswerProgram(Expr),
     Ask { prompt: Expr, default: Option<Expr>, password: bool },
     AskFile { prompt: Expr, default: Option<Expr> },
     Beep(Option<Expr>),

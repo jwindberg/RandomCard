@@ -82,16 +82,25 @@ pub fn format_number(n: f64, number_format: &str) -> String {
 }
 
 /// Split into (start, end) byte ranges for each word: runs of non-whitespace.
+/// As in HyperCard, a word that starts with a quotation mark runs to the
+/// closing one, spaces and all: word 2 of `card "My Card"` is `"My Card"`,
+/// which `value of word 2 of the long name` relies on.
 pub fn word_ranges(s: &str) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     let mut start = None;
+    let mut quoted = false;
     for (i, c) in s.char_indices() {
-        if c.is_whitespace() {
+        if quoted {
+            if c == '"' {
+                quoted = false;
+            }
+        } else if c.is_whitespace() {
             if let Some(st) = start.take() {
                 out.push((st, i));
             }
         } else if start.is_none() {
             start = Some(i);
+            quoted = c == '"';
         }
     }
     if let Some(st) = start {
@@ -197,6 +206,10 @@ mod tests {
         assert_eq!(delimited_ranges("a,b,,c", ",").len(), 4);
         assert_eq!(delimited_ranges("a\nb\n", "\n").len(), 2);
         assert_eq!(word_ranges("  hello   big world ").len(), 3);
+        // A quoted word keeps its spaces.
+        let s = "stack \"Hard Disk:My Stack\" now";
+        let w: Vec<&str> = word_ranges(s).iter().map(|&(a, b)| &s[a..b]).collect();
+        assert_eq!(w, ["stack", "\"Hard Disk:My Stack\"", "now"]);
         assert_eq!(round_half_even(2.5), 2.0);
         assert_eq!(round_half_even(3.5), 4.0);
         assert_eq!(round_half_even(-2.5), -2.0);

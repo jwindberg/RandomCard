@@ -53,8 +53,8 @@ mirroring the discs' folders, re-run whenever the importer improves.
 | Level | Stacks |
 | --- | --- |
 | Open cleanly (levels 1–3) | 820 (748 at the first index) |
-| Tested at level 4 | all 748 (320 without compiled externals, then the 428 with them), then 297 more whose scripts parse since #48 |
-| **Work fully (level 4)** | **959** (45 use stubs, marked †; 3 checked by driven steps, marked ‡) |
+| Tested at level 4 | all 748 (320 without compiled externals, then the 428 with them), then 297 more whose scripts parse since #48, then the other 149 (#53) |
+| **Work fully (level 4)** | **1,004** (48 use stubs, marked †; 3 checked by driven steps, marked ‡) |
 
 1,192 of the 1,703 stacks contain compiled XCMDs or XFCNs, 885 distinct
 names between them. Each one either becomes a RandomCard feature or, rarely,
@@ -91,7 +91,8 @@ fixing its first one can uncover the next.
 | 11 | Too much recursion (on click) | 1 | Téléphone, "Dial" | |
 | 12 | No such stack (at open) | 164 | | Companion stacks, Home and help stacks. Sample which stacks they look for before fixing. |
 | 13 | Can't understand / No such function (at open) | 191 | | Mostly externals not built in yet. |
-| 14 | Scripts that don't parse | 149 of the 446 the index listed | play "Boing" e c d g3h. (unquoted notes, 30+); go to Help Index (unquoted names of two words, 53); there is a folder (42); messageName of window wName (22); print field "Name" with appName (13) | #48 fixed the other 297. The probe: `RANDOMCARD_DUMP_ERRORS=1` over the list. |
+| 14 | Scripts that don't parse | 62 of the 446 the index listed | aboutThisDIAStack. (a trailing period, 20 copies); get lineClicked(4) of me (4); stack typos: `whatof cd id 82133` (Technical Notes, 3), a missing quote in netnews reader | #48 and #53 fixed the rest. A handler that doesn't parse only fails when it runs, so these stacks are click-tested too. The probe: `RANDOMCARD_DUMP_ERRORS=1` over the list. |
+| 54 | Developer Info Assistant: "There is no menu" on Search CD | 20 copies | Its global gDIAGoMenu is empty when Search CD runs: the background button handler that creates its menus didn't run at open | Found after #53 got it past `word 2 of the long name`. |
 | 15 | The stack is damaged (bad first block) | 47 | | Very early stacks, or not stacks at all. |
 | 16 | Clicks that ran into the 2-second limit | 24+ working stacks | Macintosh IIcx guided tours (211 of 583 clicks); Macintosh IIx (14) | Probably animations or loops waiting for a key; check by hand. |
 
@@ -99,6 +100,7 @@ fixing its first one can uncover the next.
 
 | # | Bug | Stacks | Fix |
 | --- | --- | --- | --- |
+| 53 | Syntax HyperCard took that RandomCard didn't | 151 stacks rechecked (PARSE2–4.tsv); 45 newly working | `play` notes without quotes, kept as written (tokens now know whether space came before them); names of several bare words in `go` (`go to Help Index`, `… of Help Intro`) and `set` (`to New York`); `go … in stack`; `there is a folder`; any property of a window (`messageName of window w`); `print <document> with <program>` (opens it in the viewer); `print n cards`; `number(cds of bg 1)`; `line LN of x` where LN is a variable; `secs` and `seconds` as variables; `repeat with i is 1`; `set the visible of tool window`; `answer program` (always cancelled); empty arguments (`f a,,b`); a ¬ line running into `else`; `visual shrink to bottom fast to black`; `window "scroll"` (HyperCard's Scroll palette, never shown); `palette` with a bad point keeps its place; and a quoted word is one word, spaces and all, as `value of word 2 of the long name` needs. Tour: Sound card, Flute plays unquoted notes. |
 | 52 | Rinaldi's SendPS not built in (part of #19) | 9 (its demo stacks, 1.2 to 1.4, US and French); all 9 now work fully | His sent PostScript to a LaserWriter over AppleTalk. RandomCard saves the PostScript (text, or a file's path) and opens it in the system's viewer to print from there, as its printing does with PDFs; his error texts go in the result. ClipToScrap and ScrapToClip (ScrapXCMDs, 9 stacks) won't be built in: no system has a Scrapbook today. Tour: Print & Find card, "Print PostScript". |
 | 51 | Rinaldi's Mousoid, Infoid, Promptoid and Notification not built in (part of #19) | 18 (their demo stacks, and the older Mouse Windoid and Info Windoid); all 18 now work fully | Built in (src/runtime/rinaldi.rs). Mousoid and Infoid open windoids the UI keeps up to date: the mouse on the card and screen, and the button, field or card under it (as `send "Update" to window "Infoid"` asked of his); they go where the script says, or the card's top right, and drag by the title bar. Promptoid is Prompt as a window that scripts change with `set text of window` and take away with `close window` (its icon isn't shown). Notification asks for attention (Dock bounce, taskbar flash) and waits until RandomCard is in front. Tour: Debugging card, "Mouse Window", "Info Window" and "Call Me Back". |
 | 50 | Rinaldi's ListSelect not built in (part of #19) | 9 (ListSelect 3.2 to 4.8, US and French); all 9 now work fully | Built in (src/runtime/rinaldi.rs, with a new list dialog in src/ui/list_dialog.rs): modes none, one, a run or any lines; `*` sorts, `#` answers numbers in the list's own order; "s=" lines chosen at the start, NoDoubleClick, prompt, OK and Cancel (empty hides one), a loc or rect, the answer's separator and a font, in any order. ListSelectExit gets the button's name, or TabKey, or Error. A stack's own DLOG resource isn't used: RandomCard draws its own dialog. Tour: Fields card, "Flash Fields". |

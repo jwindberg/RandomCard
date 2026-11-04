@@ -204,11 +204,15 @@ impl Interp {
                     .collect();
                 // The card window goes by its stack's name, as in HyperCard.
                 list.push(w.stack.name.clone());
-                list.extend(["Message", "Tools", "Patterns"].map(String::from));
+                list.extend(["Message", "Tools", "Patterns", "Scroll"].map(String::from));
                 list.join("\n")
             }
             // The text, rect or name of a window a script opened.
             "__windowprop" => {
+                // HyperCard's Scroll palette, never shown in RandomCard.
+                if arg(1).trim().eq_ignore_ascii_case("scroll") && arg(0).eq_ignore_ascii_case("visible") {
+                    return Ok("false".into());
+                }
                 let w = self.w();
                 let Some(t) = w
                     .script_windows
@@ -240,6 +244,8 @@ impl Interp {
             "osname" => std::env::consts::OS.into(),
             "diskspace" | "heapspace" => "1000000000".into(),
             "__fileexists" => bool_str(super::paths::native(&arg(0)).exists()),
+            // `there is a folder "…"`.
+            "__folderexists" => bool_str(super::paths::native(&arg(0)).is_dir()),
             // `there is a window "…"`: one of the windows `the windows` lists.
             "__windowexists" => {
                 let windows = self.builtin("windows", NameLength::Default, vec![])?;

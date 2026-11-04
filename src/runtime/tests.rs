@@ -1537,6 +1537,22 @@ fn rinaldi_externals() {
 }
 
 #[test]
+fn hypercard_leniencies_run() {
+    let mut i = interp_with(stack());
+    let dir = std::env::temp_dir();
+    let d = crate::runtime::paths::shown(&dir);
+    assert_eq!(run(&mut i, &format!("put there is a folder \"{d}\"")), "true");
+    assert_eq!(run(&mut i, &format!("put there is not a folder \"{d}/nothing here\"")), "true");
+    let doc = dir.join("RandomCard leniency.txt");
+    std::fs::write(&doc, "hello").unwrap();
+    run(&mut i, &format!("print \"{}\" with \"TeachText\"", crate::runtime::paths::shown(&doc)));
+    assert_eq!(i.printed.last(), Some(&doc));
+    assert_eq!(run(&mut i, "put \"a,b\" & return & \"c\" into theList\nput 2 into LN\nput line LN of theList"), "c");
+    assert_eq!(run(&mut i, "answer program \"Which?\"\nput the result"), "Cancel");
+    assert!(!run(&mut i, "play \"boing\" c#4 g3h.\nput 1").starts_with("ERROR"));
+}
+
+#[test]
 fn externals_done_by_randomcard() {
     assert_eq!(eval("isnum(12.5)"), "true");
     assert_eq!(eval("isnum(\"12a\")"), "false");

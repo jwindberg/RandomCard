@@ -21,6 +21,9 @@ pub struct Token {
     pub line: usize,
     /// The word as written, before lowercasing.
     pub text: String,
+    /// Whether space (or a line's start) came before it: `c#4` is three
+    /// tokens with none between, which `play` puts back together.
+    pub spaced: bool,
 }
 
 const SYMBOLS: &[&str] = &[
@@ -32,14 +35,17 @@ pub fn lex(src: &str) -> Result<Vec<Token>, String> {
     let mut toks = Vec::new();
     let mut i = 0;
     let mut line = 1;
+    // Whether the next token follows space.
+    let mut spaced = true;
     while i < chars.len() {
         let c = chars[i];
+        let before = toks.len();
         if c == '\r' || c == '\n' {
             // Collapse \r\n into one newline.
             if c == '\r' && chars.get(i + 1) == Some(&'\n') {
                 i += 1;
             }
-            toks.push(Token { tok: Tok::Newline, line, text: String::new() });
+            toks.push(Token { tok: Tok::Newline, line, text: String::new(), spaced: false });
             line += 1;
             i += 1;
         } else if c == ' ' || c == '\t' {
@@ -74,12 +80,12 @@ pub fn lex(src: &str) -> Result<Vec<Token>, String> {
                 i += 1;
             }
             let terminated = i < chars.len() && chars[i] == '"';
-            toks.push(Token { tok: Tok::Str(chars[start..i].iter().collect()), line, text: String::new() });
+            toks.push(Token { tok: Tok::Str(chars[start..i].iter().collect()), line, text: String::new(), spaced: false });
             if terminated {
                 i += 1;
             } else {
                 // Only an error inside a handler; text outside handlers is ignored.
-                toks.push(Token { tok: Tok::Other('"'), line, text: String::new() });
+                toks.push(Token { tok: Tok::Other('"'), line, text: String::new(), spaced: false });
             }
         } else if c.is_ascii_digit() || (c == '.' && chars.get(i + 1).is_some_and(|d| d.is_ascii_digit())) {
             let start = i;
@@ -110,9 +116,9 @@ pub fn lex(src: &str) -> Result<Vec<Token>, String> {
                     i += 1;
                 }
                 let w: String = chars[start..i].iter().collect();
-                toks.push(Token { tok: Tok::Word(w.to_lowercase()), line, text: w });
+                toks.push(Token { tok: Tok::Word(w.to_lowercase()), line, text: w, spaced: false });
             } else {
-                toks.push(Token { tok: Tok::Number(chars[start..i].iter().collect()), line, text: String::new() });
+                toks.push(Token { tok: Tok::Number(chars[start..i].iter().collect()), line, text: String::new(), spaced: false });
             }
         } else if c.is_alphabetic() || c == '_' {
             let start = i;
@@ -120,20 +126,29 @@ pub fn lex(src: &str) -> Result<Vec<Token>, String> {
                 i += 1;
             }
             let w: String = chars[start..i].iter().collect();
-            toks.push(Token { tok: Tok::Word(w.to_lowercase()), line, text: w });
+            toks.push(Token { tok: Tok::Word(w.to_lowercase()), line, text: w, spaced: false });
         } else {
             let rest: String = chars[i..chars.len().min(i + 2)].iter().collect();
-            let Some(sym) = SYMBOLS.iter().find(|s| rest.starts_with(**s)) else {
-                toks.push(Token { tok: Tok::Other(c), line, text: String::new() });
-                i += 1;
-                continue;
-            };
-            toks.push(Token { tok: Tok::Sym(sym), line, text: String::new() });
-            i += sym.chars().count();
+            match SYMBOLS.iter().find(|s| rest.starts_with(**s)) {
+                Some(sym) => {
+                    toks.push(Token { tok: Tok::Sym(sym), line, text: String::new(), spaced: false });
+                    i += sym.chars().count();
+                }
+                None => {
+                    toks.push(Token { tok: Tok::Other(c), line, text: String::new(), spaced: false });
+                    i += 1;
+                }
+            }
         }
+        if let Some(t) = toks.get_mut(before) {
+            t.spaced = spaced;
+        }
+        // Anything skipped without a token (space, a comment, a line
+        // continuation) or a newline counts as space before the next one.
+        spaced = toks.len() == before || matches!(toks.last().map(|t| &t.tok), Some(Tok::Newline));
     }
-    toks.push(Token { tok: Tok::Newline, line, text: String::new() });
-    toks.push(Token { tok: Tok::Eof, line, text: String::new() });
+    toks.push(Token { tok: Tok::Newline, line, text: String::new(), spaced: false });
+    toks.push(Token { tok: Tok::Eof, line, text: String::new(), spaced: false });
     Ok(toks)
 }
 

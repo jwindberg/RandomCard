@@ -352,6 +352,29 @@ impl Parser {
         }
     }
 
+    /// The rest of the line as written, up to a comment, with space only
+    /// where the source had it; the position moves to the line's end.
+    fn raw_rest_of_line(&mut self) -> String {
+        let mut out = String::new();
+        while !self.at_newline() && !self.at_eof() {
+            let t = &self.toks[self.pos];
+            let piece = match &t.tok {
+                Tok::Word(_) => t.text.clone(),
+                Tok::Number(n) => n.clone(),
+                Tok::Str(s) => s.clone(),
+                Tok::Sym(s) => s.to_string(),
+                Tok::Other(c) => c.to_string(),
+                Tok::Newline | Tok::Eof => break,
+            };
+            if t.spaced && !out.is_empty() {
+                out.push(' ');
+            }
+            out.push_str(&piece);
+            self.advance();
+        }
+        out
+    }
+
     /// Reconstruct the source text of tokens `start..end`.
     fn source_text(&self, start: usize, end: usize) -> String {
         let mut out = String::new();
@@ -497,7 +520,9 @@ impl Parser {
                 return Ok(stmts);
             }
             stmts.push(self.statement()?);
-            if !self.at_newline() && !self.at_eof() {
+            // A statement continued with ¬ onto an `else` line ends there.
+            let at_else = terminators.contains(&"else") && self.is("else");
+            if !self.at_newline() && !self.at_eof() && !at_else {
                 return Err(self.err_here("Expected end of line"));
             }
         }
@@ -568,9 +593,9 @@ impl Parser {
         self.advance();
         let mut args = Vec::new();
         if !self.at_stmt_end() {
-            args.push(self.expr()?);
+            args.push(self.arg_expr()?);
             while self.accept_sym(",") {
-                args.push(self.expr()?);
+                args.push(self.arg_expr()?);
             }
         }
         Ok(StmtKind::Message { name: w, args })
@@ -637,7 +662,8 @@ impl Parser {
             RepeatKind::Until(self.expr()?)
         } else if self.accept("with") {
             let var = self.symbol()?;
-            if !self.accept_sym("=") {
+            // `repeat with i is 1 to 10` works in HyperCard too.
+            if !self.accept_sym("=") && !self.accept("is") {
                 return Err(self.err_here("Expected \"=\""));
             }
             let from = self.expr()?;
@@ -655,6 +681,15 @@ impl Parser {
         self.expect("end")?;
         self.expect("repeat")?;
         Ok(StmtKind::Repeat { kind, body })
+    }
+
+    /// One argument of a call or message. An empty one (`f a,,b`) is
+    /// empty, as in HyperCard.
+    fn arg_expr(&mut self) -> PResult<Expr> {
+        if matches!(self.tok(), Tok::Sym("," | ")")) || self.at_stmt_end() {
+            return Ok(Expr::Lit(String::new()));
+        }
+        self.expr()
     }
 
     /// A comma-separated list of expressions joined into one comma-delimited value.
@@ -734,6 +769,13 @@ impl Parser {
                     prop = self.symbol()?;
                 }
                 let of = self.accept("of") || self.accept("in");
+                // `set the visible of tool window to true`
+                if of && matches!(self.word(), Some("tool" | "pattern" | "patterns")) && self.is_at(1, "window") {
+                    let name = format!("{} window", self.word().unwrap_or_default());
+                    self.pos += 2;
+                    self.expect("to")?;
+                    return Ok(Cmd::SetWindowProp { prop, window: Expr::Lit(name), value: self.list_expr()? });
+                }
                 if of && self.is("window") && self.starts_term_at(1) {
                     self.advance();
                     let window = self.term()?;
@@ -746,6 +788,8 @@ impl Parser {
                 } else {
                     let obj = if of { Some(self.term()?) } else { None };
                     self.expect("to")?;
+                    // `set textFont of fld 1 to New York`: a name as written.
+                    self.quote_bare_name(false);
                     Cmd::Set {
                         prop,
                         obj,
@@ -774,6 +818,14 @@ impl Parser {
                 Cmd::Divide { dest, value: self.expr()? }
             }
             "answer" => {
+                if self.accept("program") {
+                    let prompt = self.expr()?;
+                    if self.accept("of") {
+                        self.accept("type");
+                        self.expr()?;
+                    }
+                    return Ok(Cmd::AnswerProgram(prompt));
+                }
                 if self.accept("file") {
                     let prompt = self.expr()?;
                     if self.accept("of") {
@@ -810,6 +862,18 @@ impl Parser {
             "beep" => Cmd::Beep(if self.at_stmt_end() { None } else { Some(self.expr()?) }),
             "go" => {
                 self.accept("to");
+                // `go to card "About" in stack "ResCopy"` means `of stack`.
+                let mut i = self.pos;
+                while !matches!(self.toks[i].tok, Tok::Newline | Tok::Eof) {
+                    if matches!(&self.toks[i].tok, Tok::Word(w) if w == "in")
+                        && matches!(self.toks.get(i + 1).map(|t| &t.tok), Some(Tok::Word(w)) if w == "stack")
+                    {
+                        self.toks[i].tok = Tok::Word("of".into());
+                        self.toks[i].text = "of".into();
+                    }
+                    i += 1;
+                }
+                self.quote_bare_name(true);
                 let dest = self.go_dest()?;
                 // Options that only matter with multiple windows.
                 while let Some(_w) = self.accept_any(&["in", "a", "new", "window", "without", "dialog"]) {}
@@ -1134,11 +1198,23 @@ impl Parser {
                 let sound = self.expr()?;
                 let mut tempo = None;
                 let mut notes = Vec::new();
+                let mut notes_start = None;
                 while !self.at_stmt_end() {
                     if self.accept("tempo") {
                         tempo = Some(self.term()?);
-                    } else {
-                        notes.push(self.expr()?);
+                        continue;
+                    }
+                    // Notes are often written without quotes (`play "boing"
+                    // c#4 g3h.`), which HyperCard takes as written: when
+                    // they aren't expressions, all of them are the line's
+                    // text from the first note on.
+                    let start = *notes_start.get_or_insert(self.pos);
+                    match self.expr() {
+                        Ok(e) if self.at_stmt_end() || self.is("tempo") || self.starts_term() => notes.push(e),
+                        _ => {
+                            self.pos = start;
+                            notes = vec![Expr::Lit(self.raw_rest_of_line())];
+                        }
                     }
                 }
                 Cmd::Play { sound, tempo, notes }
@@ -1311,7 +1387,8 @@ impl Parser {
             self.pos += 2;
             return Ok(if marked { PrintWhat::MarkedCards } else { PrintWhat::AllCards });
         }
-        if matches!(self.tok(), Tok::Number(_)) && cards_at(self, 1) {
+        // `print 5 cards`, or `print n cards`.
+        if (matches!(self.tok(), Tok::Number(_)) || matches!(self.tok(), Tok::Word(_)) && !self.word().is_some_and(is_card_word)) && cards_at(self, 1) {
             let n = self.term()?;
             self.advance();
             return Ok(PrintWhat::Cards(n));
@@ -1322,6 +1399,9 @@ impl Parser {
         } else {
             match self.expr()? {
                 Expr::Object(ObjSpec::Card(spec)) => Some(spec),
+                doc if self.accept("with") => {
+                    return Ok(PrintWhat::Document { doc, app: self.expr()? });
+                }
                 e => return Ok(PrintWhat::Text(e)),
             }
         };
@@ -1400,7 +1480,9 @@ impl Parser {
         let name = if matches!(self.tok(), Tok::Word(_)) {
             let mut words = Vec::new();
             while let Some(w) = self.word() {
-                if matches!(w, "fast" | "slow" | "slowly" | "very" | "to") {
+                // `shrink to bottom` is the effect's name; `to black` after it isn't.
+                let shrink_to = w == "to" && matches!(self.word_at(1), Some("top" | "bottom" | "center" | "centre"));
+                if matches!(w, "fast" | "slow" | "slowly" | "very" | "to") && !shrink_to {
                     break;
                 }
                 words.push(w.to_string());
@@ -1427,6 +1509,48 @@ impl Parser {
             self.term()?;
         }
         Ok(Effect { name, speed })
+    }
+
+    /// `go to Help Index`, `go to card id 3963 of Help Intro`: HyperCard
+    /// took a name of several bare words as written. When the end of the
+    /// destination (after its last `of`, or after `card` or `stack`) is two
+    /// or more plain words, they become one quoted name. Bare words side by
+    /// side mean nothing else, so this changes no statement that parsed.
+    fn quote_bare_name(&mut self, after_of: bool) {
+        let mut end = self.pos;
+        while !matches!(self.toks[end].tok, Tok::Newline | Tok::Eof) && !self.is_at(end - self.pos, "else") {
+            end += 1;
+        }
+        // Leave `in a new window` and `without dialog` to the command.
+        let word = |i: usize| match &self.toks[i].tok {
+            Tok::Word(w) => Some(w.as_str()),
+            _ => None,
+        };
+        for tail in [&["in", "a", "new", "window"][..], &["in", "new", "window"], &["without", "dialog"]] {
+            if end - self.pos >= tail.len() && tail.iter().enumerate().all(|(k, t)| word(end - tail.len() + k) == Some(t)) {
+                end -= tail.len();
+            }
+        }
+        let mut start = self.pos;
+        for i in self.pos..end {
+            if after_of && word(i) == Some("of") {
+                start = i + 1;
+            }
+        }
+        if after_of && matches!(word(start), Some("card" | "cd" | "stack")) {
+            start += 1;
+        }
+        let words: Option<Vec<&str>> = (start..end).map(word).collect();
+        let reserved = |w: &str| {
+            matches!(w, "card" | "cd" | "stack" | "background" | "bkgnd" | "bg" | "id" | "the" | "this" | "next" | "prev" | "previous" | "marked" | "recent" | "of" | "and" | "or" | "not" | "is" | "mod" | "div" | "contains")
+        };
+        let Some(words) = words else { return };
+        if words.len() < 2 || words.iter().any(|w| reserved(w)) {
+            return;
+        }
+        let text = self.toks[start..end].iter().map(|t| t.text.clone()).collect::<Vec<_>>().join(" ");
+        let line = self.toks[start].line;
+        self.toks.splice(start..end, [Token { tok: Tok::Str(text), line, text: String::new(), spaced: true }]);
     }
 
     fn go_dest(&mut self) -> PResult<GoDest> {
@@ -1677,10 +1801,14 @@ impl Parser {
                 let test = Expr::MenuExists(Box::new(r));
                 return Ok(if positive { test } else { Expr::Unary(UnOp::Not, Box::new(test)) });
             }
-            if self.accept("file") || self.accept("window") {
-                let window = self.toks[self.pos - 1].text.eq_ignore_ascii_case("window");
+            if let Some(kind) = self.accept_any(&["file", "folder", "window"]) {
+                let call = match kind.as_str() {
+                    "window" => "__windowexists",
+                    "folder" => "__folderexists",
+                    _ => "__fileexists",
+                };
                 let arg = self.term()?;
-                let test = Expr::Call(if window { "__windowexists" } else { "__fileexists" }.into(), vec![arg]);
+                let test = Expr::Call(call.into(), vec![arg]);
                 return Ok(if positive { test } else { Expr::Unary(UnOp::Not, Box::new(test)) });
             }
             let Some(obj) = self.object()? else {
@@ -1723,6 +1851,18 @@ impl Parser {
     }
 
     fn word_term(&mut self, w: &str) -> PResult<Expr> {
+        // `number(cds of bg "Practice")`, `number(cd flds)`: the number of
+        // things, in parentheses.
+        if w == "number" && matches!(self.tok_at(1), Tok::Sym("(")) {
+            let save = self.pos;
+            self.pos += 2;
+            if let Ok(Some(c)) = self.countable()
+                && self.accept_sym(")")
+            {
+                return Ok(Expr::Number(c));
+            }
+            self.pos = save;
+        }
         // Function call with parentheses.
         let builtin = ZERO_ARG_FUNCS.contains(&w) || ONE_ARG_FUNCS.contains(&w);
         // `menu (line i of it)` names a menu, not a function called menu.
@@ -1736,9 +1876,9 @@ impl Parser {
             self.advance();
             let mut args = Vec::new();
             if !self.accept_sym(")") {
-                args.push(self.expr()?);
+                args.push(self.arg_expr()?);
                 while self.accept_sym(",") {
-                    args.push(self.expr()?);
+                    args.push(self.arg_expr()?);
                 }
                 if !self.accept_sym(")") {
                     return Err(self.err_here("Expected \")\""));
@@ -1791,7 +1931,12 @@ impl Parser {
         }
         // Some stop words end expressions but can still be variables or bare
         // words where a value is expected: `put x into to`, `of type PICT`.
-        if STOP_WORDS.contains(&w) && !matches!(w, "to" | "times" | "where" | "pict" | "picture" | "before" | "after") {
+        // One alone in parentheses or a list is a variable, as a handler's
+        // parameter named `secs` is in `frameToTime(secs)`; so are the time
+        // words wherever a value goes (`put item 3 of x into Seconds`).
+        let alone = matches!(self.tok_at(1), Tok::Sym(")" | ","))
+            || matches!(w, "seconds" | "secs" | "sec" | "ticks" | "tick");
+        if STOP_WORDS.contains(&w) && !alone && !matches!(w, "to" | "times" | "where" | "pict" | "picture" | "before" | "after") {
             return Err(self.err_here("Expected an expression"));
         }
         let text = self.toks[self.pos.min(self.toks.len() - 1)].text.clone();
@@ -1804,7 +1949,9 @@ impl Parser {
         let n = if self.length_word(0).is_some() && self.word_at(1).is_some() { 1 } else { 0 };
         let Some(w) = self.word_at(n) else { return false };
         let known = PROPERTIES.contains(&w) || ONE_ARG_FUNCS.contains(&w);
-        known && (self.is_at(n + 1, "of") || w == "number" && self.is_at(n + 1, "in"))
+        // An external window's own property: `messageName of window wName`.
+        let of_window = self.is_at(n + 1, "of") && self.is_at(n + 2, "window") && self.starts_term_at(n + 3);
+        of_window || known && (self.is_at(n + 1, "of") || w == "number" && self.is_at(n + 1, "in"))
     }
 
     fn length_word(&self, n: usize) -> Option<NameLength> {
@@ -2027,7 +2174,22 @@ impl Parser {
                 return Ok(None);
             }
             self.advance();
-            (kind, ChunkIndex::Expr(Box::new(self.expr()?)))
+            // `line LN of theList`: a variable that shares a function's
+            // name. Read as `ln of theList`, nothing would be left for the
+            // chunk's `of`, so take the word alone.
+            let save = self.pos;
+            let index = self.expr()?;
+            let word_of = matches!(self.toks[save].tok, Tok::Word(_))
+                && matches!(self.toks.get(save + 1).map(|t| &t.tok), Some(Tok::Word(w)) if w == "of");
+            let index = if !matches!(self.word(), Some("of" | "in" | "to")) && word_of {
+                self.pos = save;
+                let text = self.toks[self.pos].text.clone();
+                self.advance();
+                Expr::Var(text)
+            } else {
+                index
+            };
+            (kind, ChunkIndex::Expr(Box::new(index)))
         } else {
             return Ok(None);
         };
@@ -2377,5 +2539,56 @@ mod tests {
         let StmtKind::Cmd { cmd: Cmd::Put { value, .. }, .. } = stmt("put 1 + 2 * 3 & \"x\"") else { panic!() };
         let Expr::Binary(BinOp::Concat, lhs, _) = value else { panic!("{value:?}") };
         assert!(matches!(*lhs, Expr::Binary(BinOp::Add, _, _)));
+    }
+
+    /// What HyperCard's own stacks wrote, and HyperCard took.
+    #[test]
+    fn hypercard_leniencies() {
+        // Notes without quotes, as written.
+        let StmtKind::Cmd { cmd: Cmd::Play { notes, tempo, .. }, .. } = stmt("play \"Harpsichord\" tempo 380 b3 c#4 d e f# g3h. gq")
+        else {
+            panic!()
+        };
+        assert!(tempo.is_some());
+        assert!(matches!(&notes[..], [Expr::Lit(n)] if n == "b3 c#4 d e f# g3h. gq"), "{notes:?}");
+        let StmtKind::Cmd { cmd: Cmd::Play { notes, .. }, .. } = stmt("play \"boing\" \"c d e\"") else { panic!() };
+        assert!(matches!(&notes[..], [Expr::Lit(n)] if n == "c d e"));
+        // Names of several bare words.
+        let StmtKind::Cmd { cmd: Cmd::Go(GoDest::Expr(Expr::Lit(n))), .. } = stmt("go to Help Index") else { panic!() };
+        assert_eq!(n, "Help Index");
+        let StmtKind::Cmd { cmd: Cmd::Go(GoDest::Card(CardSpec::OfStack(_, stack))), .. } =
+            stmt("go to card id 3963 of Help Intro")
+        else {
+            panic!()
+        };
+        assert!(matches!(*stack, Expr::Lit(ref n) if n == "Help Intro"), "{stack:?}");
+        stmt("go to Clip Art in a new window");
+        let StmtKind::Cmd { cmd: Cmd::Set { value: Expr::Lit(v), .. }, .. } = stmt("set textFont of card field \"essai\" to New York") else {
+            panic!()
+        };
+        assert_eq!(v, "New York");
+        // The rest parse at all.
+        for src in [
+            "if there is not a folder NewMessagesFolder() then beep",
+            "put messageName of window wName into mName",
+            "if appName is not empty then print field \"Name\" with appName",
+            "print n cards",
+            "put line LN of theList into thisEntry",
+            "get char 7 to 8 of frameToTime(secs)",
+            "set the visible of tool window to true",
+            "repeat with xx is 1 to 100\nend repeat",
+            "repeat with i=1 to number(cds of bg \"Practice\")\nend repeat",
+            "answer program \"send to which program\"",
+            "CL logOn, sysNum, address,,\"NS\"",
+            "put Help(\"ShowBalloon\", gMsgText,,gTargetRect) into x",
+            "go to card \"About ResCopy\" in stack \"ResCopy\"",
+            "visual shrink to bottom fast to black",
+            "put item 3 of DMSValue into Seconds",
+            "wait 2 seconds",
+        ] {
+            stmt(src);
+        }
+        // A statement continued onto an `else` line.
+        parse_script("on f which\nif which is 1 then\nreturn \"a\" & ¬\n\"b\"¬\nelse if which is 2 then\nreturn 2\nend if\nend f").unwrap();
     }
 }

@@ -103,6 +103,12 @@ impl Interp {
                 }
                 Ok(())
             }
+            Cmd::AnswerProgram(prompt) => {
+                self.eval(prompt)?;
+                self.set_var("it", String::new());
+                self.result = "Cancel".into();
+                Ok(())
+            }
             Cmd::AnswerFile(prompt) | Cmd::AskFile { prompt, .. } => {
                 let title = self.eval(prompt)?;
                 let kind = match c {
@@ -329,6 +335,15 @@ impl Interp {
             } => {
                 let name = self.eval(window)?;
                 let value = self.eval(value)?;
+                // The tools and patterns are one panel, which `show tool
+                // window` shows.
+                if matches!(name.trim().to_ascii_lowercase().as_str(), "tool window" | "pattern window" | "patterns window")
+                    && prop.eq_ignore_ascii_case("visible")
+                {
+                    let show = value.trim().eq_ignore_ascii_case("true");
+                    self.w().requests.push(UiRequest::ToolWindow(show));
+                    return Ok(());
+                }
                 let mut w = self.w();
                 let Some(win) = w
                     .script_windows
@@ -682,6 +697,11 @@ impl Interp {
                 }
                 if ["patterns", "pattern window"].iter().any(|m| m.eq_ignore_ascii_case(name)) {
                     return self.show_hide(&ShowHide::PatternWindow, show, at);
+                }
+                // HyperCard 2's Scroll palette: RandomCard scrolls a big card
+                // with the window's own scroll bars, so it has none to show.
+                if ["scroll", "scroll window"].iter().any(|m| m.eq_ignore_ascii_case(name)) {
+                    return self.show_hide(&ShowHide::ScrollWindow, show, at);
                 }
                 let mut w = self.w();
                 // The card window, by its stack's name: it's already showing.
