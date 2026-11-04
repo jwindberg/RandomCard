@@ -48,7 +48,7 @@ impl Interp {
         let dir: PathBuf = if folder.is_empty() || folder == ":" {
             let w = self.w();
             let home = w.home_path.as_ref().and_then(|p| p.parent()).map(Path::to_path_buf);
-            let here = w.stack.path.as_ref().and_then(|p| p.parent()).map(Path::to_path_buf);
+            let here = w.stack.path.as_ref().or(w.stack.imported_from.as_ref()).and_then(|p| p.parent()).map(Path::to_path_buf);
             match home.or(here) {
                 Some(d) => d,
                 None => return Ok(()),

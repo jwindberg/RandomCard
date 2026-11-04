@@ -300,7 +300,9 @@ impl Interp {
     pub fn name_of(&self, o: ObjRef, len: NameLength) -> String {
         let w = self.w();
         let s = &w.stack;
-        let stack_long = || match &s.path {
+        // A stack converted from HyperCard is still its file on the disc until
+        // it's saved, as HyperCard's long name gave it.
+        let stack_long = || match s.path.as_ref().or(s.imported_from.as_ref()) {
             Some(p) => format!("stack \"{}\"", super::paths::shown(p)),
             None => format!("stack \"{}\"", s.name),
         };
@@ -315,7 +317,7 @@ impl Interp {
                 _ => format!("stack \"{}\"", s.name),
             },
             ObjRef::OtherStack(k) => match w.other(k) {
-                Some(o) => match (len, &o.path) {
+                Some(o) => match (len, o.path.as_ref().or(o.imported_from.as_ref())) {
                     (NameLength::Short, _) => o.name.clone(),
                     (NameLength::Long, Some(p)) => format!("stack \"{}\"", super::paths::shown(p)),
                     _ => format!("stack \"{}\"", o.name),

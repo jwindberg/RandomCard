@@ -68,6 +68,22 @@ def main():
     for path, d in driven.items():
         if latest.get(path, {}).get('result') != 'every click clean':
             latest[path] = {'path': path, 'result': 'every click clean', 'clicks': f'{d["steps"]} steps', 'stopped': '0'}
+    # A stack whose row says fix steps were applied (the click test's fixes
+    # column) is listed with the reasons FIX_STEPS.tsv gives for its name.
+    table = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'FIX_STEPS.tsv')
+    reasons = {}
+    for line in open(table, encoding='utf-8'):
+        if line.strip() and not line.startswith('#'):
+            f = line.rstrip('\n').split('\t')
+            if len(f) >= 4:
+                reasons.setdefault(f[0], [])
+                if f[3] not in reasons[f[0]]:
+                    reasons[f[0]].append(f[3])
+    for r in latest.values():
+        n = int(r.get('fixes') or 0)
+        if n and r['path'] not in fixes:
+            name = r['path'].rsplit('/', 1)[-1]
+            fixes[r['path']] = f"{n} changes from FIX_STEPS.tsv: " + "; ".join(reasons.get(name, []))
     clean = [r for r in latest.values() if r['result'] == 'every click clean']
     working = [r for r in clean if r['path'] not in fixes]
     fixed = [r for r in clean if r['path'] in fixes]

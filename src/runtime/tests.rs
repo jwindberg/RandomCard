@@ -1205,6 +1205,8 @@ struct Exercised {
     errors: Vec<String>,
     error_count: usize,
     stopped: usize,
+    /// How many fix-step changes our copy got.
+    fixes: usize,
 }
 
 /// Give a test interpreter RandomCard's Home stack, as the app has, so `go
@@ -1222,8 +1224,31 @@ fn give_home(i: &Interp) {
 /// Open a stack, go to every card and click every button that has a script.
 fn exercise_one(path: &std::path::Path, print: bool) -> Exercised {
     let mut out = Exercised::default();
-    let stack = match crate::import::load_any(path, None) {
-        Ok(s) => s,
+    // The discs' folders here are named with quotation marks ("The Silence
+    // Of The ROMs"), which no Mac path had and which break scripts taking
+    // `word 2 of the long name`: open the stack through a link without them.
+    let linked;
+    let path = if path.to_string_lossy().contains('"')
+        && let Some(dir) = path.parent()
+    {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        dir.hash(&mut h);
+        let link = std::env::temp_dir().join(format!("randomcard-discs-{}", std::process::id())).join(format!("{:x}", h.finish()));
+        let _ = std::fs::create_dir_all(link.parent().unwrap());
+        #[cfg(unix)]
+        let _ = std::os::unix::fs::symlink(std::fs::canonicalize(dir).unwrap_or(dir.to_path_buf()), &link);
+        linked = link.join(path.file_name().unwrap());
+        if linked.exists() { linked.as_path() } else { path }
+    } else {
+        path
+    };
+    // Our copy gets its listed fix steps (FIX_STEPS.tsv) as it's converted.
+    let stack = match crate::import::load_any_fixed(path, None) {
+        Ok((s, fixes)) => {
+            out.fixes = fixes;
+            s
+        }
         Err(e) => {
             out.errors.push(format!("doesn't import: {e}"));
             return out;
@@ -1363,7 +1388,7 @@ fn click_every_button() {
     let root = list.parent().unwrap().to_path_buf();
     let paths: Vec<String> = std::fs::read_to_string(&list).unwrap().lines().filter(|l| !l.is_empty()).map(String::from).collect();
     let out_path = list.with_extension("tsv");
-    std::fs::write(&out_path, "path\tresult\tclicks\tdistinct_errors\terrors\tstopped\tfirst_error\n").unwrap();
+    std::fs::write(&out_path, "path\tresult\tclicks\tdistinct_errors\terrors\tstopped\tfirst_error\tfixes\n").unwrap();
     let queue = Arc::new(Mutex::new(paths.clone()));
     let (tx, rx) = mpsc::channel::<(String, Option<Exercised>)>();
     let total = paths.len();
@@ -1399,9 +1424,17 @@ fn click_every_button() {
                         } else {
                             "errors"
                         };
-                        format!("{p}\t{result}\t{}\t{}\t{}\t{}\t{}", r.clicks, r.errors.len(), r.error_count, r.stopped, clean(r.errors.first().map(String::as_str).unwrap_or("")))
+                        format!(
+                            "{p}\t{result}\t{}\t{}\t{}\t{}\t{}\t{}",
+                            r.clicks,
+                            r.errors.len(),
+                            r.error_count,
+                            r.stopped,
+                            clean(r.errors.first().map(String::as_str).unwrap_or("")),
+                            r.fixes
+                        )
                     }
-                    None => format!("{p}\tcrashed\t0\t0\t0\t0\t"),
+                    None => format!("{p}\tcrashed\t0\t0\t0\t0\t\t0"),
                 };
                 use std::io::Write;
                 let mut f = std::fs::OpenOptions::new().append(true).open(&out_path).unwrap();
@@ -1414,7 +1447,7 @@ fn click_every_button() {
     use std::io::Write;
     let mut f = std::fs::OpenOptions::new().append(true).open(&out_path).unwrap();
     for p in paths.iter().filter(|p| !done.contains(*p)) {
-        writeln!(f, "{p}\thung\t0\t0\t0\t0\t").unwrap();
+        writeln!(f, "{p}\thung\t0\t0\t0\t0\t\t0").unwrap();
     }
     drop(f);
     println!("wrote {}", out_path.display());

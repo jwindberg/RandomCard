@@ -59,8 +59,8 @@ Some externals carry their author's prefix (Krs and the like). Decided
 as aliases. RandomCard doesn't promise to run every old stack unchanged;
 instead each such issue gets a written fix step, applied to our converted
 copy of the stack (never the original on the disc). The fix steps are listed
-in one place, each with the old form, the new form, why, and the stacks that
-need it. Fix steps stay mild, like removing a prefix from a couple of calls; a stack that would need a drastic rewrite shows a gap in RandomCard to close instead. The same goes for name collisions above: a stack carrying the other
+in one place, `FIX_STEPS.tsv`, each with the stack, the old form, the new
+form and why; the importer applies them whenever such a stack opens. Fix steps stay mild, like removing a prefix from a couple of calls; a stack that would need a drastic rewrite shows a gap in RandomCard to close instead. The same goes for name collisions above: a stack carrying the other
 version of an external gets the fix step for that version.
 
 ## Externals found

@@ -9,6 +9,7 @@
 //! fork when one can be found; other resources (XCMDs, PICTs) aren't used.
 
 mod addcolor;
+pub mod fix_steps;
 mod pict;
 mod resources;
 
@@ -35,12 +36,21 @@ pub const WRONG_PASSWORD: &str = "That isn't the stack's password.";
 /// Open a RandomCard stack or an original HyperCard stack, whichever `path`
 /// is. Private-access HyperCard stacks need their password to import.
 pub fn load_any(path: &Path, password: Option<&str>) -> Result<Stack, String> {
+    load_any_fixed(path, password).map(|(s, _)| s)
+}
+
+/// As load_any, also answering how many fix-step changes (FIX_STEPS.tsv) a
+/// HyperCard stack got as it was converted.
+pub fn load_any_fixed(path: &Path, password: Option<&str>) -> Result<(Stack, usize), String> {
     let bytes = std::fs::read(path).map_err(|e| format!("Can't open {}: {e}", path.display()))?;
     if is_hypercard_stack(&bytes) {
-        import_bytes(&bytes, path, password)
+        let mut s = import_bytes(&bytes, path, password)?;
+        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let made = fix_steps::apply(&mut s, &name);
+        Ok((s, made))
     } else if bytes.trim_ascii_start().starts_with(b"{") && std::str::from_utf8(&bytes).is_ok() {
         // RandomCard's own stacks are JSON.
-        Stack::load(path)
+        Stack::load(path).map(|s| (s, 0))
     } else {
         let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
         Err(format!("\"{name}\" isn't a stack. RandomCard opens HyperCard stacks and its own."))

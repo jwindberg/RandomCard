@@ -591,6 +591,11 @@ impl Parser {
         }
         // A message: a name followed by optional comma-separated arguments.
         self.advance();
+        // `aboutThisDIAStack.`: a period ending a bare command, which
+        // HyperCard let pass.
+        if matches!(self.tok(), Tok::Other('.')) && self.at_stmt_end_at(1) {
+            self.advance();
+        }
         let mut args = Vec::new();
         if !self.at_stmt_end() {
             args.push(self.arg_expr()?);
@@ -2595,6 +2600,7 @@ mod tests {
             "visual shrink to bottom fast to black",
             "put item 3 of DMSValue into Seconds",
             "wait 2 seconds",
+            "aboutThisDIAStack.",
         ] {
             stmt(src);
         }
