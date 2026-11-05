@@ -2768,3 +2768,79 @@ fn addcolor_commands() {
     assert!(ac(&mut i, "fly,cd").contains("no function"));
     assert!(ac(&mut i, "addRect,xx,\"0,0,5,5\",\"0,0,0\",0,-1").contains("cd or bg"));
 }
+
+#[test]
+fn rest_from_hypertalk() {
+    let base = crate::web::http::test_server::start(|_, path, headers, _| match path {
+        "/jokes/random" => (
+            200,
+            "application/json",
+            r#"{"id":"x1","value":"Chuck Norris can unit test an entire application with a single assert.","categories":["dev"],"owner":{"name":"Ada"}}"#.into(),
+        ),
+        "/whoami" => (200, "text/plain", headers.lines().find(|l| l.to_ascii_lowercase().starts_with("authorization")).unwrap_or("").trim().to_string()),
+        _ => (404, "application/json", r#"{"status":404,"error":"Not Found"}"#.into()),
+    });
+    let mut i = interp_with(stack());
+    run(&mut i, &format!("put \"{base}\" into base"));
+    // GET, and read the reply's keys.
+    assert_eq!(run(&mut i, "put url (base & \"/jokes/random\") into joke\nput the result"), "");
+    assert_eq!(run(&mut i, "put key \"value\" of json joke"), "Chuck Norris can unit test an entire application with a single assert.");
+    assert_eq!(run(&mut i, "put key \"name\" of key \"owner\" of json joke"), "Ada");
+    assert_eq!(run(&mut i, "put key \"categories\" of json joke"), "[\"dev\"]");
+    assert_eq!(run(&mut i, "put key \"nope\" of json joke"), "");
+    assert_eq!(run(&mut i, "get url (base & \"/jokes/random\")\nput key \"id\" of json it"), "x1");
+    // Straight from the reply.
+    assert_eq!(run(&mut i, "put key \"id\" of json url (base & \"/jokes/random\")"), "x1");
+    // A 404 is in the result, and its body is still there.
+    assert_eq!(run(&mut i, "put url (base & \"/jokes/nope\") into reply\nput the result"), "404 Not Found");
+    assert_eq!(run(&mut i, "put key \"error\" of json reply"), "Not Found");
+    // Headers go with the request; the reply's are kept.
+    run(&mut i, "set the httpHeaders to \"Authorization: Bearer abc\"");
+    // (Header names aren't case-sensitive; they go out in lowercase.)
+    assert_eq!(run(&mut i, "put url (base & \"/whoami\")").to_ascii_lowercase(), "authorization: bearer abc");
+    assert!(run(&mut i, "put the responseHeaders").to_ascii_lowercase().contains("content-type: text/plain"));
+    run(&mut i, "set the httpTimeout to 5");
+    assert_eq!(run(&mut i, "put the httpTimeout"), "5");
+    // No server: the result says why, and the value is empty.
+    let r = run(&mut i, "put url \"http://127.0.0.1:1/\" into x\nput the result & \"|\" & x");
+    assert!(r.ends_with('|') && r.len() > 1, "{r}");
+    // Not JSON is an error.
+    assert!(run(&mut i, "put key \"a\" of json \"hello\"").contains("Expected JSON"));
+    // Variables called url, json and key still work.
+    assert_eq!(run(&mut i, "put 1 into url\nput 2 into json\nput 3 into key\nput url + json + key"), "6");
+}
+
+#[test]
+fn icndb_stack_calls_its_api() {
+    let base = crate::web::http::test_server::start(|_, path, _, _| match path {
+        "/jokes/random" | "/jokes/random?category=dev" => (
+            200,
+            "application/json",
+            format!(
+                r#"{{"categories":[{}],"created_at":"2020-01-05 13:42:19","id":"abc123","url":"https://api.chucknorris.io/jokes/abc123","value":"Chuck Norris writes code that optimizes itself."}}"#,
+                if path.ends_with("dev") { "\"dev\"" } else { "" }
+            ),
+        ),
+        _ => (404, "application/json", r#"{"status":404,"error":"Not Found"}"#.into()),
+    });
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/ICNDB.rcstack");
+    let mut i = interp_with(Stack::load(&path).unwrap());
+    run(&mut i, &format!("put \"{base}\" into card field \"Base URL\" of card \"Connection\""));
+    // Test Connection.
+    i.canned_answers.push(DialogReply::Button("OK".into()));
+    assert_eq!(click(&mut i, "Connection", "Test Connection"), None);
+    assert_eq!(run(&mut i, "put field \"Status\""), "OK");
+    // A random joke from a category.
+    run(&mut i, "go to card \"Random Joke\"\nput \"dev\" into card field \"Category\"");
+    assert_eq!(click(&mut i, "Random Joke", "Submit"), None);
+    assert_eq!(run(&mut i, "put card field \"Joke\""), "Chuck Norris writes code that optimizes itself.");
+    assert_eq!(run(&mut i, "put card field \"ID\""), "abc123");
+    assert_eq!(run(&mut i, "put card field \"Categories\""), "[\"dev\"]");
+    assert_eq!(run(&mut i, "put field \"Request\""), format!("GET {base}/jokes/random?category=dev"));
+    assert_eq!(run(&mut i, "put field \"Status\""), "OK");
+    // A wrong base URL: the status says so, and the joke fields empty.
+    run(&mut i, &format!("put \"{base}/wrong\" into card field \"Base URL\" of card \"Connection\""));
+    assert_eq!(click(&mut i, "Random Joke", "Submit"), None);
+    assert_eq!(run(&mut i, "put field \"Status\""), "404 Not Found");
+    assert_eq!(run(&mut i, "put card field \"Joke\""), "");
+}

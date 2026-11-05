@@ -408,6 +408,9 @@ impl Interp {
         Ok(match name {
             "itemdelimiter" | "itemdel" => self.item_delimiter.clone(),
             "numberformat" => self.number_format.clone(),
+            "httpheaders" => self.http_headers.clone(),
+            "httptimeout" => self.fmt(self.http_timeout),
+            "responseheaders" => self.response_headers.clone(),
             "lockscreen" => bool_str(w.lock_screen),
             "lockmessages" | "lockmsgs" => bool_str(self.lock_messages),
             "userlevel" => w.level().to_string(),
@@ -445,6 +448,8 @@ impl Interp {
                 self.item_delimiter = if v.is_empty() { ",".into() } else { v.to_string() };
             }
             "numberformat" => self.number_format = v.to_string(),
+            "httpheaders" => self.http_headers = v.to_string(),
+            "httptimeout" => self.http_timeout = super::interp::to_number(v)?.clamp(0.1, 3600.0),
             "lockscreen" => self.w().lock_screen = to_bool(v)?,
             "lockmessages" | "lockmsgs" => self.lock_messages = to_bool(v)?,
             "editbkgnd" => self.w().edit_bg = to_bool(v)?,

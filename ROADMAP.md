@@ -386,6 +386,36 @@ together, and black on white is just the default.
 
 A new release follows steps 1 and 2.
 
+## The web: REST and JSON
+
+The goal: a stack as the front end of a web service, the way people use
+React today, with REST as easy as the rest of HyperTalk. HyperCard 2.4 only
+had `open URL` (a browser); these are RandomCard's additions. The library
+is `src/web/` (`http.rs`, `json.rs`), with nothing of HyperTalk in it; the
+language's side is `src/runtime/web.rs`.
+
+1. ~~**GET and reading JSON objects.**~~ Done: `put url "…" into x` and
+   `get url …`; `the result` empty when it worked, else "404 Not Found"
+   or what went wrong, with the reply still readable; `the httpHeaders`,
+   `the httpTimeout`, `the responseHeaders`; `urlEncode` and `urlDecode`;
+   `key "name" of json x`, nesting. Rustls on Linux, the system's TLS on
+   Windows and macOS. The ICNDB stack in `examples/` (the Internet Chuck
+   Norris Database, api.chucknorris.io): a Connection card with the base
+   URL, headers and timeout, a background `apiGet` every card shares, and
+   a Random Joke card. The Tour's Fetch a Joke.
+2. **Arrays.** `element 2 of json x`, `the keys of json x`, `the
+   elements of json x` (one a line), `the number of elements of json x`.
+   ICNDB's Categories, Search and Joke by ID cards.
+3. **Every verb, and writing JSON.** `post body to url "…"`, `put body
+   into url "…"` (PUT), `delete url "…"`; `set key "done" of json x to
+   true`, which rewrites the text.
+4. **PostCard**, the second demo stack: a small Postman. A method, URL,
+   query parameters, headers and body in; status, time, headers and body
+   out; requests saved as cards.
+5. **Requests that don't freeze a handler:** `load url "…" with message
+   "gotData"`, sending the message with the reply when it arrives. Then
+   filling cards from data, one card per record.
+
 ## Testing
 
 - The importer is tested against HyperCardPreview's sample stacks when
@@ -443,20 +473,7 @@ feel like HyperTalk (plain words, everything is text) rather than a
 bolted-on API, and none should change how existing stacks behave. The
 first three are favorites.
 
-- **JSON and REST.** Fetching and sending data from scripts, in
-  HyperTalk's style:
-  - `put url "https://api.example.com/items" into field "Data"`, and
-    `post field "Form" to url "…"`, with `the result` holding the HTTP
-    status and `the httpHeaders` for setting headers (tokens, content
-    type).
-  - JSON as chunk expressions, since everything is text:
-    `put key "name" of item 3 of json field "Data" into field "Name"`,
-    `the keys of json x`, `the number of items of json x`, and
-    `set key "done" of json x to true`, which rewrites the text.
-  - Requests that don't freeze a handler: `load url "…" with message
-    "gotData"`, sending the message with the reply when it arrives.
-  - Filling cards from data: one card per record, as HyperCard
-    address books did by hand.
+- **JSON and REST.** Under way; see "The web" below.
 - **Databases.** SQLite from HyperTalk: `query "select …" from database
   "Addresses.db"`, with results as lines and items, and cards bound to
   rows.

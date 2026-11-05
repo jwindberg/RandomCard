@@ -26,6 +26,7 @@ const ZERO_ARG_FUNCS: &[&str] = &[
 const ONE_ARG_FUNCS: &[&str] = &[
     "average", "min", "max", "sum", "random", "round", "sqrt", "trunc", "sin", "cos", "tan", "atan", "exp",
     "exp1", "exp2", "ln", "ln1", "log2", "abs", "chartonum", "numtochar", "value", "length", "param",
+    "urlencode", "urldecode",
 ];
 
 /// Properties that may be written without `the`, e.g. `visible of field 1`.
@@ -1885,6 +1886,37 @@ impl Parser {
     }
 
     fn word_term(&mut self, w: &str) -> PResult<Expr> {
+        // The web (src/runtime/web.rs). Each needs a value after it, so a
+        // variable named url, json or key still works: `put url into x`.
+        // `url "https://…"`: what's there.
+        if w == "url" && self.starts_term_at(1) {
+            self.advance();
+            let e = self.term()?;
+            return Ok(Expr::Call("__url".into(), vec![e]));
+        }
+        // `json x`: JSON text, to read with `key … of`.
+        if w == "json" && self.starts_term_at(1) {
+            self.advance();
+            let e = self.term()?;
+            return Ok(Expr::Call("__json".into(), vec![e]));
+        }
+        // `key "name" of json x`, and `key "a" of key "b" of json x`: the
+        // keys go after the text, innermost first.
+        if w == "key" && self.starts_term_at(1) {
+            let save = self.pos;
+            self.advance();
+            let key = self.term()?;
+            if self.accept("of") {
+                return match self.term()? {
+                    Expr::Call(n, mut args) if n == "__json" => {
+                        args.push(key);
+                        Ok(Expr::Call(n, args))
+                    }
+                    _ => Err(self.err_here("Expected \"json\" after \"key … of\"")),
+                };
+            }
+            self.pos = save;
+        }
         // `number(cds of bg "Practice")`, `number(cd flds)`: the number of
         // things, in parentheses.
         if w == "number" && matches!(self.tok_at(1), Tok::Sym("(")) {

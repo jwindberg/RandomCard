@@ -108,6 +108,12 @@ pub struct Interp {
     repeating_error: Option<String>,
     pub frames: Vec<Frame>,
     pub result: String,
+    /// `the httpHeaders`: sent with every web request, one a line.
+    pub http_headers: String,
+    /// `the httpTimeout`, in seconds.
+    pub http_timeout: f64,
+    /// `the responseHeaders`: the last web reply's.
+    pub response_headers: String,
     pub item_delimiter: String,
     pub number_format: String,
     pub lock_messages: bool,
@@ -157,6 +163,9 @@ impl Interp {
             repeating_error: None,
             frames: Vec::new(),
             result: String::new(),
+            http_headers: String::new(),
+            http_timeout: 30.0,
+            response_headers: String::new(),
             item_delimiter: ",".into(),
             number_format: "0.######".into(),
             lock_messages: false,

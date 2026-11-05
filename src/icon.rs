@@ -1,6 +1,6 @@
 //! RandomCard's icon: a stack of cards with a die on the front one, in
 //! black and white on a 32 × 32 grid, as a HyperCard icon would be drawn.
-//! The window uses it, and `examples/make_icons.rs` writes it out as PNGs
+//! The window uses it, and `tools/make_icons.rs` writes it out as PNGs
 //! for packaging.
 
 pub const SIZE: usize = 32;

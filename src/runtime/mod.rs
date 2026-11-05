@@ -2,6 +2,7 @@
 
 pub mod addcolor;
 mod builtins;
+pub mod web;
 mod commands;
 mod externals;
 mod files;

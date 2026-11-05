@@ -6,6 +6,14 @@ license = "MIT"
 authors = ["jwindberg"]
 description = "A recreation of Apple's HyperCard: stacks of cards, painting, and HyperTalk"
 repository = "https://github.com/jwindberg/RandomCard"
+# examples/ holds stacks, not Cargo examples.
+autoexamples = false
+
+# A packaging tool, not an example: Cargo's example targets are simply the
+# way to build a helper program that doesn't ship with the app.
+[[example]]
+name = "make_icons"
+path = "tools/make_icons.rs"
 
 [dependencies]
 ab_glyph = "0.2.32"
@@ -22,6 +30,15 @@ rfd = "0.17.2"
 rodio = { version = "0.23.0", default-features = false, features = ["playback"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+
+# HTTP for scripts (`put url …`). Linux uses Rustls; Windows and macOS use
+# the system's own TLS and certificates, which also keeps the C code of
+# Rustls' crypto (ring) out of their builds.
+[target.'cfg(target_os = "linux")'.dependencies]
+ureq = "3.5.1"
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+ureq = { version = "3.5.1", default-features = false, features = ["native-tls", "gzip"] }
 
 # macOS: native menus at the top of the screen, in place of winit's default.
 [target.'cfg(target_os = "macos")'.dependencies]

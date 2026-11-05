@@ -83,6 +83,9 @@ impl Interp {
 
             // Text
             "length" => arg(0).chars().count().to_string(),
+            // For building URLs: `"?query=" & urlEncode(field "Search")`.
+            "urlencode" => crate::web::http::url_encode(&arg(0)),
+            "urldecode" => crate::web::http::url_decode(&arg(0)),
             "chartonum" => arg(0).chars().next().map(|c| c as u32).unwrap_or(0).to_string(),
             "numtochar" => {
                 let n = to_int(&arg(0))?;

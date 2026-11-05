@@ -2,6 +2,8 @@
 //! to 1024 pixels.
 //!
 //! Usage: cargo run --example make_icons -- <output folder>
+//! (Cargo builds helper programs like this one as "examples"; see
+//! Cargo.toml.)
 
 #[path = "../src/icon.rs"]
 mod icon;

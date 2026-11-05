@@ -59,6 +59,9 @@ impl Interp {
 
     /// An external function's value, or `None` if there's no such external.
     pub(super) fn external_function(&mut self, name: &str, args: &[String]) -> Option<R<String>> {
+        if let Some(v) = self.web_function(name, args) {
+            return Some(v);
+        }
         if let Some(v) = self.file_function(name, args) {
             return Some(v);
         }
