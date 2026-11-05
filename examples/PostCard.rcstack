@@ -1046,10 +1046,11 @@
       "cant_delete": false,
       "dont_search": false,
       "bg_text": {
-        "102": "Random joke",
-        "105": "GET",
-        "107": "https://api.chucknorris.io/jokes/random",
         "112": "Accept: application/json",
+        "110": "startDate=2026-10-26\nendDate=2026-11-03",
+        "107": "https://api.chucknorris.io/jokes/random",
+        "105": "GET",
+        "102": "Solar Production",
         "126": "The simplest call: GET a URL, get JSON back. Press Send."
       },
       "bg_hilite": {}
@@ -1070,11 +1071,11 @@
       "cant_delete": false,
       "dont_search": false,
       "bg_text": {
-        "102": "Search jokes",
-        "112": "Accept: application/json",
-        "126": "Params become the query string: ?query=computer, each part URL-encoded.",
         "110": "query=computer",
+        "126": "Params become the query string: ?query=computer, each part URL-encoded.",
         "105": "GET",
+        "112": "Accept: application/json",
+        "102": "Search jokes",
         "107": "https://api.chucknorris.io/jokes/search"
       },
       "bg_hilite": {}
@@ -1095,11 +1096,11 @@
       "cant_delete": false,
       "dont_search": false,
       "bg_text": {
-        "105": "GET",
-        "110": "color=blue\ncolor=green\ncolor=red",
         "107": "https://httpbin.org/get",
+        "126": "A name with several values repeats: ?color=blue&color=green&color=red. httpbin echoes them as an array.",
+        "110": "color=blue\ncolor=green\ncolor=red",
         "102": "Several values",
-        "126": "A name with several values repeats: ?color=blue&color=green&color=red. httpbin echoes them as an array."
+        "105": "GET"
       },
       "bg_hilite": {}
     },
@@ -1120,11 +1121,11 @@
       "dont_search": false,
       "bg_text": {
         "105": "POST",
-        "112": "Accept: application/json",
         "102": "Post JSON",
+        "112": "Accept: application/json",
         "107": "https://httpbin.org/post",
-        "114": "{\n  \"name\": \"Ada Lovelace\",\n  \"born\": 1815\n}",
-        "126": "A JSON body is sent as application/json unless Headers say otherwise. httpbin echoes what it got."
+        "126": "A JSON body is sent as application/json unless Headers say otherwise. httpbin echoes what it got.",
+        "114": "{\n  \"name\": \"Ada Lovelace\",\n  \"born\": 1815\n}"
       },
       "bg_hilite": {}
     },
@@ -1144,9 +1145,9 @@
       "cant_delete": false,
       "dont_search": false,
       "bg_text": {
-        "102": "Delete",
-        "105": "DELETE",
         "126": "DELETE has no body. Try any method from the menu, or type your own.",
+        "105": "DELETE",
+        "102": "Delete",
         "107": "https://httpbin.org/delete"
       },
       "bg_hilite": {}
@@ -1167,12 +1168,12 @@
       "cant_delete": false,
       "dont_search": false,
       "bg_text": {
-        "126": "QUERY: a search with a body, safe like GET. Few servers take it yet; httpbin answers 405 Method Not Allowed.",
         "105": "QUERY",
+        "107": "https://httpbin.org/anything",
         "102": "Query",
         "112": "Content-Type: application/json",
-        "114": "{\"color\": \"blue\"}",
-        "107": "https://httpbin.org/anything"
+        "126": "QUERY: a search with a body, safe like GET. Few servers take it yet; httpbin answers 405 Method Not Allowed.",
+        "114": "{\"color\": \"blue\"}"
       },
       "bg_hilite": {}
     }
