@@ -166,9 +166,54 @@ pub fn styles_in(runs: &[StyleRun], start: usize, end: usize) -> Vec<TextStyle> 
     out
 }
 
+/// The runs of characters `start..end`, for copying: they start from 0,
+/// and each setting a run leaves to the field is filled in from `own`, so
+/// the text keeps its look in another field.
+pub fn copy_runs(runs: &[StyleRun], start: usize, end: usize, own: &TextStyle) -> Vec<StyleRun> {
+    let filled = |s: &TextStyle| TextStyle {
+        font: s.font.clone().or_else(|| own.font.clone()),
+        size: s.size.or(own.size),
+        style: s.style.clone().or_else(|| own.style.clone()),
+    };
+    let mut out = vec![StyleRun { start: 0, style: filled(&style_at(runs, start)) }];
+    out.extend(runs.iter().filter(|r| r.start > start && r.start < end).map(|r| StyleRun {
+        start: r.start - start,
+        style: filled(&r.style),
+    }));
+    out
+}
+
+/// Give characters `at..at + clip_len` the copied runs.
+pub fn paste_runs(runs: &mut Vec<StyleRun>, at: usize, clip: &[StyleRun], clip_len: usize, len: usize) {
+    for (i, r) in clip.iter().enumerate() {
+        let end = clip.get(i + 1).map_or(clip_len, |n| n.start);
+        apply(runs, at + r.start, at + end, len, |s| *s = r.style.clone());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn copying_runs() {
+        // "Hello world": "world" is bold, in a Geneva 12 field.
+        let runs = vec![StyleRun { start: 6, style: bold() }];
+        let own = TextStyle { font: Some("Geneva".into()), size: Some(12), style: Some("plain".into()) };
+        let clip = copy_runs(&runs, 4, 9, &own);
+        let geneva = |style: &str| TextStyle { style: Some(style.into()), ..own.clone() };
+        assert_eq!(
+            clip,
+            vec![StyleRun { start: 0, style: geneva("plain") }, StyleRun { start: 2, style: geneva("bold") }]
+        );
+        // Pasted into a plain field: "o wo" keeps its look there.
+        let mut into = Vec::new();
+        paste_runs(&mut into, 3, &clip, 5, 10);
+        assert_eq!(style_at(&into, 2), TextStyle::default());
+        assert_eq!(style_at(&into, 3), geneva("plain"));
+        assert_eq!(style_at(&into, 5), geneva("bold"));
+        assert_eq!(style_at(&into, 8), TextStyle::default());
+    }
 
     fn bold() -> TextStyle {
         TextStyle { style: Some("bold".into()), ..Default::default() }

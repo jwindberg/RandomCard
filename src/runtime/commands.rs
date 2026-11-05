@@ -12,7 +12,7 @@ use super::dates;
 use super::interp::{Ctl, Interp, OpenFile, R, err, to_int, to_number};
 use super::menus;
 use super::undo::UndoEntry;
-use super::world::{Dialog, DialogReply, EditOp, FieldRange, ObjRef, Tool, Transition, UiRequest};
+use super::world::{Dialog, DialogReply, EditOp, FieldRange, ObjRef, TextClip, Tool, Transition, UiRequest};
 
 impl Interp {
     pub fn command(&mut self, c: &Cmd) -> R<()> {
@@ -2099,6 +2099,9 @@ impl Interp {
             "redo" => self.request(UiRequest::Redo),
             // Cut, Copy, Paste and Clear act on the selected part or picture,
             // e.g. "Copy Button", "Paste Field", "Clear Picture".
+            // With the Browse tool and text selected, they act on the text
+            // ("Copy Text"), keeping its styles.
+            _ if edit_op(&key).is_some_and(|op| self.edit_text(op)) => Ok(()),
             _ if edit_op(&key).is_some() => self.request(UiRequest::Edit(edit_op(&key).unwrap())),
             "browse" | "button" | "field" | "select" | "pencil" | "brush" | "eraser" | "line" | "spray"
             | "spray can" | "rectangle" | "round rect" | "bucket" | "oval" => {
@@ -2178,6 +2181,40 @@ impl Interp {
         self.go_home()
     }
 
+    /// Cut, Copy, Paste or Clear of the selected text in a field, with the
+    /// Browse tool. Returns false if there's no text selection to act on,
+    /// or (for Paste) no text copied from a field.
+    fn edit_text(&mut self, op: EditOp) -> bool {
+        let mut w = self.w();
+        let Some(r) = w.selection.clone().filter(|_| w.tool == Tool::Browse) else { return false };
+        let empty = TextClip { text: String::new(), runs: Vec::new() };
+        match op {
+            EditOp::Copy | EditOp::Cut => {
+                if r.start >= r.end {
+                    return false;
+                }
+                let clip = w.copy_text(&r);
+                w.requests.push(UiRequest::CopyText(clip.text.clone()));
+                w.clip_types = "TEXT".into();
+                w.text_clip = Some(clip);
+                if op == EditOp::Cut {
+                    w.paste_text(&r, &empty);
+                }
+            }
+            EditOp::Paste => {
+                let Some(clip) = w.text_clip.clone() else { return false };
+                w.paste_text(&r, &clip);
+            }
+            EditOp::Clear => {
+                if r.start >= r.end {
+                    return false;
+                }
+                w.paste_text(&r, &empty);
+            }
+        }
+        true
+    }
+
     fn request(&mut self, r: UiRequest) -> R<()> {
         self.w().requests.push(r);
         Ok(())
@@ -2225,7 +2262,7 @@ fn edit_op(item: &str) -> Option<EditOp> {
     match words.next() {
         // "Clear Picture" erases the whole picture (see perform_menu).
         Some("picture") if op == EditOp::Clear => None,
-        None | Some("button" | "field" | "picture") if words.next().is_none() => Some(op),
+        None | Some("button" | "field" | "picture" | "text") if words.next().is_none() => Some(op),
         _ => None,
     }
 }

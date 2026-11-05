@@ -281,7 +281,21 @@ impl App {
     }
 
     fn do_menu(&self, item: &str) {
+        if crate::runtime::menus::item_key(item).starts_with("paste") {
+            self.check_text_clip();
+        }
         self.send(Event::DoMenu(item.to_string()));
+    }
+
+    /// Forget the text copied from a field if something else, in another
+    /// program, has been copied since: Paste then pastes that instead.
+    fn check_text_clip(&self) {
+        let mut w = self.world();
+        let Some(clip) = &w.text_clip else { return };
+        let system = arboard::Clipboard::new().and_then(|mut c| c.get_text());
+        if system.is_ok_and(|t| t.replace("\r\n", "\n") != clip.text) {
+            w.text_clip = None;
+        }
     }
 
     // ----- menus and palette -----
@@ -564,7 +578,8 @@ impl App {
                 UiRequest::SendFarther => self.reorder_selected(Order::Farther),
                 UiRequest::BringToFront => self.reorder_selected(Order::Front),
                 UiRequest::SendToBack => self.reorder_selected(Order::Back),
-                UiRequest::Edit(op) => self.edit_command(op),
+                UiRequest::Edit(op) => self.edit_command(ctx, op),
+                UiRequest::CopyText(text) => ctx.copy_text(text),
                 UiRequest::Redo => self.redo(),
                 UiRequest::Undo => self.undo(),
                 UiRequest::SelectPart(o) => self.selected = Some(o),
@@ -692,6 +707,12 @@ impl App {
         // While a dialog is up, keys belong to it.
         if self.modal_open() {
             return;
+        }
+        // Text copied anywhere but a field isn't styled text.
+        let copied = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Copy | egui::Event::Cut)));
+        let in_field = self.editing.as_ref().is_some_and(|e| ctx.memory(|m| m.has_focus(field_edit_id(e.obj))));
+        if copied && !in_field {
+            self.world().text_clip = None;
         }
         // A script editor with the keyboard takes its own Command keys.
         if let Some(obj) = self.script_focus {
@@ -1379,8 +1400,41 @@ impl App {
         let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap: f32| {
             ui.painter().layout_job(job_for(buf.as_str(), wrap, false))
         };
+        // Copying and pasting between fields keeps fonts, sizes and styles:
+        // what's copied or cut here is remembered with its style runs, and
+        // pasting that same text gives it its runs back.
+        let edit_id = field_edit_id(e.obj);
+        let focused = ui.memory(|m| m.has_focus(edit_id));
+        let (sel_start, sel_end) = egui::text_edit::TextEditState::load(ui.ctx(), edit_id)
+            .and_then(|s| s.cursor.char_range())
+            .map(|r| {
+                let [a, b] = r.sorted_cursors();
+                (a.index.0, b.index.0)
+            })
+            .unwrap_or((0, 0));
+        let (copying, pasted) = ui.input(|i| {
+            let copying = i.events.iter().any(|ev| matches!(ev, egui::Event::Copy | egui::Event::Cut));
+            let pasted = i.events.iter().find_map(|ev| match ev {
+                egui::Event::Paste(t) => Some(t.replace("\r\n", "\n")),
+                _ => None,
+            });
+            (copying, pasted)
+        });
+        let mut paste_at = None;
+        if focused && let ObjRef::Part { layer, id, card } = e.obj {
+            let mut w = lock(&self.rt.world);
+            if copying && sel_start < sel_end {
+                let r = FieldRange { card, layer, field: id, start: sel_start, end: sel_end };
+                w.text_clip = Some(w.copy_text(&r));
+            }
+            if let (Some(t), Some(clip)) = (&pasted, &w.text_clip)
+                && *t == clip.text
+            {
+                paste_at = Some((sel_start, clip.clone()));
+            }
+        }
         let edit = egui::TextEdit::multiline(&mut e.buffer)
-            .id(field_edit_id(e.obj))
+            .id(edit_id)
             .frame(egui::Frame::NONE)
             .margin(Vec2::ZERO)
             .desired_width(text_rect.width())
@@ -1440,6 +1494,12 @@ impl App {
             e.synced = e.buffer.clone();
             let mut w = self.rt.world.lock().unwrap_or_else(|p| p.into_inner());
             w.stack.set_field_text(card, layer, id, e.buffer.clone());
+            if let Some((at, clip)) = paste_at {
+                let mut runs = w.stack.field_styles(card, layer, id);
+                let len = e.buffer.chars().count();
+                styles::paste_runs(&mut runs, at, &clip.runs, clip.text.chars().count(), len);
+                w.stack.set_field_content(card, layer, id, e.buffer.clone(), runs);
+            }
             w.dirty = true;
         }
         // Clicking elsewhere on the card, or into another text box such as

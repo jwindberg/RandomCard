@@ -731,6 +731,24 @@ end tabKey
     );
     flash.style = PartStyle::RoundRect;
     b.card_part(c, flash);
+    // Copy Text and Paste Text keep fonts, sizes and styles.
+    let mut styled = b.button(
+        "Copy Text",
+        Rect::new(402, 12, 492, 34),
+        r#"on mouseUp
+  set the textStyle of word 1 of cd fld "Wide" to "bold,italic"
+  set the textFont of word 1 of cd fld "Wide" to "Times"
+  select word 1 of cd fld "Wide"
+  doMenu "Copy Text"
+  put return after cd fld "Lined"
+  select after text of cd fld "Lined"
+  doMenu "Paste Text"
+  select empty
+  put "Copied the first word of Wide into Lined, with its font and style."
+end mouseUp"#,
+    );
+    styled.style = PartStyle::RoundRect;
+    b.card_part(c, styled);
 
     // ----- Printing and finding -----
     let c = b.card(main, "Print & Find");

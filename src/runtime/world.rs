@@ -195,6 +195,13 @@ pub struct Transition {
     pub seq: u64,
 }
 
+/// Text copied from a field, and its style runs, counted from its start.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextClip {
+    pub text: String,
+    pub runs: Vec<crate::model::styles::StyleRun>,
+}
+
 /// A run of characters in a field on a card: found text, the text
 /// selection, or the word clicked in a locked field.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -422,6 +429,8 @@ pub enum KeyAction {
 /// Things only the UI thread can do, requested by scripts or menu commands.
 #[derive(Clone, Debug)]
 pub enum UiRequest {
+    /// Put text on the system clipboard (a script's Copy Text or Cut Text).
+    CopyText(String),
     OpenStack,
     ImportStack,
     NewStack,
@@ -594,6 +603,9 @@ pub struct World {
     /// The kinds of data last copied, as the Mac's scrap types ("TEXT",
     /// "PICT"), for ClipInfo.
     pub clip_types: String,
+    /// Text last copied from a field, with its styles, so pasting it
+    /// into a field brings them along.
+    pub text_clip: Option<TextClip>,
     /// Whether RandomCard's window is in front, for Notification.
     pub focused: bool,
     /// Where a script is stopped in the debugger.
@@ -733,6 +745,7 @@ impl World {
             stack_serial: 0,
             window_title: None,
             clip_types: String::new(),
+            text_clip: None,
             focused: true,
             debug: None,
             checkpoints: Vec::new(),
@@ -887,6 +900,37 @@ impl World {
     pub fn set_selection(&mut self, range: Option<FieldRange>) {
         self.selection = range;
         self.selection_rev += 1;
+    }
+
+    /// Copy Text: the characters of `r` with their fonts, sizes and styles.
+    pub fn copy_text(&self, r: &FieldRange) -> TextClip {
+        use crate::model::styles::{self, TextStyle};
+        let runs = self.stack.field_styles(r.card, r.layer, r.field);
+        let own = self.stack.part(r.card, r.layer, r.field).map_or_else(TextStyle::default, |p| TextStyle {
+            font: Some(p.text_font.clone()),
+            size: Some(p.text_size),
+            style: Some(p.text_style.clone()),
+        });
+        TextClip { text: self.range_text(r), runs: styles::copy_runs(&runs, r.start, r.end.max(r.start), &own) }
+    }
+
+    /// Paste Text: `r` replaced by the copied text, which keeps its styles.
+    /// The insertion point goes after it. An empty clip deletes `r` (Cut).
+    pub fn paste_text(&mut self, r: &FieldRange, clip: &TextClip) {
+        use crate::model::styles;
+        let old = self.stack.field_text(r.card, r.layer, r.field);
+        let len = old.chars().count();
+        let (start, end) = (r.start.min(len), r.end.clamp(r.start.min(len), len));
+        let inserted = clip.text.chars().count();
+        let text: String = old.chars().take(start).chain(clip.text.chars()).chain(old.chars().skip(end)).collect();
+        let new_len = text.chars().count();
+        let mut runs = self.stack.field_styles(r.card, r.layer, r.field);
+        styles::edit(&mut runs, start, end - start, inserted, new_len);
+        styles::paste_runs(&mut runs, start, &clip.runs, inserted, new_len);
+        self.stack.set_field_content(r.card, r.layer, r.field, text, runs);
+        self.dirty = true;
+        let at = start + inserted;
+        self.set_selection(Some(FieldRange { start: at, end: at, ..r.clone() }));
     }
 
     pub fn range_text(&self, r: &FieldRange) -> String {

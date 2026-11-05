@@ -350,6 +350,20 @@ fn demo_stack_runs() {
     i.canned_answers.push(DialogReply::List(vec![0, 3], "Validated".into()));
     assert_eq!(click(&mut i, "Fields", "Flash Fields"), None);
     assert!(lock(&i.world).msg.contains("Flashed Lined,Wide"), "{}", lock(&i.world).msg);
+    // Copy Text and Paste Text bring the font and style along.
+    assert_eq!(click(&mut i, "Fields", "Copy Text"), None);
+    {
+        let w = lock(&i.world);
+        let card = w.stack.cards.iter().find(|c| c.name == "Fields").unwrap();
+        let lined = card.parts.iter().find(|p| p.name == "Lined").unwrap();
+        assert!(lined.contents.ends_with("\nwideMargins"), "{:?}", lined.contents);
+        let at = lined.contents.chars().count() - 3;
+        let style = crate::model::styles::style_at(&lined.styles, at);
+        assert_eq!((style.font.as_deref(), style.style.as_deref()), (Some("Times"), Some("bold,italic")));
+        let before = crate::model::styles::style_at(&lined.styles, 3);
+        assert_eq!(before.font, None, "the text already there keeps its look");
+        assert!(w.text_clip.as_ref().is_some_and(|c| c.text == "wideMargins"));
+    }
     // Painting in color from a script, with the colors put back after.
     assert_eq!(click(&mut i, "Drawing", "Paint in Color"), None);
     {

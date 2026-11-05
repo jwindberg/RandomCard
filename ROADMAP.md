@@ -162,7 +162,9 @@ style runs of font, size and style, a font, size, style and alignment for
 the whole field, `lockText`, `dontWrap`,
 `showLines`, `wideMargins`, scrolling fields, `find` highlighting, the text
 selection (`select`, `the selectedText` and friends, `the selection` as a
-container), click functions in locked fields, and autoSelect list fields.
+container), click functions in locked fields, autoSelect list fields, and
+Cut, Copy, Paste and Clear Text, which keep fonts, sizes and styles when
+text goes from one field to another (by menu, keyboard or `doMenu`).
 
 **Missing:**
 - **Sideways scrolling in a scrolling dontWrap field.** While typing, a
@@ -174,8 +176,6 @@ container), click functions in locked fields, and autoSelect list fields.
   weight, so bold is drawn twice slightly offset. Outline and shadow aren't
   drawn. Text is spaced by HyperCard's metrics, so this affects only the
   look, not what fits. Open-licensed lookalike fonts could be bundled.
-- **Copying styled text:** text copied from one field and pasted into
-  another loses its styles.
 - **List fields:** Command-click to select lines that aren't next to each
   other in a multipleLines field (Shift-click runs work), and
   `the selectedLine` reporting such selections.
@@ -403,10 +403,10 @@ their feedback. For now:
 
 1. **Color, steps 1 and 2:** color pictures, then the color palette (see
    Color). Released as 0.2.0.
-2. **Small, clearly good features,** between larger pieces: copying
-   styled text between fields; Compact Stack and Delete Stack. (Shift for
-   straight lines and perfect shapes, and the script editor's Find and
-   Replace and Go to Line, are done.)
+2. **Small, clearly good features,** between larger pieces: Compact Stack
+   and Delete Stack. (Shift for straight lines and perfect shapes, the
+   script editor's Find and Replace and Go to Line, and copying styled
+   text between fields are done.)
 3. **Color, steps 3 to 5:** images with Import and Export Paint, colored
    parts and text, printing in color.
 4. **HyperCard 2.4's own features:** audit them in the real HyperCard

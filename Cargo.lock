@@ -3293,6 +3293,7 @@ name = "randomcard"
 version = "0.2.0"
 dependencies = [
  "ab_glyph",
+ "arboard",
  "base64",
  "chrono",
  "eframe",

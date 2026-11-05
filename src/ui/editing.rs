@@ -41,6 +41,13 @@ impl App {
 
     /// What the Edit menu's Cut, Copy and Clear would act on, for its labels.
     pub(super) fn edit_target_name(&self) -> Option<&'static str> {
+        // With the Browse tool, selected text in a field: "Copy Text".
+        {
+            let w = self.world();
+            if w.tool == Tool::Browse {
+                return w.selection.as_ref().filter(|r| r.start < r.end).map(|_| "Text");
+            }
+        }
         if let Some(ObjRef::Part { layer, id, card }) = self.selected_part() {
             let w = self.world();
             return w.stack.part(card, layer, id).map(|p| if p.kind == PartKind::Button { "Button" } else { "Field" });
@@ -49,6 +56,9 @@ impl App {
     }
 
     pub(super) fn paste_name(&self) -> Option<&'static str> {
+        if self.world().tool == Tool::Browse {
+            return self.editing.is_some().then_some("Text");
+        }
         match &self.clipboard {
             Some(Clip::Part { part, .. }) => Some(if part.kind == PartKind::Button { "Button" } else { "Field" }),
             Some(Clip::Picture { .. }) => Some("Picture"),
@@ -56,7 +66,19 @@ impl App {
         }
     }
 
-    pub(super) fn edit_command(&mut self, op: EditOp) {
+    pub(super) fn edit_command(&mut self, ctx: &eframe::egui::Context, op: EditOp) {
+        // Text in the field being edited, with nothing copied from a field
+        // to paste: the system clipboard, as typing the key would.
+        if self.editing.is_some() && self.world().tool == Tool::Browse {
+            use eframe::egui::ViewportCommand;
+            match op {
+                EditOp::Copy => ctx.send_viewport_cmd(ViewportCommand::RequestCopy),
+                EditOp::Cut => ctx.send_viewport_cmd(ViewportCommand::RequestCut),
+                EditOp::Paste => ctx.send_viewport_cmd(ViewportCommand::RequestPaste),
+                EditOp::Clear => {}
+            }
+            return;
+        }
         match op {
             EditOp::Copy => {
                 self.copy_selection();
