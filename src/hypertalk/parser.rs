@@ -580,7 +580,9 @@ impl Parser {
             }
             _ => {}
         }
-        if COMMANDS.contains(&w.as_str()) {
+        // `import paint` and `export paint`; a stack's own `import` is a message.
+        let paint_file = matches!(w.as_str(), "import" | "export") && self.is_at(1, "paint");
+        if COMMANDS.contains(&w.as_str()) || paint_file {
             let start = self.pos + 1;
             let cmd = self.command(&w)?;
             let args = self.source_text(start, self.pos);
@@ -1283,6 +1285,18 @@ impl Parser {
                     e => e,
                 };
                 if name == "start" { Cmd::StartUsing(e) } else { Cmd::StopUsing(e) }
+            }
+            "import" if self.is("paint") => {
+                self.advance();
+                self.expect("from")?;
+                self.expect("file")?;
+                Cmd::ImportPaint(self.expr()?)
+            }
+            "export" if self.is("paint") => {
+                self.advance();
+                self.expect("to")?;
+                self.expect("file")?;
+                Cmd::ExportPaint(self.expr()?)
             }
             "reset" if self.is("menubar") => {
                 self.advance();

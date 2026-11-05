@@ -503,6 +503,38 @@ on mouseUp
 end mouseUp"#,
     );
     b.card_part(c, Part { style: PartStyle::Standard, ..straight });
+    // Import Paint and Export Paint: the card saved as a PNG, then brought
+    // back onto a new card.
+    let files = b.button(
+        "Picture Files",
+        Rect::new(196, 40, 316, 62),
+        r#"
+on mouseUp
+  ask file "Save a picture of this card as:" with "Drawing card.png"
+  if it is empty then exit mouseUp
+  put it into fileName
+  choose select tool
+  export paint to file fileName
+  choose browse tool
+  if the result is not empty then
+    answer the result
+    exit mouseUp
+  end if
+  answer "Saved this card as a PNG. Import Paint reads PNG, JPEG, GIF and BMP, and old MacPaint and PICT files." ¬
+      with "Done" or "Import It"
+  if it is "Done" then exit mouseUp
+  doMenu "New Card"
+  choose select tool
+  import paint from file fileName
+  answer "The picture came back in with Import Paint, selected." with "Delete This Card" or "Keep It"
+  choose browse tool
+  if it is "Delete This Card" then
+    doMenu "Delete Card"
+    go to card "Drawing"
+  end if
+end mouseUp"#,
+    );
+    b.card_part(c, Part { style: PartStyle::Standard, ..files });
 
     // ----- Animation -----
     // A small state machine in the card's script: whether the ball is

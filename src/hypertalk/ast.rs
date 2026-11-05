@@ -358,6 +358,11 @@ pub enum Cmd {
     Mark(MarkWhat),
     Unmark(MarkWhat),
     OpenFile(Expr),
+    /// `import paint from file "Frogs.png"`: a picture file pasted in as
+    /// the paint selection.
+    ImportPaint(Expr),
+    /// `export paint to file "Card.png"`: the card as a PNG.
+    ExportPaint(Expr),
     CloseFile(Expr),
     /// `close window "Notes"`: a window a script opened.
     CloseWindow(Expr),

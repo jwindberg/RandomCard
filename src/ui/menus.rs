@@ -46,6 +46,8 @@ impl MenuState {
         }
         match (menu, key.as_str()) {
             ("File", "delete stack") => self.editing >= 4,
+            // As in HyperCard, only while a paint tool is chosen.
+            ("File", "import paint" | "export paint") => self.tool.is_paint(),
             ("Edit", "new card" | "delete card" | "cut card" | "copy card" | "paste card") => self.editing >= 2,
             ("Edit", "background" | "clear picture") => self.editing >= 3,
             ("Objects", "card script" | "bkgnd script" | "stack script") => self.level >= 5,

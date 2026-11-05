@@ -107,6 +107,9 @@ pub struct App {
     card_on_screen: Option<(egui::Pos2, egui::Pos2)>,
     /// The card's top left corner in the window, last frame.
     card_origin: egui::Pos2,
+    /// Export Paint under way: the card is drawn without selections or
+    /// windows over it until the screenshot is saved.
+    export: Option<painting::Export>,
     prefs_open: bool,
     protect_open: bool,
     password_prompt: Option<PasswordPrompt>,
@@ -209,6 +212,7 @@ impl App {
             tools_by_script: None,
             card_on_screen: None,
             card_origin: egui::Pos2::ZERO,
+            export: None,
             prefs_open: false,
             protect_open: false,
             password_prompt: None,
@@ -586,6 +590,8 @@ impl App {
                 UiRequest::Key(target, action) => self.key_action(ctx, target, action),
                 UiRequest::PaintOp(op) => self.apply_paint_op(op),
                 UiRequest::SelectAll => self.select_all(),
+                UiRequest::SelectPaint(rect) => self.select_paint(rect),
+                UiRequest::ExportPaint(path) => self.export = Some(painting::Export::new(path)),
                 UiRequest::ProtectStack => self.open_protect_stack(),
                 UiRequest::Preferences => self.prefs_open = true,
                 UiRequest::Attention => {
@@ -1783,8 +1789,10 @@ impl App {
             }
             _ => {
                 self.paint_input(&ctx, &resp, origin, tool);
-                self.paint_overlay(&painter, origin, tool, &ctx);
-                if tool == Tool::Text {
+                if self.export.is_none() {
+                    self.paint_overlay(&painter, origin, tool, &ctx);
+                }
+                if tool == Tool::Text && self.export.is_none() {
                     self.text_tool_editor(ui, origin);
                 }
             }
@@ -2086,6 +2094,11 @@ impl eframe::App for App {
             self.canvas(ui);
         });
 
+        // Export Paint: nothing over the card until its picture is taken.
+        if self.export.is_some() {
+            self.take_export(&ctx);
+            return;
+        }
         self.show_windows(&ctx);
         self.recent_window(&ctx);
         self.popup_menu(&ctx);

@@ -10,7 +10,7 @@
 
 mod addcolor;
 pub mod fix_steps;
-mod pict;
+pub mod pict;
 mod resources;
 
 pub use resources::{hypercard_icon, hypercard_icons};

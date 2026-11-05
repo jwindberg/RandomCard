@@ -388,6 +388,8 @@ fn demo_stack_runs() {
         assert!(black(230, 84) && !black(230, 96), "the brush stroke straight across");
         assert_eq!(w.tool, crate::runtime::world::Tool::Browse);
     }
+    // With no window, its file dialog cancels straight away.
+    assert_eq!(click(&mut i, "Drawing", "Picture Files"), None);
     let before = i.printed.len();
     assert_eq!(click(&mut i, "Print & Find", "Print PostScript"), None);
     assert_eq!(click(&mut i, "Print & Find", "Open a Document"), None);
@@ -2592,4 +2594,56 @@ fn driven_checks() {
         .unwrap()
         .join()
         .unwrap();
+}
+
+#[test]
+fn import_and_export_paint() {
+    use crate::model::Pixel;
+    let dir = std::env::temp_dir().join(format!("randomcard-paint-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // A 3×2 PNG: red, then black, the rest white.
+    let mut rgba = vec![255u8; 3 * 2 * 4];
+    rgba[..4].copy_from_slice(&[255, 0, 0, 255]);
+    rgba[4..8].copy_from_slice(&[0, 0, 0, 255]);
+    let png = dir.join("Frog.png");
+    std::fs::write(&png, crate::paint::image_file::encode_png(3, 2, &rgba).unwrap()).unwrap();
+    let mut i = interp_with(stack());
+    let png_name = png.display().to_string();
+    // Only with a paint tool, as in HyperCard; otherwise it's in the result.
+    let r = run(&mut i, &format!("import paint from file \"{png_name}\"\nput the result"));
+    assert!(r.contains("paint tool"), "{r}");
+    // (Straight to the interpreter, so the requests are still there.)
+    i.handle_event(Event::MsgBox(format!("choose brush tool\nimport paint from file \"{png_name}\"\nput the result")));
+    {
+        let w = lock(&i.world);
+        let pic = &w.stack.card(w.card_id).unwrap().picture;
+        assert_eq!(pic.get(0, 0), Pixel::rgba(255, 0, 0, 255));
+        assert_eq!(pic.get(1, 0), Pixel::BLACK);
+        assert_eq!(pic.get(2, 1), Pixel::WHITE);
+        assert_eq!(pic.get(3, 0), Pixel::CLEAR);
+        // It's left selected.
+        assert_eq!(w.msg, "");
+        assert!(w.requests.iter().any(|r| matches!(r, UiRequest::SelectPaint((0, 0, 3, 2)))));
+        assert!(w.dirty);
+    }
+    // Undo takes it away.
+    {
+        let mut w = lock(&i.world);
+        assert!(w.undo());
+        assert_eq!(w.stack.card(w.card_id).unwrap().picture.get(0, 0), Pixel::CLEAR);
+    }
+    let r = run(&mut i, &format!("import paint from file \"{}\"\nput the result", dir.join("None.png").display()));
+    assert!(r.starts_with("Can't read"), "{r}");
+    std::fs::write(dir.join("Junk.txt"), "not a picture").unwrap();
+    let r = run(&mut i, &format!("import paint from file \"{}\"\nput the result", dir.join("Junk.txt").display()));
+    assert_eq!(r, "Not a picture RandomCard can read.");
+    // Export Paint makes the file and asks the window for the picture.
+    let out = dir.join("Card.png");
+    i.handle_event(Event::MsgBox(format!("export paint to file \"{}\"\nput the result", out.display())));
+    assert_eq!(lock(&i.world).msg, "");
+    assert!(out.exists());
+    assert!(lock(&i.world).requests.iter().any(|r| matches!(r, UiRequest::ExportPaint(p) if *p == out)));
+    let r = run(&mut i, &format!("choose browse tool\nexport paint to file \"{}\"\nput the result", out.display()));
+    assert!(r.contains("paint tool"), "{r}");
+    let _ = std::fs::remove_dir_all(&dir);
 }

@@ -456,6 +456,11 @@ pub enum UiRequest {
     /// A Paint menu command, applied to the selection (or the whole picture).
     PaintOp(crate::paint::PaintOp),
     SelectAll,
+    /// Select this rectangle of the picture with the Select tool (after
+    /// Import Paint).
+    SelectPaint((i32, i32, i32, i32)),
+    /// Save a picture of the card as it looks to this PNG file.
+    ExportPaint(std::path::PathBuf),
     ProtectStack,
     Preferences,
     ToggleToolPanel,

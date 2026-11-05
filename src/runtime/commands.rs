@@ -341,6 +341,18 @@ impl Interp {
             }
             Cmd::Mark(what) => self.mark(what, true),
             Cmd::Unmark(what) => self.mark(what, false),
+            Cmd::ImportPaint(e) => {
+                let name = self.eval(e)?;
+                let path = self.script_path(&name);
+                self.result = self.import_paint(&path).err().unwrap_or_default();
+                Ok(())
+            }
+            Cmd::ExportPaint(e) => {
+                let name = self.eval(e)?;
+                let path = self.script_path(&name);
+                self.result = self.export_paint(path).err().unwrap_or_default();
+                Ok(())
+            }
             Cmd::OpenFile(e) => {
                 let name = self.eval(e)?;
                 let content = std::fs::read_to_string(super::paths::native(&name)).unwrap_or_default();
@@ -2076,6 +2088,8 @@ impl Interp {
             }
             "open stack" | "open" => self.request(UiRequest::OpenStack),
             "import hypercard stack" | "import stack" => self.request(UiRequest::ImportStack),
+            "import paint" => self.paint_file_menu(true),
+            "export paint" => self.paint_file_menu(false),
             "new stack" => self.request(UiRequest::NewStack),
             "quit hypercard" | "quit randomcard" | "quit" => self.request(UiRequest::Quit),
             "button info" | "field info" => self.request(UiRequest::SelectedPartInfo),
@@ -2234,6 +2248,60 @@ impl Interp {
 
     fn request(&mut self, r: UiRequest) -> R<()> {
         self.w().requests.push(r);
+        Ok(())
+    }
+
+    /// Import Paint: a picture file pasted at the top left of the card or
+    /// background picture, clipped to the card, and left selected.
+    fn import_paint(&mut self, path: &std::path::Path) -> Result<(), String> {
+        if !self.w().tool.is_paint() {
+            return Err("Import Paint needs a paint tool.".into());
+        }
+        let data = std::fs::read(path).map_err(|e| format!("Can't read {}: {e}", super::paths::shown(path)))?;
+        let pic = crate::paint::image_file::decode(&data)?;
+        let mut w = self.w();
+        let (width, height) = (w.stack.width, w.stack.height);
+        w.record_picture();
+        let Some(layer) = w.layer_picture_mut() else { return Err("There's no picture to import into.".into()) };
+        layer.ensure_size(width, height);
+        crate::paint::paste(layer, &pic, 0, 0);
+        let rect = (0, 0, pic.width.min(width) as i32, pic.height.min(height) as i32);
+        w.picture_rev += 1;
+        w.dirty = true;
+        w.requests.push(UiRequest::SelectPaint(rect));
+        Ok(())
+    }
+
+    /// Export Paint: the card as it looks (or the background, while editing
+    /// it), saved as a PNG. The window takes the picture, so with no window
+    /// (scripts in tests) only the file is made.
+    fn export_paint(&mut self, path: std::path::PathBuf) -> Result<(), String> {
+        if !self.w().tool.is_paint() {
+            return Err("Export Paint needs a paint tool.".into());
+        }
+        // Make the file now, so a bad name or a locked folder is in the result.
+        std::fs::File::create(&path).map_err(|e| format!("Can't save {}: {e}", super::paths::shown(&path)))?;
+        self.w().requests.push(UiRequest::ExportPaint(path));
+        Ok(())
+    }
+
+    /// The File menu's Import Paint… and Export Paint…, with a file dialog.
+    fn paint_file_menu(&mut self, import: bool) -> R<()> {
+        use super::externals::FileDialog;
+        let path = if import {
+            self.file_dialog("Import Paint", FileDialog::Open)
+        } else {
+            let name = { let w = self.w(); format!("{} card {}.png", w.stack.name, w.card_index() + 1) };
+            self.file_dialog("Export Paint", FileDialog::Save(name))
+        };
+        let Some(path) = path else {
+            self.result = "Cancel".into();
+            return Ok(());
+        };
+        let done = if import { self.import_paint(&path) } else { self.export_paint(path) };
+        if let Err(e) = done {
+            self.dialog(Dialog::Answer { prompt: e, buttons: vec!["OK".into()] })?;
+        }
         Ok(())
     }
 

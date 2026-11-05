@@ -364,9 +364,13 @@ together, and black on white is just the default.
    Tour's Drawing card
    paints balloons in color. Still to come: two-color patterns (a
    background color for the clear bits), and painting with transparency.
-3. **Images.** PNG and JPEG pasted or dropped onto a card become a paint
-   selection, as pasted art was in HyperCard; with them, HyperCard 2.x's
-   Import Paint and Export Paint.
+3. **Images.** ~~HyperCard 2.x's Import Paint and Export Paint~~ (done:
+   in the File menu with a paint tool and from scripts; Import Paint
+   reads PNG, JPEG, GIF and BMP, and old MacPaint and PICT files, and
+   leaves the picture selected; Export Paint saves the card as it looks,
+   parts and all, as a PNG; the Tour's Picture Files). Still to come: PNG
+   and JPEG pasted or dropped onto a card become a paint selection, as
+   pasted art was in HyperCard.
 4. **Colored parts and text.** Fill, text and frame colors for buttons and
    fields in their Info windows and as properties (`the foreColor`,
    `the backColor`), and a color in text style runs. AddColor's items

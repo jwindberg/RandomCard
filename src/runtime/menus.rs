@@ -101,6 +101,8 @@ pub fn standard_menus() -> Vec<Menu> {
                 "-",
                 "Protect Stack…",
                 "Delete Stack…",
+                "Import Paint…",
+                "Export Paint…",
                 "Preferences…",
                 "-",
                 "Page Setup…",

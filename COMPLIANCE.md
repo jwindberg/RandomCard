@@ -67,8 +67,9 @@ reportTemplates`, and the print text settings: `printMargins`,
 `printTextAlign`, `printTextFont`, `printTextHeight`, `printTextSize`,
 `printTextStyle`.
 
-**Paint import and export.** `import paint from file`, `export paint to file`,
-and `reset paint` (parses but does nothing).
+**Paint settings.** `reset paint` (parses but does nothing). (`import paint
+from file` and `export paint to file` are in: PNG, JPEG, GIF, BMP, MacPaint
+and PICT in, PNG out.)
 
 **Error dialogs and Recent.** `lock error dialogs` and `unlock error dialogs`,
 `the lockErrorDialogs` (a script handles its own errors instead of the error

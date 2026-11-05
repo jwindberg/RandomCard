@@ -4,6 +4,7 @@
 //! bits in white. Lines, borders, the pencil and text use the line color.
 //! With both colors black, painting is HyperCard's black and white.
 
+pub mod image_file;
 mod text;
 
 use crate::model::{Picture, Pixel};

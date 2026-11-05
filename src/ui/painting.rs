@@ -644,6 +644,41 @@ impl App {
         self.marquee = Some(Marquee::Selected { region: Region { rect: (0, 0, w, h), lasso: None } });
     }
 
+    /// Select a rectangle of the picture, as Import Paint leaves it.
+    pub(super) fn select_paint(&mut self, rect: (i32, i32, i32, i32)) {
+        if !matches!(self.world().tool, Tool::Select | Tool::Lasso) {
+            self.choose_tool(Tool::Select);
+        }
+        self.commit_marquee();
+        self.marquee = Some(Marquee::Selected { region: Region { rect, lasso: None } });
+    }
+
+    /// Export Paint, once the card has been drawn clean: ask for a
+    /// screenshot, and when it comes, save the card's part of it.
+    pub(super) fn take_export(&mut self, ctx: &egui::Context) {
+        let size = {
+            let w = self.world();
+            (w.stack.width, w.stack.height)
+        };
+        let Some(export) = &mut self.export else { return };
+        if export.done.load(std::sync::atomic::Ordering::Acquire) {
+            self.export = None;
+            return;
+        }
+        if !export.asked {
+            export.asked = true;
+            let (origin, ppp) = (self.card_origin, ctx.pixels_per_point());
+            let (path, done) = (export.path.clone(), export.done.clone());
+            ctx.request_screenshot(move |shot| {
+                if let Err(e) = save_card_shot(&shot, origin, ppp, size, &path) {
+                    eprintln!("Export Paint: {e}");
+                }
+                done.store(true, std::sync::atomic::Ordering::Release);
+            });
+        }
+        ctx.request_repaint();
+    }
+
     /// Apply a Paint menu command to the selection, or the whole picture.
     pub(super) fn apply_paint_op(&mut self, op: PaintOp) {
         self.commit_marquee();
@@ -747,4 +782,33 @@ impl App {
             None => {}
         }
     }
+}
+
+/// Export Paint waiting for its screenshot.
+pub struct Export {
+    path: std::path::PathBuf,
+    asked: bool,
+    done: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Export {
+    pub fn new(path: std::path::PathBuf) -> Export {
+        Export { path, asked: false, done: Default::default() }
+    }
+}
+
+/// Save the card's part of a window screenshot as a PNG, at one pixel a
+/// card pixel whatever the screen's scale.
+fn save_card_shot(shot: &egui::ColorImage, origin: Pos2, ppp: f32, (width, height): (u32, u32), path: &std::path::Path) -> Result<(), String> {
+    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height {
+        for x in 0..width {
+            let sx = ((origin.x + x as f32 + 0.5) * ppp) as usize;
+            let sy = ((origin.y + y as f32 + 0.5) * ppp) as usize;
+            let c = if sx < shot.width() && sy < shot.height() { shot[(sx, sy)] } else { egui::Color32::WHITE };
+            rgba.extend([c.r(), c.g(), c.b(), 255]);
+        }
+    }
+    let png = crate::paint::image_file::encode_png(width, height, &rgba)?;
+    std::fs::write(path, png).map_err(|e| e.to_string())
 }
