@@ -2835,7 +2835,7 @@ fn icndb_stack_calls_its_api() {
     }
     let base = crate::web::http::test_server::start(|_, path, _, _| match path {
         "/jokes/random" => (200, "application/json", joke("r0", "")),
-        "/jokes/random?category=dev,food" => (200, "application/json", joke("r2", r#""dev","food""#)),
+        "/jokes/random?category=dev&category=food" => (200, "application/json", joke("r2", r#""dev","food""#)),
         "/jokes/categories" => (200, "application/json", r#"["dev","food","science"]"#.into()),
         "/jokes/abc123" => (200, "application/json", joke("abc123", r#""science""#)),
         "/jokes/search?query=computer" => (
@@ -2860,7 +2860,7 @@ fn icndb_stack_calls_its_api() {
     // Two checked: a joke from either.
     run(&mut i, "put \"✓ dev\" into line 1 of card field \"Choices\"\nput \"✓ food\" into line 2 of card field \"Choices\"");
     assert_eq!(click(&mut i, "Random Joke", "Submit"), None);
-    assert_eq!(run(&mut i, "put field \"Request\""), format!("GET {base}/jokes/random?category=dev,food"));
+    assert_eq!(run(&mut i, "put field \"Request\""), format!("GET {base}/jokes/random?category=dev&category=food"));
     assert_eq!(run(&mut i, "put card field \"Joke\""), "Joke r2.");
     assert_eq!(run(&mut i, "put card field \"Categories\""), "dev,food");
     // Categories.
@@ -2900,4 +2900,56 @@ fn dont_save_fields_open_empty() {
     assert_eq!(back.field_text(back.cards[0].id, Layer::Background, 10), "");
     assert!(back.part(back.cards[0].id, Layer::Background, 10).unwrap().dont_save);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn every_http_verb_from_hypertalk() {
+    let base = crate::web::http::test_server::start(|method, path, _, body| match path {
+        "/echo" => (200, "text/plain", format!("{method}:{body}")),
+        _ => (404, "text/plain", "gone".into()),
+    });
+    let mut i = interp_with(stack());
+    run(&mut i, &format!("put \"{base}/echo\" into u"));
+    let verb = |i: &mut Interp, line: &str| run(i, &format!("{line}\nput it & \"|\" & the result"));
+    assert_eq!(verb(&mut i, "post \"a=1\" to url u"), "POST:a=1|");
+    assert_eq!(verb(&mut i, "put \"whole\" to url u"), "PUT:whole|");
+    assert_eq!(verb(&mut i, "patch \"part\" to url u"), "PATCH:part|");
+    assert_eq!(verb(&mut i, "query \"name=chuck\" to url u"), "QUERY:name=chuck|");
+    assert_eq!(verb(&mut i, "delete url u"), "DELETE:|");
+    assert_eq!(verb(&mut i, "request \"OPTIONS\" to url u"), "OPTIONS:|");
+    // Methods are case-sensitive (RFC 9110): sent as written.
+    assert_eq!(verb(&mut i, "request \"options\" to url u"), "options:|");
+    assert_eq!(verb(&mut i, "put \"PATCH\" into m\nrequest m with \"x\" to url u"), "PATCH:x|");
+    // The URL is a whole expression; a 404 is in the result.
+    assert_eq!(verb(&mut i, &format!("post \"b\" to url \"{base}\" & \"/nope\"")), "gone|404 Not Found");
+    // Plain put and delete are unchanged, and handlers named post or
+    // query still get their messages.
+    assert_eq!(run(&mut i, "put \"x\" into v\nput \"y\" after v\nput v"), "xy");
+    let card = lock(&i.world).card_id;
+    set_script(&i, ObjRef::Card(card), "on query q\n  put \"asked\" && q into msg\nend query\non post\n  put \"posted\" into msg\nend post");
+    assert_eq!(run(&mut i, "query \"z\""), "asked z");
+    assert_eq!(run(&mut i, "post"), "posted");
+    assert!(run(&mut i, "request \"BAD METHOD\" to url u\nput the result").contains("isn't an HTTP method"));
+}
+
+#[test]
+fn writing_json_from_hypertalk() {
+    let mut i = interp_with(stack());
+    run(&mut i, "put \"{}\" into body");
+    run(&mut i, "set key \"name\" of json body to \"Ada\"");
+    run(&mut i, "set key \"age\" of json body to 36");
+    run(&mut i, "set element 1 of key \"tags\" of json body to \"math\"");
+    run(&mut i, "set element 2 of key \"tags\" of json body to \"poetry\"");
+    run(&mut i, "set key \"city\" of key \"home\" of json body to \"London\"");
+    assert_eq!(run(&mut i, "put body"), r#"{"name":"Ada","age":36,"tags":["math","poetry"],"home":{"city":"London"}}"#);
+    // Read back what was written; change in place.
+    assert_eq!(run(&mut i, "set key \"age\" of json body to 37\nput key \"age\" of json body"), "37");
+    // Into a field, too.
+    run(&mut i, "put \"[]\" into field \"Name\"\nset element 1 of json field \"Name\" to \"first\"");
+    assert_eq!(run(&mut i, "put field \"Name\""), r#"["first"]"#);
+    // Past the end of an array (other than just past it) is an error.
+    run(&mut i, "put \"[1]\" into nums");
+    assert!(run(&mut i, "set element 5 of json nums to 1").contains("no element 5"));
+    // An unset variable starts empty.
+    assert_eq!(run(&mut i, "set key \"a\" of json fresh to 1\nput fresh"), r#"{"a":1}"#);
 }

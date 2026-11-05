@@ -37,8 +37,9 @@ impl Response {
     }
 }
 
-/// Text made safe for a URL's path or query: everything but letters,
-/// digits and `-_.~` as `%XX` bytes of its UTF-8.
+/// Text made safe for a URL's path or query (RFC 3986 §2): everything but
+/// the unreserved letters, digits and `-._~` as `%XX` bytes of its UTF-8,
+/// in uppercase hex.
 pub fn url_encode(text: &str) -> String {
     let mut out = String::new();
     for b in text.bytes() {
@@ -51,7 +52,8 @@ pub fn url_encode(text: &str) -> String {
     out
 }
 
-/// `%XX` bytes, and `+` for a space as forms send it, back to text.
+/// `%XX` bytes back to text (RFC 3986 §2.1). A `+` stays a plus: it means
+/// a space only in HTML form encoding, not in URLs.
 pub fn url_decode(text: &str) -> String {
     let b = text.as_bytes();
     let hex = |i: usize| b.get(i).and_then(|c| (*c as char).to_digit(16));
@@ -64,7 +66,7 @@ pub fn url_decode(text: &str) -> String {
                 i += 3;
             }
             (c, _, _) => {
-                out.push(if c == b'+' { b' ' } else { c });
+                out.push(c);
                 i += 1;
             }
         }
@@ -82,34 +84,39 @@ pub fn parse_headers(text: &str) -> Vec<(String, String)> {
 }
 
 fn agent(timeout: Duration) -> ureq::Agent {
-    let config = ureq::Agent::config_builder().http_status_as_error(false).timeout_global(Some(timeout));
+    // Any method, not only the standard ones: QUERY, and whatever comes next.
+    let config = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .allow_non_standard_methods(true)
+        .timeout_global(Some(timeout));
     #[cfg(not(target_os = "linux"))]
     let config = config.tls_config(ureq::tls::TlsConfig::builder().provider(ureq::tls::TlsProvider::NativeTls).build());
     config.build().into()
 }
 
 /// Send a request and wait for the reply. Err is a request that got no
-/// reply at all: a bad address, no network, a timeout.
+/// reply at all: a bad address, no network, a timeout. The method is any
+/// token (GET, POST, PUT, PATCH, DELETE, QUERY…), sent exactly as given:
+/// methods are case-sensitive (RFC 9110 §9.1).
 pub fn send(req: &Request) -> Result<Response, String> {
-    let agent = agent(req.timeout);
-    macro_rules! with_headers {
-        ($builder:expr) => {{
-            let mut b = $builder;
-            for (k, v) in &req.headers {
-                b = b.header(k.as_str(), v.as_str());
-            }
-            b
-        }};
+    let method = ureq::http::Method::from_bytes(req.method.trim().as_bytes())
+        .map_err(|_| format!("\"{}\" isn't an HTTP method", req.method))?;
+    let mut builder = ureq::http::Request::builder().method(method).uri(req.url.as_str());
+    for (k, v) in &req.headers {
+        builder = builder.header(k.as_str(), v.as_str());
     }
-    let body = req.body.as_deref().unwrap_or("").as_bytes();
-    let reply = match req.method.to_ascii_uppercase().as_str() {
-        "GET" => with_headers!(agent.get(&req.url)).call(),
-        "DELETE" => with_headers!(agent.delete(&req.url)).call(),
-        "HEAD" => with_headers!(agent.head(&req.url)).call(),
-        "POST" => with_headers!(agent.post(&req.url)).send(body),
-        "PUT" => with_headers!(agent.put(&req.url)).send(body),
-        "PATCH" => with_headers!(agent.patch(&req.url)).send(body),
-        other => return Err(format!("Unknown HTTP method {other}")),
+    // Content says what it is (RFC 9110 §8.3): unless the script's headers
+    // do, JSON (RFC 8259) as application/json, other text as text/plain.
+    if let Some(body) = req.body.as_deref().filter(|b| !b.is_empty())
+        && !req.headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("content-type"))
+    {
+        let json = serde_json::from_str::<serde_json::Value>(body).is_ok();
+        builder = builder.header("content-type", if json { "application/json" } else { "text/plain; charset=utf-8" });
+    }
+    let agent = agent(req.timeout);
+    let reply = match &req.body {
+        Some(body) => agent.run(builder.body(body.clone()).map_err(|e| e.to_string())?),
+        None => agent.run(builder.body(()).map_err(|e| e.to_string())?),
     };
     let mut reply = reply.map_err(|e| e.to_string())?;
     let status = reply.status();
@@ -186,7 +193,8 @@ mod tests {
     #[test]
     fn url_text() {
         assert_eq!(url_encode("chuck norris & co/é"), "chuck%20norris%20%26%20co%2F%C3%A9");
-        assert_eq!(url_decode("chuck%20norris+%26%20co%2F%C3%A9"), "chuck norris & co/é");
+        assert_eq!(url_decode("chuck%20norris%20%26%20co%2F%C3%A9"), "chuck norris & co/é");
+        assert_eq!(url_decode("a+b"), "a+b");
         assert_eq!(url_decode("100%"), "100%");
     }
 
@@ -202,6 +210,10 @@ mod tests {
     fn requests_and_replies() {
         let base = test_server::start(|method, path, headers, body| match path {
             "/echo" => (200, "text/plain", format!("{method} {body} {}", headers.to_ascii_lowercase().contains("x-token: abc"))),
+            "/type" => {
+                let t = headers.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-type:").map(|v| v.trim().to_string()));
+                (200, "text/plain", t.unwrap_or_else(|| "none".into()))
+            }
             _ => (404, "application/json", r#"{"error":"Not Found"}"#.into()),
         });
         let req = |method: &str, path: &str, body: Option<&str>| Request {
@@ -215,6 +227,21 @@ mod tests {
         assert!(r.ok());
         assert_eq!(r.body, "GET  true");
         assert_eq!(send(&req("POST", "/echo", Some("hello"))).unwrap().body, "POST hello true");
+        // Every method, standard or not, with a body or without.
+        assert_eq!(send(&req("QUERY", "/echo", Some("name=chuck"))).unwrap().body, "QUERY name=chuck true");
+        // Methods are case-sensitive: sent as written.
+        assert_eq!(send(&req("query", "/echo", None)).unwrap().body, "query  true");
+        assert_eq!(send(&req("PATCH", "/echo", Some("x"))).unwrap().body, "PATCH x true");
+        assert_eq!(send(&req("DELETE", "/echo", None)).unwrap().body, "DELETE  true");
+        assert!(send(&req("NOT A METHOD", "/echo", None)).unwrap_err().contains("isn't an HTTP method"));
+        // Content says its type, unless the script's headers do.
+        let typed = |body: &str, headers: &str| {
+            send(&Request { headers: parse_headers(headers), ..req("POST", "/type", Some(body)) }).unwrap().body
+        };
+        assert_eq!(typed(r#"{"a":1}"#, ""), "application/json");
+        assert_eq!(typed("a=1&b=2", ""), "text/plain; charset=utf-8");
+        assert_eq!(typed("a=1", "Content-Type: application/x-www-form-urlencoded"), "application/x-www-form-urlencoded");
+        assert_eq!(send(&req("GET", "/type", None)).unwrap().body, "none");
         // A 404 is still a reply, with its body.
         let r = send(&req("GET", "/nothing", None)).unwrap();
         assert_eq!((r.ok(), r.status_text().as_str()), (false, "404 Not Found"));

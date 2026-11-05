@@ -908,7 +908,7 @@
           "text_size": 10,
           "text_style": "plain",
           "text_align": "Left",
-          "contents": "GET /jokes/random?category={categories}",
+          "contents": "GET /jokes/random?category={category}…",
           "hilite": false,
           "auto_hilite": true,
           "show_name": true,
@@ -941,7 +941,7 @@
             "right": 100,
             "bottom": 60
           },
-          "script": "on mouseUp\n  -- GET /jokes/random, or /jokes/random?category=dev,food for a joke\n  -- from any of the checked categories.\n  put empty into chosen\n  repeat with i = 1 to the number of lines of card field \"Choices\"\n    get line i of card field \"Choices\"\n    if char 1 of it is \"✓\" then\n      if chosen is not empty then put \",\" after chosen\n      put urlEncode(word 2 of it) after chosen\n    end if\n  end repeat\n  put \"/jokes/random\" into path\n  if chosen is not empty then put \"?category=\" & chosen after path\n  showJoke apiGet(path)\nend mouseUp\n",
+          "script": "on mouseUp\n  -- GET /jokes/random, or a joke from any of the checked categories:\n  -- /jokes/random?category=dev&category=food. Several values for one\n  -- name repeat the name, as form encoding does (WHATWG URL Standard).\n  put empty into query\n  repeat with i = 1 to the number of lines of card field \"Choices\"\n    get line i of card field \"Choices\"\n    if char 1 of it is \"✓\" then\n      if query is empty then put \"?\" into query\n      else put \"&\" after query\n      put \"category=\" & urlEncode(word 2 of it) after query\n    end if\n  end repeat\n  showJoke apiGet(\"/jokes/random\" & query)\nend mouseUp\n",
           "visible": true,
           "style": "RoundRect",
           "text_font": "Geneva",

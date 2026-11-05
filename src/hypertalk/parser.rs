@@ -583,7 +583,10 @@ impl Parser {
         }
         // `import paint` and `export paint`; a stack's own `import` is a message.
         let paint_file = matches!(w.as_str(), "import" | "export") && self.is_at(1, "paint");
-        if COMMANDS.contains(&w.as_str()) || paint_file {
+        // Web verbs, only with `to url` on the line: a stack's own `post`
+        // or `query` handler is still a message.
+        let web = matches!(w.as_str(), "post" | "patch" | "query" | "request") && self.to_url_ahead();
+        if COMMANDS.contains(&w.as_str()) || paint_file || web {
             let start = self.pos + 1;
             let cmd = self.command(&w)?;
             let args = self.source_text(start, self.pos);
@@ -732,6 +735,11 @@ impl Parser {
         Ok(match name {
             "put" => {
                 let value = self.list_expr()?;
+                // `put body to url "…"`: HTTP PUT (a plain put never says `to`).
+                if self.is("to") && self.is_at(1, "url") {
+                    self.pos += 2;
+                    return Ok(Cmd::Http { method: Expr::Lit("PUT".into()), body: Some(value), url: self.expr()? });
+                }
                 let (prep, dest) = match self.prep() {
                     Some(prep) => (prep, Some(self.expr()?)),
                     None => (Prep::Into, None),
@@ -769,6 +777,15 @@ impl Parser {
                 Cmd::Put { value, prep, dest, messages }
             }
             "get" => Cmd::Get(self.list_expr()?),
+            // `set key "name" of json body to "Ada"`, `set element 2 of …`.
+            "set" if matches!(self.word(), Some("key" | "element")) && self.starts_term_at(1) => {
+                let path = self.term()?;
+                if !matches!(&path, Expr::Call(n, args) if n == "__json" && args.len() > 1) {
+                    return Err(self.err_here("Expected \"key … of json\" or \"element … of json\""));
+                }
+                self.expect("to")?;
+                Cmd::SetJson { path, value: self.list_expr()? }
+            }
             "set" => {
                 self.accept("the");
                 let mut prop = self.symbol()?;
@@ -1012,7 +1029,26 @@ impl Parser {
                 Cmd::Find { mode, what, field }
             }
             "sort" => self.sort_cmd()?,
+            "delete" if self.is("url") && self.starts_term_at(1) => {
+                self.advance();
+                Cmd::Http { method: Expr::Lit("DELETE".into()), body: None, url: self.expr()? }
+            }
             "delete" => Cmd::Delete(self.expr()?),
+            // `post body to url "…"`, and patch and query the same way.
+            "post" | "patch" | "query" => {
+                let body = self.expr()?;
+                self.expect("to")?;
+                self.expect("url")?;
+                Cmd::Http { method: Expr::Lit(name.to_ascii_uppercase()), body: Some(body), url: self.expr()? }
+            }
+            // `request "OPTIONS" to url "…"`, `request m with body to url "…"`.
+            "request" => {
+                let method = self.expr()?;
+                let body = if self.accept("with") { Some(self.expr()?) } else { None };
+                self.expect("to")?;
+                self.expect("url")?;
+                Cmd::Http { method, body, url: self.expr()? }
+            }
             "choose" => {
                 if self.accept("tool") {
                     return Ok(Cmd::ChooseTool(self.expr()?));
@@ -1315,6 +1351,18 @@ impl Parser {
                 Cmd::NoOp
             }
         })
+    }
+
+    /// Whether `to url` comes later on this line.
+    fn to_url_ahead(&self) -> bool {
+        let mut n = 1;
+        while !self.at_stmt_end_at(n) {
+            if self.is_at(n, "to") && self.is_at(n + 1, "url") {
+                return true;
+            }
+            n += 1;
+        }
+        false
     }
 
     fn at_stmt_end_at(&self, n: usize) -> bool {

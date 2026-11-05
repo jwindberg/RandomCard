@@ -358,6 +358,14 @@ pub enum Cmd {
     Mark(MarkWhat),
     Unmark(MarkWhat),
     OpenFile(Expr),
+    /// A web request with a body or none: `post B to url U`, `put B to url
+    /// U`, `patch …`, `query …`, `delete url U`, and `request M [with B]
+    /// to url U` for any method. The reply goes into `it`.
+    Http { method: Expr, body: Option<Expr>, url: Expr },
+    /// `set key "name" of json body to "Ada"`: the JSON in a container
+    /// rewritten. `path` is the `__json` call naming the container and
+    /// its steps.
+    SetJson { path: Expr, value: Expr },
     /// `import paint from file "Frogs.png"`: a picture file pasted in as
     /// the paint selection.
     ImportPaint(Expr),

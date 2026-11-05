@@ -1216,7 +1216,7 @@ impl Interp {
         (chunks, e)
     }
 
-    fn read_container(&mut self, base: &Expr) -> R<String> {
+    pub(super) fn read_container(&mut self, base: &Expr) -> R<String> {
         match base {
             Expr::Var(name) => Ok(self.get_var(name).unwrap_or_default()),
             Expr::Object(spec) => {

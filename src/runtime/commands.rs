@@ -341,6 +341,32 @@ impl Interp {
             }
             Cmd::Mark(what) => self.mark(what, true),
             Cmd::Unmark(what) => self.mark(what, false),
+            Cmd::Http { method, body, url } => {
+                let method = self.eval(method)?;
+                let body = match body {
+                    Some(b) => Some(self.eval(b)?),
+                    None => None,
+                };
+                let url = self.eval(url)?;
+                let reply = self.fetch(&method, url, body)?;
+                self.set_var("it", reply);
+                Ok(())
+            }
+            Cmd::SetJson { path, value } => {
+                let Expr::Call(_, args) = path else { return err("Expected JSON") };
+                let value = self.eval(value)?;
+                // A container: an unset variable is empty, not its name.
+                let container = &args[0];
+                let source = self.read_container(container)?;
+                let mut steps = Vec::new();
+                for pair in args[1..].chunks(2) {
+                    let [kind, step] = pair else { break };
+                    let (kind, step) = (self.eval(kind)?, self.eval(step)?);
+                    steps.push(if kind == "e" { crate::web::json::Step::Element(step) } else { crate::web::json::Step::Key(step) });
+                }
+                let text = crate::web::json::set(&source, &steps, crate::web::json::value_of(&value)).or_else(err)?;
+                self.put_into(container, Prep::Into, &text)
+            }
             Cmd::ImportPaint(e) => {
                 let name = self.eval(e)?;
                 let path = self.script_path(&name);

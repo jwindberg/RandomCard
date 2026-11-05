@@ -416,9 +416,20 @@ language's side is `src/runtime/web.rs`.
    to decide: a message before saving, for scripts that tidy up; since
    stacks save themselves every few seconds, it would need to work on
    what's written, not on the cards on screen.
-3. **Every verb, and writing JSON.** `post body to url "…"`, `put body
-   into url "…"` (PUT), `delete url "…"`; `set key "done" of json x to
-   true`, which rewrites the text.
+3. ~~**Every verb, and writing JSON.**~~ Done: each method by its own
+   name, `post body to url U`, `put body to url U`, `patch … to url U`,
+   `query … to url U` (the IETF QUERY method), `delete url U`, and
+   `request M [with body] to url U` for any method; the reply in `it`,
+   the status in `the result`. `set key "name" of json x to "Ada"` and
+   `set element 2 of …` build and change JSON in a variable or field,
+   making objects and arrays on the way; a value that's already JSON goes
+   in as JSON, anything else as a string. Following the standards: methods
+   sent exactly as written (RFC 9110 §9.1), a Content-Type with every body
+   unless the script gives one (§8.3), `urlDecode` per RFC 3986 (`+` stays
+   a plus), and JSON numbers kept exactly (RFC 8259 §6). ICNDB sends
+   several categories as repeated names (`?category=dev&category=food`),
+   as form encoding does, while scripts can still build any URL a service
+   wants. Still to come: a form-decoding function where `+` is a space.
 4. **PostCard**, the second demo stack: a small Postman. A method, URL,
    query parameters, headers and body in; status, time, headers and body
    out; requests saved as cards.

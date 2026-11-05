@@ -76,6 +76,49 @@ pub fn get(source: &str, steps: &[Step]) -> Result<String, String> {
     follow(source, steps).map(|v| text(&v))
 }
 
+/// A value from HyperTalk text: JSON if it already is JSON (`36`, `true`,
+/// `{"a":1}`, `"42"` in quotes), and a string otherwise.
+pub fn value_of(text: &str) -> Value {
+    serde_json::from_str(text.trim()).unwrap_or_else(|_| Value::String(text.to_string()))
+}
+
+/// Set what steps lead to, making objects and arrays on the way, and give
+/// back the whole as JSON text. An element just past the end appends one.
+pub fn set(source: &str, steps: &[Step], value: Value) -> Result<String, String> {
+    let mut root = parse(source)?;
+    let mut cur = &mut root;
+    for s in steps {
+        cur = match s {
+            Step::Key(k) => {
+                if !cur.is_object() {
+                    *cur = Value::Object(Default::default());
+                }
+                cur.as_object_mut().unwrap().entry(k.clone()).or_insert(Value::Null)
+            }
+            Step::Element(n) => {
+                if !cur.is_array() {
+                    *cur = Value::Array(Vec::new());
+                }
+                let items = cur.as_array_mut().unwrap();
+                let at = if n.trim().eq_ignore_ascii_case("last") {
+                    items.len().max(1)
+                } else {
+                    n.trim().parse::<usize>().ok().filter(|i| *i >= 1).ok_or_else(|| format!("Expected an element number, not \"{n}\""))?
+                };
+                if at > items.len() + 1 {
+                    return Err(format!("There's no element {} to set: the array has {}", at, items.len()));
+                }
+                if at == items.len() + 1 {
+                    items.push(Value::Null);
+                }
+                &mut items[at - 1]
+            }
+        };
+    }
+    *cur = value;
+    Ok(root.to_string())
+}
+
 /// An object's keys, or an array's elements as text, one a line.
 pub fn keys(v: &Value) -> String {
     match v {
@@ -130,6 +173,32 @@ mod tests {
         assert_eq!(get(&[]), text(&parse(joke).unwrap()));
         assert!(super::get("not json", &[]).unwrap_err().starts_with("Expected JSON"));
         assert_eq!(super::get("", &steps(&["x"])).unwrap(), "");
+        // Numbers keep their exact text (RFC 8259 §6), however long.
+        let n = r#"{"big":12345678901234567890123,"price":1.10,"e":1e400}"#;
+        assert_eq!(super::get(n, &steps(&["big"])).unwrap(), "12345678901234567890123");
+        assert_eq!(super::get(n, &steps(&["price"])).unwrap(), "1.10");
+        // Beyond any float: kept exactly, its exponent spelled with a sign.
+        assert_eq!(super::get(n, &steps(&["e"])).unwrap(), "1e+400");
+    }
+
+    #[test]
+    fn writing() {
+        let k = |s: &str| Step::Key(s.into());
+        let e = |s: &str| Step::Element(s.into());
+        let body = set("{}", &[k("name")], value_of("Ada")).unwrap();
+        let body = set(&body, &[k("age")], value_of("36")).unwrap();
+        let body = set(&body, &[k("tags"), e("1")], value_of("math")).unwrap();
+        let body = set(&body, &[k("tags"), e("2")], value_of("poetry")).unwrap();
+        let body = set(&body, &[k("id")], value_of("\"42\"")).unwrap();
+        let body = set(&body, &[k("owner"), k("ok")], value_of("true")).unwrap();
+        assert_eq!(body, r#"{"name":"Ada","age":36,"tags":["math","poetry"],"id":"42","owner":{"ok":true}}"#);
+        // Changing keeps the order; an empty start becomes what's set.
+        assert_eq!(set(&body, &[k("name")], value_of("Grace")).unwrap().find("Grace"), Some(9));
+        assert_eq!(set("", &[e("1")], value_of("x")).unwrap(), r#"["x"]"#);
+        assert_eq!(set("[1,2]", &[e("last")], value_of("9")).unwrap(), "[1,9]");
+        assert!(set("[1]", &[e("5")], value_of("x")).unwrap_err().contains("no element 5"));
+        assert_eq!(value_of("{\"a\":1}"), serde_json::json!({"a": 1}));
+        assert_eq!(value_of(""), Value::String(String::new()));
     }
 
     #[test]
