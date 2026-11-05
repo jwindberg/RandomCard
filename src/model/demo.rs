@@ -149,14 +149,14 @@ fn house(p: &mut Picture) {
 const STACK_SCRIPT: &str = r#"-- A menu of the stack's own. Its items arrive as doMenu messages.
 on openStack
   if there is no menu "Tour" then create menu "Tour"
-  put "Contents,Basics,Dice,Drawing,Animation,Sound,Keys,Fields,Print & Find,Icons,Debugging,Palettes,-,Address Book" into menu "Tour"
+  put "Contents,Basics,Dice,Drawing,Animation,Sound,Keys,Fields,Print & Find,Icons,Debugging,Palettes,The Web,-,Address Book" into menu "Tour"
 end openStack
 
 on doMenu what
   if what is "Address Book" then
     visual effect zoom open
     go to first card of background "Address"
-  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation,Sound,Keys,Fields,Print & Find,Icons,Debugging,Palettes," then
+  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation,Sound,Keys,Fields,Print & Find,Icons,Debugging,Palettes,The Web," then
     visual effect dissolve
     go to card what
   else
@@ -281,6 +281,7 @@ pub fn build() -> Stack {
         ("Debugging", "on mouseUp\n  visual effect iris open\n  go to card \"Debugging\"\nend mouseUp"),
         ("Palettes", "on mouseUp\n  visual effect wipe right\n  go to card \"Palettes\"\nend mouseUp"),
         ("Address Book", "on mouseUp\n  visual effect zoom open\n  go to first card of background \"Address\"\nend mouseUp"),
+        ("The Web", "on mouseUp\n  visual effect dissolve\n  go to card \"The Web\"\nend mouseUp"),
     ];
     for (i, (name, script)) in buttons.iter().enumerate() {
         let (col, row) = ((i % 3) as i32, (i / 3) as i32);
@@ -1044,6 +1045,104 @@ end mouseUp"#,
     said.text_style = "italic".into();
     b.card_part(c, said);
     b.stack.cards[c].script = "on openPalette name, id\n  put \"openPalette\" && name && id into field \"Said\"\nend openPalette\n\non closePalette name\n  put \"closePalette\" && name into field \"Said\"\nend closePalette".into();
+
+    // ----- The web: JSON on the card itself, and requests to an address
+    // the user types. Nothing here calls a service of its own accord: the
+    // Tour works anywhere, offline. Full examples are stacks in examples/.
+    let c = b.card(main, "The Web");
+    let t = b.label("Heading", Rect::new(20, 8, 492, 32), "The web: REST and JSON", 20);
+    b.card_part(c, t);
+    let mut json = Part::new_field(b.id(), "JSON", Rect::new(20, 40, 250, 150));
+    json.style = PartStyle::Scrolling;
+    json.text_size = 10;
+    json.contents = r#"{"name":"Ada Lovelace","born":1815,"languages":["English","French","Italian"],"notes":{"first":"program"}}"#.into();
+    b.card_part(c, json);
+    let read = b.button(
+        "Read JSON",
+        Rect::new(20, 156, 130, 178),
+        r#"on mouseUp
+  -- key … of json reads an object's key, element … of json an array's
+  -- element (from 1), and they nest.
+  put card field "JSON" into j
+  put "Name:" && key "name" of json j into line 1 of r
+  put "Languages:" && the number of elements of key "languages" of json j into line 2 of r
+  put "The second:" && element 2 of key "languages" of json j into line 3 of r
+  put "First note:" && key "first" of key "notes" of json j into line 4 of r
+  put r into card field "Result"
+end mouseUp"#,
+    );
+    b.card_part(c, Part { style: PartStyle::RoundRect, ..read });
+    let build = b.button(
+        "Build JSON",
+        Rect::new(140, 156, 250, 178),
+        r#"on mouseUp
+  -- set key … of json builds JSON in a variable or field: numbers stay
+  -- numbers, other text becomes strings.
+  put "{}" into j
+  set key "name" of json j to "Grace Hopper"
+  set key "born" of json j to 1906
+  set element 1 of key "languages" of json j to "COBOL"
+  set element 2 of key "languages" of json j to "FLOW-MATIC"
+  set key "first" of key "notes" of json j to "compiler"
+  put j into card field "JSON"
+  put "Built with set key … of json. Read JSON reads it back." into card field "Result"
+end mouseUp"#,
+    );
+    b.card_part(c, Part { style: PartStyle::RoundRect, ..build });
+    let mut result = Part::new_field(b.id(), "Result", Rect::new(20, 184, 250, 290));
+    result.lock_text = true;
+    result.text_size = 10;
+    b.card_part(c, result);
+    // Requests: a method, an address and a body of the user's own.
+    let mut method = b.button("Method", Rect::new(262, 40, 400, 60), "");
+    method.style = PartStyle::Popup;
+    method.title_width = 52;
+    method.text_align = TextAlign::Left;
+    method.contents = "GET\nPOST\nPUT\nPATCH\nQUERY\nDELETE".into();
+    method.selected_line = 1;
+    b.card_part(c, method);
+    let send = b.button(
+        "Send",
+        Rect::new(412, 38, 492, 62),
+        r#"on mouseUp
+  -- Any method: request m [with body] to url u. The reply goes into it,
+  -- and the result is empty when it worked, else the status.
+  if card field "URL" is empty then
+    answer "Type the address of a web service: one of your own, or one you use."
+    exit mouseUp
+  end if
+  put the selectedText of button "Method" into m
+  if card field "Body" is empty then
+    request m to url card field "URL"
+  else
+    request m with card field "Body" to url card field "URL"
+  end if
+  put it into card field "Reply"
+  if the result is empty then put "OK" into card field "Status"
+  else put the result into card field "Status"
+end mouseUp"#,
+    );
+    b.card_part(c, Part { style: PartStyle::RoundRect, ..send });
+    let l = b.label("URL Label", Rect::new(262, 68, 300, 84), "URL:", 10);
+    b.card_part(c, l);
+    let mut url = Part::new_field(b.id(), "URL", Rect::new(302, 66, 492, 84));
+    url.text_size = 10;
+    url.dont_wrap = true;
+    b.card_part(c, url);
+    let l = b.label("Body Label", Rect::new(262, 88, 492, 102), "Body (POST, PUT, PATCH, QUERY):", 9);
+    b.card_part(c, l);
+    let mut body = Part::new_field(b.id(), "Body", Rect::new(262, 102, 492, 150));
+    body.text_size = 10;
+    b.card_part(c, body);
+    let mut status = Part::new_field(b.id(), "Status", Rect::new(262, 156, 492, 174));
+    status.lock_text = true;
+    status.text_size = 10;
+    b.card_part(c, status);
+    let mut reply = Part::new_field(b.id(), "Reply", Rect::new(262, 180, 492, 290));
+    reply.style = PartStyle::Scrolling;
+    reply.lock_text = true;
+    reply.text_size = 9;
+    b.card_part(c, reply);
 
     // ----- Address book: a second background with per-card field text -----
     let addr = b.background("Address", ADDRESS_BG_SCRIPT);

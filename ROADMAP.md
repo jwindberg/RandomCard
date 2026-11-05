@@ -430,6 +430,8 @@ language's side is `src/runtime/web.rs`.
    several categories as repeated names (`?category=dev&category=food`),
    as form encoding does, while scripts can still build any URL a service
    wants. Still to come: a form-decoding function where `+` is a space.
+   The Tour's The Web card: JSON read and built on the card, offline,
+   and a method, URL and body of your own to send (no address of ours).
 4. **PostCard**, the second demo stack: a small Postman. A method, URL,
    query parameters, headers and body in; status, time, headers and body
    out; requests saved as cards.

@@ -321,13 +321,13 @@ fn startup_comes_before_open_stack_once() {
 fn demo_stack_runs() {
     let mut i = interp_with(Stack::demo());
     i.handle_event(Event::Startup);
-    assert_eq!(run(&mut i, "put field \"Page\""), "Card 1 of 15");
+    assert_eq!(run(&mut i, "put field \"Page\""), "Card 1 of 16");
     let current = |i: &Interp| {
         let w = lock(&i.world);
         w.stack.card(w.card_id).unwrap().name.clone()
     };
     // The stack's own Tour menu.
-    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "14");
+    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "15");
     i.handle_event(Event::DoMenu("Dice".into()));
     assert_eq!(current(&i), "Dice");
     i.handle_event(Event::DoMenu("First".into()));
@@ -407,6 +407,16 @@ fn demo_stack_runs() {
     }
     // With no window, its file dialog cancels straight away.
     assert_eq!(click(&mut i, "Drawing", "Picture Files"), None);
+    // The Web: JSON read and built on the card, offline; Send asks for a URL.
+    run(&mut i, "go to card \"The Web\"");
+    assert_eq!(click(&mut i, "The Web", "Read JSON"), None);
+    assert_eq!(run(&mut i, "put card field \"Result\""), "Name: Ada Lovelace\nLanguages: 3\nThe second: French\nFirst note: program");
+    assert_eq!(click(&mut i, "The Web", "Build JSON"), None);
+    assert_eq!(click(&mut i, "The Web", "Read JSON"), None);
+    assert_eq!(run(&mut i, "put line 1 of card field \"Result\""), "Name: Grace Hopper");
+    i.canned_answers.push(DialogReply::Button("OK".into()));
+    assert_eq!(click(&mut i, "The Web", "Send"), None);
+    assert_eq!(run(&mut i, "put card field \"Reply\""), "");
     // Don't Save on the Debugging card's answer line, then off.
     run(&mut i, "go to card \"Debugging\"");
     assert_eq!(click(&mut i, "Debugging", "Don't Save"), None);
@@ -462,7 +472,7 @@ fn demo_stack_runs() {
     assert_eq!(click(&mut i, "Palettes", "Show Palette"), None);
     assert_eq!(run(&mut i, "put field \"Said\" of card \"Palettes\""), "openPalette Tour Palette 1");
     i.handle_event(Event::PaletteButton("Tour Palette".into(), 1));
-    assert_eq!(current(&i), "Grace Hopper");
+    assert_eq!(current(&i), "The Web");
     i.handle_event(Event::PaletteButton("Tour Palette".into(), 2));
     assert_eq!(current(&i), "Contents");
     run(&mut i, "go to card \"Palettes\"");
@@ -560,7 +570,7 @@ fn demo_stack_runs() {
     assert_eq!(run(&mut i, "put the number of cards of this background"), "4");
     i.canned_answers.push(DialogReply::Button("Delete".into()));
     assert_eq!(click(&mut i, "", "Delete"), None);
-    assert_eq!(run(&mut i, "put the number of cards"), "15");
+    assert_eq!(run(&mut i, "put the number of cards"), "16");
     assert_eq!(click(&mut i, "Grace Hopper", "Contents"), None);
     assert_eq!(current(&i), "Contents");
     assert_eq!(run(&mut i, "put the userLevel"), "5");
