@@ -134,6 +134,15 @@ pub fn elements(v: &Value) -> String {
     }
 }
 
+/// JSON laid out for reading: one key or element a line, indented by two
+/// spaces. A string or number is its text, as when read.
+pub fn pretty(v: &Value) -> String {
+    match v {
+        Value::Object(_) | Value::Array(_) => serde_json::to_string_pretty(v).unwrap_or_default(),
+        other => text(other),
+    }
+}
+
 /// How many elements an array has, or keys an object; 0 for anything else.
 pub fn count(v: &Value) -> usize {
     match v {

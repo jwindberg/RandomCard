@@ -195,6 +195,9 @@ impl TextAlign {
     }
 }
 
+/// How wide a field's choices ▼ is.
+pub const CHOICE_ARROW: i32 = 18;
+
 fn is_false(b: &bool) -> bool {
     !*b
 }
@@ -254,6 +257,11 @@ pub struct Part {
     /// stacks' files don't change.
     #[serde(skip_serializing_if = "is_false")]
     pub dont_save: bool,
+    /// A field's choices, one a line (`the choices`): a ▼ at its right
+    /// edge offers them, and choosing one puts it into the field, which can
+    /// still be typed into. A combo box.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub choices: String,
 
     // Colors, with LiveCode's names: the text (foreColor), the fill
     // (backColor) and the frame (borderColor). None is HyperCard's black
@@ -304,6 +312,7 @@ impl Default for Part {
             fixed_line_height: false,
             scroll: 0,
             dont_save: false,
+            choices: String::new(),
             fore_color: None,
             back_color: None,
             border_color: None,
@@ -338,6 +347,15 @@ impl Part {
         let b = self.popup_box();
         let (left, top) = (b.right - POPUP_TRIANGLE_RIGHT - 11, (b.top + b.bottom) / 2 - 3);
         [(left, top), (left + 11, top), (left + 5, top + 6)]
+    }
+
+    /// Where a field with choices draws its ▼, inside its right edge.
+    pub fn choice_arrow(&self) -> Option<Rect> {
+        if self.kind != PartKind::Field || self.choices.trim().is_empty() {
+            return None;
+        }
+        let r = self.rect;
+        Some(Rect::new((r.right - CHOICE_ARROW).max(r.left), r.top, r.right, r.bottom))
     }
 
     pub fn new_button(id: Id, name: &str, rect: Rect) -> Part {

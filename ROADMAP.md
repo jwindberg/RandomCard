@@ -432,9 +432,23 @@ language's side is `src/runtime/web.rs`.
    wants. Still to come: a form-decoding function where `+` is a space.
    The Tour's The Web card: JSON read and built on the card, offline,
    and a method, URL and body of your own to send (no address of ours).
-4. **PostCard**, the second demo stack: a small Postman. A method, URL,
-   query parameters, headers and body in; status, time, headers and body
-   out; requests saved as cards.
+4. ~~**PostCard**~~ Done: `examples/PostCard.rcstack`, a small Postman
+   on a 640×480 card. Each card is a saved request: name, method (any,
+   typed or from a menu), URL, params (one `name=value` a line, a name
+   may repeat), headers and body; Send shows the status, time, size, the
+   reply (Pretty lays out JSON) and its headers, none of them saved. New
+   Request and Delete Request. Six examples on chucknorris.io and
+   httpbin.org, QUERY among them. With it, `the responseStatus` (the
+   status even when it worked), `the responseTime` in milliseconds, and
+   `the pretty of json x`.
+
+   Along the way, a **combo box**, which HyperCard never had: a field's
+   `choices` (one a line, also in Field Info) put a ▼ inside its right
+   edge; choosing one puts it into the field (then closeField), and the
+   field can still be typed into, like HTML's `<input list>` with a
+   `<datalist>`. The menu is at least the field's width. PostCard's and
+   the Tour's Method use it. Still to come: narrowing the list as you
+   type, as HTML does. Popup buttons' menus now widen to fit their items.
 5. **Requests that don't freeze a handler:** `load url "…" with message
    "gotData"`, sending the message with the reply when it arrives. Then
    filling cards from data, one card per record.

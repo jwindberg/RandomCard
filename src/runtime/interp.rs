@@ -114,6 +114,11 @@ pub struct Interp {
     pub http_timeout: f64,
     /// `the responseHeaders`: the last web reply's.
     pub response_headers: String,
+    /// `the responseStatus`: the last reply's status, "201 Created", even
+    /// when it worked (the result is empty then); empty if none came.
+    pub response_status: String,
+    /// `the responseTime`: how long the last request took, in milliseconds.
+    pub response_time: f64,
     /// The last JSON text read, parsed.
     pub json_cache: Option<(String, serde_json::Value)>,
     pub item_delimiter: String,
@@ -168,6 +173,8 @@ impl Interp {
             http_headers: String::new(),
             http_timeout: 30.0,
             response_headers: String::new(),
+            response_status: String::new(),
+            response_time: 0.0,
             json_cache: None,
             item_delimiter: ",".into(),
             number_format: "0.######".into(),

@@ -1264,6 +1264,21 @@ impl App {
                 w.mouse.clicked = true;
             }
             let target = over;
+            // A combo field's ▼: its choices, as a menu the width of the field.
+            if let (Some(pv), Some((x, y))) = (target, card_pos)
+                && pv.part.choice_arrow().is_some_and(|a| a.contains(x, y))
+            {
+                self.end_editing();
+                let r = pv.part.rect;
+                let at = Rect::from_min_max(
+                    origin + Vec2::new(r.left as f32, r.top as f32),
+                    origin + Vec2::new(r.right as f32, r.bottom as f32),
+                );
+                let items: Vec<String> = pv.part.choices.lines().map(String::from).collect();
+                let selected = items.iter().position(|i| *i == pv.text).map_or(0, |i| i as u32 + 1);
+                self.popup = Some(popup::PopupMenu { obj: Some(pv.obj), at, items, selected, dragging: true, field: true });
+                return;
+            }
             match target {
                 // Typing into fields starts at the Typing level.
                 Some(pv) if pv.part.kind == PartKind::Field && !pv.part.lock_text && self.editing_level() >= 2 => {
@@ -1299,7 +1314,7 @@ impl App {
                 );
                 let items = pv.part.contents.split('\n').map(String::from).collect();
                 self.popup =
-                    Some(popup::PopupMenu { obj: Some(t), at, items, selected: pv.part.selected_line, dragging: true });
+                    Some(popup::PopupMenu { obj: Some(t), at, items, selected: pv.part.selected_line, dragging: true, field: false });
                 return;
             }
             self.pressed = Some(t);

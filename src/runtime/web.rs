@@ -27,7 +27,7 @@ impl Interp {
             "__url" => Some(self.fetch("GET", args.first().cloned().unwrap_or_default(), None)),
             // `json x`, then its steps from the outside in, each a kind
             // ("k" for a key, "e" for an element) and a value.
-            "__json" | "__jsonkeys" | "__jsonelements" | "__jsoncount" => {
+            "__json" | "__jsonkeys" | "__jsonelements" | "__jsoncount" | "__jsonpretty" => {
                 let (source, rest) = args.split_first()?;
                 let steps: Vec<json::Step> = rest
                     .chunks(2)
@@ -41,6 +41,9 @@ impl Interp {
                 if self.json_cache.as_ref().is_none_or(|(text, _)| text != source) {
                     match json::parse(source) {
                         Ok(v) => self.json_cache = Some((source.clone(), v)),
+                        // `the pretty of json x` is for showing: text that
+                        // isn't JSON shows as it is.
+                        Err(_) if name == "__jsonpretty" && rest.is_empty() => return Some(Ok(source.clone())),
                         Err(e) => return Some(err(e)),
                     }
                 }
@@ -49,6 +52,7 @@ impl Interp {
                     "__jsonkeys" => json::keys(&value),
                     "__jsonelements" => json::elements(&value),
                     "__jsoncount" => json::count(&value).to_string(),
+                    "__jsonpretty" => json::pretty(&value),
                     _ => json::text(&value),
                 }))
             }
@@ -68,6 +72,7 @@ impl Interp {
             timeout: Duration::from_secs_f64(self.http_timeout.max(0.1)),
         };
         let (tx, rx) = mpsc::channel();
+        let started = std::time::Instant::now();
         std::thread::spawn(move || {
             let _ = tx.send(http::send(&req));
         });
@@ -82,14 +87,17 @@ impl Interp {
                 Err(mpsc::RecvTimeoutError::Disconnected) => break Err("The request stopped".into()),
             }
         };
+        self.response_time = started.elapsed().as_secs_f64() * 1000.0;
         match reply {
             Ok(r) => {
                 self.result = if r.ok() { String::new() } else { r.status_text() };
+                self.response_status = r.status_text();
                 self.response_headers = r.headers;
                 Ok(r.body)
             }
             Err(e) => {
                 self.result = e;
+                self.response_status.clear();
                 self.response_headers.clear();
                 Ok(String::new())
             }

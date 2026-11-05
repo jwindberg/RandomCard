@@ -811,6 +811,10 @@ pub fn field_text_rect(p: &Part, rect: Rect) -> Rect {
         PartStyle::Scrolling => right += SCROLLBAR,
         _ => {}
     }
+    // Text stays clear of a combo field's ▼.
+    if p.choice_arrow().is_some() {
+        right += crate::model::CHOICE_ARROW as f32;
+    }
     Rect::from_min_max(rect.min + Vec2::new(4.0 + 5.0 * wide, 1.0 + 4.0 * wide), rect.max - Vec2::new(right, bottom))
 }
 
@@ -980,6 +984,19 @@ pub fn aligned_x(p: &Part, r: Rect) -> f32 {
 
 /// A field's frame and background; `fill` is its white (or AddColor color).
 pub fn draw_field_frame(painter: &Painter, p: &Part, rect: Rect, fill: Color32) {
+    draw_field_box(painter, p, rect, fill);
+    // A combo field: its ▼, behind a line, inside the right edge.
+    if p.choice_arrow().is_some() {
+        let w = crate::model::CHOICE_ARROW as f32;
+        let x = rect.right() - w;
+        painter.line_segment([Pos2::new(x, rect.top() + 1.0), Pos2::new(x, rect.bottom() - 1.0)], Stroke::new(1.0, frame_color(p)));
+        let c = Pos2::new(x + w / 2.0, rect.center().y);
+        let tri = vec![c + Vec2::new(-4.5, -2.5), c + Vec2::new(4.5, -2.5), c + Vec2::new(0.0, 2.5)];
+        painter.add(egui::Shape::convex_polygon(tri, text_color(p), Stroke::NONE));
+    }
+}
+
+fn draw_field_box(painter: &Painter, p: &Part, rect: Rect, fill: Color32) {
     let stroke = Stroke::new(1.0, frame_color(p));
     match p.style {
         PartStyle::Transparent => {}

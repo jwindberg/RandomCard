@@ -2156,8 +2156,9 @@ impl Parser {
             let obj = self.term()?;
             let obj = match obj {
                 Expr::Object(o) => o,
-                // `the keys of json x`, `the elements of json x`.
-                Expr::Call(n, args) if n == "__json" && matches!(name.as_str(), "keys" | "elements") => {
+                // `the keys of json x`, `the elements of json x`, `the
+                // pretty of json x`.
+                Expr::Call(n, args) if n == "__json" && matches!(name.as_str(), "keys" | "elements" | "pretty") => {
                     return Ok(Expr::Call(format!("__json{name}"), args));
                 }
                 other => {

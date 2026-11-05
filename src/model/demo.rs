@@ -1093,13 +1093,16 @@ end mouseUp"#,
     result.lock_text = true;
     result.text_size = 10;
     b.card_part(c, result);
-    // Requests: a method, an address and a body of the user's own.
-    let mut method = b.button("Method", Rect::new(262, 40, 400, 60), "");
-    method.style = PartStyle::Popup;
-    method.title_width = 52;
-    method.text_align = TextAlign::Left;
-    method.contents = "GET\nPOST\nPUT\nPATCH\nQUERY\nDELETE".into();
-    method.selected_line = 1;
+    // Requests: a method, an address and a body of the user's own. The
+    // method is a combo field: its ▼ offers the usual ones, and any other
+    // can be typed.
+    let l = b.label("Method Label", Rect::new(262, 42, 310, 58), "Method:", 10);
+    b.card_part(c, l);
+    let mut method = Part::new_field(b.id(), "Method", Rect::new(312, 40, 404, 60));
+    method.text_size = 10;
+    method.dont_wrap = true;
+    method.contents = "GET".into();
+    method.choices = "GET\nPOST\nPUT\nPATCH\nQUERY\nDELETE".into();
     b.card_part(c, method);
     let send = b.button(
         "Send",
@@ -1111,7 +1114,8 @@ end mouseUp"#,
     answer "Type the address of a web service: one of your own, or one you use."
     exit mouseUp
   end if
-  put the selectedText of button "Method" into m
+  put card field "Method" into m
+  if m is empty then put "GET" into m
   if card field "Body" is empty then
     request m to url card field "URL"
   else

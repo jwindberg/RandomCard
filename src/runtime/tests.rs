@@ -417,6 +417,10 @@ fn demo_stack_runs() {
     i.canned_answers.push(DialogReply::Button("OK".into()));
     assert_eq!(click(&mut i, "The Web", "Send"), None);
     assert_eq!(run(&mut i, "put card field \"Reply\""), "");
+    // Its method is a combo field: choices to pick from, or type another.
+    assert_eq!(run(&mut i, "put line 5 of the choices of card field \"Method\""), "QUERY");
+    run(&mut i, "set the choices of card field \"Method\" to \"GET\" & return & \"HEAD\"");
+    assert_eq!(run(&mut i, "put the number of lines of the choices of card field \"Method\""), "2");
     // Don't Save on the Debugging card's answer line, then off.
     run(&mut i, "go to card \"Debugging\"");
     assert_eq!(click(&mut i, "Debugging", "Don't Save"), None);
@@ -2831,6 +2835,12 @@ fn rest_from_hypertalk() {
     assert_eq!(run(&mut i, "put the keys of json found"), "total\nresult\ntags");
     assert_eq!(run(&mut i, "put the elements of key \"tags\" of json found"), "x\ny");
     assert_eq!(run(&mut i, "put 0 into n\nrepeat with j = 1 to the number of elements of key \"tags\" of json found\n  put element j of key \"tags\" of json found into item j of n\nend repeat\nput n"), "x,y");
+    // Pretty JSON, for reading; text that isn't JSON shows as it is.
+    assert_eq!(run(&mut i, "put the pretty of json \"[1,2]\""), "[\n  1,\n  2\n]");
+    assert_eq!(run(&mut i, "put the pretty of json \"plain words\""), "plain words");
+    // The status even when it worked, and how long it took.
+    assert_eq!(run(&mut i, "get url (base & \"/jokes/random\")\nput the responseStatus"), "200 OK");
+    assert!(run(&mut i, "put the responseTime").parse::<f64>().is_ok());
     // Variables called url, json, key and element still work.
     assert_eq!(run(&mut i, "put 4 into element\nput element * 2"), "8");
     assert_eq!(run(&mut i, "put 1 into url\nput 2 into json\nput 3 into key\nput url + json + key"), "6");
@@ -2962,4 +2972,49 @@ fn writing_json_from_hypertalk() {
     assert!(run(&mut i, "set element 5 of json nums to 1").contains("no element 5"));
     // An unset variable starts empty.
     assert_eq!(run(&mut i, "set key \"a\" of json fresh to 1\nput fresh"), r#"{"a":1}"#);
+}
+
+#[test]
+fn postcard_stack_sends_requests() {
+    // Echoes the request back as JSON, as httpbin does.
+    let base = crate::web::http::test_server::start(|method, path, headers, body| {
+        let ctype = headers
+            .lines()
+            .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-type:").map(|v| v.trim().to_string()))
+            .unwrap_or_default();
+        let token = headers.to_ascii_lowercase().contains("x-token: 7");
+        let echo = serde_json::json!({"method": method, "path": path, "type": ctype, "token": token, "body": body});
+        let status = if method == "QUERY" { 405 } else { 200 };
+        (status, "application/json", echo.to_string())
+    });
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/PostCard.rcstack");
+    let mut i = interp_with(Stack::load(&path).unwrap());
+    assert_eq!(run(&mut i, "put the number of cards"), "6");
+    let send = |i: &mut Interp, card: &str, url_path: &str| {
+        run(i, &format!("go to card \"{card}\"\nput \"{base}{url_path}\" into field \"URL\""));
+        assert_eq!(click(i, card, "Send"), None);
+    };
+    // Several values: the name repeats, each part encoded.
+    send(&mut i, "Several values", "/get");
+    assert_eq!(run(&mut i, "put key \"path\" of json field \"Reply\""), "/get?color=blue&color=green&color=red");
+    assert_eq!(run(&mut i, "put field \"Status\""), "200 OK");
+    assert!(run(&mut i, "put field \"Time\"").ends_with(" ms"));
+    // Pretty: laid out over several lines.
+    assert!(run(&mut i, "put the number of lines of field \"Reply\"").parse::<usize>().unwrap() > 3);
+    // Post JSON: the body and its type; headers from the card.
+    send(&mut i, "Post JSON", "/post");
+    run(&mut i, "put field \"Headers\" & return & \"X-Token: 7\" into field \"Headers\"");
+    assert_eq!(click(&mut i, "Post JSON", "Send"), None);
+    assert_eq!(run(&mut i, "put key \"method\" of json field \"Reply\""), "POST");
+    assert_eq!(run(&mut i, "put key \"type\" of json field \"Reply\""), "application/json");
+    assert_eq!(run(&mut i, "put key \"token\" of json field \"Reply\""), "true");
+    assert_eq!(run(&mut i, "put key \"born\" of json key \"body\" of json field \"Reply\""), "1815");
+    // A method typed in, and a status that isn't OK.
+    send(&mut i, "Query", "/anything");
+    assert_eq!(run(&mut i, "put field \"Status\""), "405 Method Not Allowed");
+    assert_eq!(run(&mut i, "put field \"Sent\""), format!("QUERY {base}/anything"));
+    // No URL: it asks for one.
+    run(&mut i, "put empty into field \"URL\"");
+    i.canned_answers.push(DialogReply::Button("OK".into()));
+    assert_eq!(click(&mut i, "Query", "Send"), None);
 }

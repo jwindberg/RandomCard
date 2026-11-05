@@ -426,6 +426,10 @@ impl App {
                     }
                     ui.end_row();
                 });
+                if p.kind == PartKind::Field {
+                    ui.label("Choices, one a line (a ▼ offers them):");
+                    changed |= ui.add(egui::TextEdit::multiline(&mut p.choices).desired_rows(2)).changed();
+                }
                 if p.kind == PartKind::Button {
                     let popup = p.style == PartStyle::Popup;
                     ui.label(if popup { "Menu items, one per line:" } else { "Contents:" });
@@ -1118,6 +1122,7 @@ impl App {
                     items: items.clone(),
                     selected: *checked,
                     dragging: ctx.input(|i| i.pointer.primary_down()),
+                    field: false,
                 });
             }
             return;
