@@ -384,6 +384,9 @@ fn demo_stack_runs() {
         assert_eq!(click(&mut i, "Debugging", b), None, "{b}");
     }
     assert_eq!(run(&mut i, "global tourVisits\nput tourVisits"), "1");
+    // Find in a Script opens the editor on another button's script.
+    assert_eq!(click(&mut i, "Debugging", "Find in a Script"), None);
+    assert!(lock(&i.world).msg.contains("replaces"), "{}", lock(&i.world).msg);
     for b in ["Mouse Window", "Info Window"] {
         assert_eq!(click(&mut i, "Debugging", b), None, "{b}");
     }

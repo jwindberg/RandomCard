@@ -259,8 +259,10 @@ loaded to come back to.
   covers painting, parts and cards.
 - **The system clipboard:** cut and copied parts and pictures stay inside
   RandomCard rather than going to the desktop clipboard.
-- **Script editor:** find and replace, go to line, and syntax coloring,
-  using egui's standard text-editing features.
+- **Script editor:** syntax coloring, and Comment and Uncomment
+  (Command-hyphen and Command-equal sign). Find, Find Again, Find
+  Selection, Replace and Replace Again are done, with HyperCard's Whole
+  Word, Case Sensitive and Wraparound Search, plus Go to Line.
 - **A Home menu** belongs with Home stack support.
 - **Report printing** (`open report printing`, Print Report…) and Page
   Setup. Printing makes US Letter PDFs; there's no choice of paper size,
@@ -401,10 +403,10 @@ their feedback. For now:
 
 1. **Color, steps 1 and 2:** color pictures, then the color palette (see
    Color). Released as 0.2.0.
-2. **Small, clearly good features,** between larger pieces: the script
-   editor's find and replace and go to line; copying styled text between
-   fields; Compact Stack and Delete Stack. (Shift for straight lines and
-   perfect shapes is done.)
+2. **Small, clearly good features,** between larger pieces: copying
+   styled text between fields; Compact Stack and Delete Stack. (Shift for
+   straight lines and perfect shapes, and the script editor's Find and
+   Replace and Go to Line, are done.)
 3. **Color, steps 3 to 5:** images with Import and Export Paint, colored
    parts and text, printing in color.
 4. **HyperCard 2.4's own features:** audit them in the real HyperCard

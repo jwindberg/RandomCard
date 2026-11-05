@@ -9,6 +9,7 @@ use crate::runtime::world::{
 };
 
 use super::App;
+use super::script_find::{self, EditorCommand, FindOptions};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum InfoTarget {
@@ -31,6 +32,54 @@ pub struct ScriptEditor {
     pub error: Option<String>,
     /// Line to select when the editor is next drawn.
     pub goto_line: Option<usize>,
+    /// The Find, Replace or Go to Line bar, when it's showing.
+    pub bar: Option<Bar>,
+    /// Put the keyboard in the bar when it's next drawn.
+    pub bar_focus: bool,
+    /// What the last Find or Replace found, such as "Not found".
+    pub notice: Option<String>,
+    /// A character to scroll into view when the editor is next drawn.
+    pub scroll_to: Option<usize>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub enum Bar {
+    Find,
+    Replace,
+    /// Go to Line, and the line typed so far.
+    Line(String),
+}
+
+/// What a click or Return in the bar asks for.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BarAction {
+    Find,
+    Replace,
+    ReplaceAll,
+    GoToLine,
+    Close,
+}
+
+/// The editor's selection, as character indexes from and to.
+fn selection(ctx: &egui::Context, id: egui::Id) -> (usize, usize) {
+    egui::text_edit::TextEditState::load(ctx, id)
+        .and_then(|s| s.cursor.char_range())
+        .map(|r| {
+            let [a, b] = r.sorted_cursors();
+            (a.index.0, b.index.0)
+        })
+        .unwrap_or((0, 0))
+}
+
+/// Select characters in a text editor and give it the keyboard.
+fn select(ctx: &egui::Context, id: egui::Id, (from, to): (usize, usize)) {
+    let mut state = egui::text_edit::TextEditState::load(ctx, id).unwrap_or_default();
+    state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
+        egui::text::CCursor::new(from),
+        egui::text::CCursor::new(to),
+    )));
+    state.store(ctx, id);
+    ctx.memory_mut(|m| m.request_focus(id));
 }
 
 /// Room at the left of the script editor for line numbers and checkpoints.
@@ -151,7 +200,18 @@ impl App {
             let w = lock(&self.rt.world);
             (script_of(&w, obj).unwrap_or_default(), object_title(&w, obj))
         };
-        self.editors.push(ScriptEditor { obj, title, text, open: true, error: None, goto_line: line });
+        self.editors.push(ScriptEditor {
+            obj,
+            title,
+            text,
+            open: true,
+            error: None,
+            goto_line: line,
+            bar: None,
+            bar_focus: false,
+            notice: None,
+            scroll_to: None,
+        });
     }
 
     pub fn show_windows(&mut self, ctx: &egui::Context) {
@@ -187,9 +247,14 @@ impl App {
         }
 
         let mut editors = std::mem::take(&mut self.editors);
+        let mut focus = None;
         for ed in &mut editors {
-            self.script_window(ctx, ed);
+            if self.script_window(ctx, ed) && ed.open {
+                focus = Some(ed.obj);
+            }
         }
+        // The editor with the keyboard takes its Command keys next frame.
+        self.script_focus = focus;
         editors.retain(|e| e.open);
         self.editors = editors;
     }
@@ -457,10 +522,31 @@ impl App {
         script
     }
 
-    fn script_window(&mut self, ctx: &egui::Context, ed: &mut ScriptEditor) {
+    /// Returns whether the editor, or its bar, has the keyboard.
+    fn script_window(&mut self, ctx: &egui::Context, ed: &mut ScriptEditor) -> bool {
         let mut open = ed.open;
         let mut close = false;
         let id = egui::Id::unique(("script", format!("{:?}", ed.obj)));
+        let edit_id = id.with("text");
+        let (find_id, replace_id, line_id) = (id.with("find"), id.with("replace"), id.with("line"));
+        let command = self.editor_command.take_if(|(o, _)| *o == ed.obj).map(|(_, c)| c);
+        let mut action = None;
+        match command {
+            Some(EditorCommand::Find) => (ed.bar, ed.bar_focus) = (Some(Bar::Find), true),
+            Some(EditorCommand::Replace) => (ed.bar, ed.bar_focus) = (Some(Bar::Replace), true),
+            Some(EditorCommand::GoToLine) => (ed.bar, ed.bar_focus) = (Some(Bar::Line(String::new())), true),
+            Some(EditorCommand::FindAgain) => action = Some(BarAction::Find),
+            Some(EditorCommand::ReplaceAgain) => action = Some(BarAction::Replace),
+            Some(EditorCommand::FindSelection) => {
+                let found = script_find::slice(&ed.text, selection(ctx, edit_id));
+                if !found.is_empty() {
+                    self.script_find.find = found;
+                    action = Some(BarAction::Find);
+                }
+            }
+            Some(EditorCommand::Save) => self.save_script(ed),
+            Some(EditorCommand::Checkpoint) | None => {}
+        }
         egui::Window::new(format!("Script of {}", ed.title))
             .id(id)
             .open(&mut open)
@@ -482,8 +568,25 @@ impl App {
                         self.save_script(ed);
                         close = true;
                     }
-                    ui.label(RichText::new(format!("{} saves · {} sets a checkpoint", shortcut("S"), shortcut("D"))).weak());
+                    if ui.button("Find").clicked() {
+                        (ed.bar, ed.bar_focus) = (Some(Bar::Find), true);
+                    }
+                    if ui.button("Go to Line").clicked() {
+                        (ed.bar, ed.bar_focus) = (Some(Bar::Line(String::new())), true);
+                    }
+                    ui.label(
+                        RichText::new(format!(
+                            "{} saves · {} sets a checkpoint · {} finds",
+                            shortcut("S"),
+                            shortcut("D"),
+                            shortcut("F")
+                        ))
+                        .weak(),
+                    );
                 });
+                if let Some(a) = self.find_bar(ui, ed, [find_id, replace_id, line_id]) {
+                    action = Some(a);
+                }
                 let stopped_at = self.debug_bar(ui, ed.obj);
                 if let Some(err) = &ed.error {
                     ui.colored_label(Color32::from_rgb(170, 0, 0), err);
@@ -499,18 +602,14 @@ impl App {
                             .show(ui, |ui| self.variables(ui, "editor"));
                     });
                 }
+                if let Some(a) = action {
+                    self.find_action(ctx, ed, edit_id, a);
+                }
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                    let edit_id = id.with("text");
                     if let Some(line) = ed.goto_line.take() {
-                        let start: usize = ed.text.lines().take(line.saturating_sub(1)).map(|l| l.chars().count() + 1).sum();
-                        let len = ed.text.lines().nth(line.saturating_sub(1)).map(|l| l.chars().count()).unwrap_or(0);
-                        let mut state = egui::text_edit::TextEditState::load(ctx, edit_id).unwrap_or_default();
-                        state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
-                            egui::text::CCursor::new(start),
-                            egui::text::CCursor::new(start + len),
-                        )));
-                        state.store(ctx, edit_id);
-                        ctx.memory_mut(|m| m.request_focus(edit_id));
+                        let range = script_find::line_range(&ed.text, line);
+                        select(ctx, edit_id, range);
+                        ed.scroll_to = Some(range.0);
                     }
                     let out = egui::TextEdit::multiline(&mut ed.text)
                         .id(edit_id)
@@ -521,8 +620,9 @@ impl App {
                         .desired_rows(18)
                         .show(ui);
                     let resp = &out.response;
-                    if resp.has_focus() && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::S)) {
-                        self.save_script(ed);
+                    if let Some(at) = ed.scroll_to.take() {
+                        let r = out.galley.pos_from_cursor(egui::text::CCursor::new(at));
+                        ui.scroll_to_rect(r.translate(out.galley_pos.to_vec2()).expand(24.0), Some(egui::Align::Center));
                     }
                     let lines = line_rows(&out.galley);
                     let row_rect = |line: usize| {
@@ -530,8 +630,8 @@ impl App {
                     };
                     // Ctrl+D, or a click in the gutter, sets or clears a checkpoint.
                     let mut toggle = None;
-                    if resp.has_focus() && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::D)) {
-                        toggle = out.cursor_range.map(|c| ed.text.chars().take(c.primary.index.0).filter(|c| *c == '\n').count() + 1);
+                    if command == Some(EditorCommand::Checkpoint) {
+                        toggle = Some(script_find::line_of(&ed.text, selection(ctx, edit_id).0));
                     }
                     if resp.clicked()
                         && let Some(p) = resp.interact_pointer_pos().filter(|p| p.x < resp.rect.left() + GUTTER)
@@ -586,6 +686,174 @@ impl App {
             self.script_closed(ed.obj);
         }
         ed.open = open;
+        ctx.memory(|m| [edit_id, find_id, replace_id, line_id].iter().any(|i| m.has_focus(*i)))
+    }
+
+    /// The bar under the editor's buttons: Find, Replace, or Go to Line.
+    fn find_bar(&mut self, ui: &mut egui::Ui, ed: &mut ScriptEditor, ids: [egui::Id; 3]) -> Option<BarAction> {
+        let [find_id, replace_id, line_id] = ids;
+        let bar = ed.bar.clone()?;
+        let mut action = None;
+        // Tab in Find goes on to "Replace with", past the buttons between.
+        let tab_to_replace = bar == Bar::Replace
+            && ui.input(|i| i.key_pressed(egui::Key::Tab) && !i.modifiers.shift)
+            && ui.memory(|m| m.has_focus(find_id));
+        let o = &mut self.script_find;
+        // Return in a field does its button; Escape closes the bar.
+        // The key is used up here, or the script would get it next.
+        let key = |ui: &egui::Ui, k: egui::Key| ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, k));
+        let entered = |ui: &egui::Ui, r: &egui::Response| r.lost_focus() && key(ui, egui::Key::Enter);
+        let escaped = |ui: &egui::Ui, r: &egui::Response| (r.has_focus() || r.lost_focus()) && key(ui, egui::Key::Escape);
+        let focus = std::mem::take(&mut ed.bar_focus);
+        let field = |ui: &mut egui::Ui, text: &mut String, id: egui::Id, width: f32| {
+            let r = ui.add(egui::TextEdit::singleline(text).id(id).desired_width(width));
+            if focus && [find_id, line_id].contains(&id) {
+                // Start with everything selected, so typing replaces it.
+                select(ui.ctx(), id, (0, text.chars().count()));
+            }
+            r
+        };
+        match bar {
+            Bar::Find | Bar::Replace => {
+                ui.horizontal(|ui| {
+                    ui.label("Find");
+                    let r = field(ui, &mut o.find, find_id, 180.0);
+                    if entered(ui, &r) {
+                        action = Some(BarAction::Find);
+                    }
+                    if escaped(ui, &r) {
+                        action = Some(BarAction::Close);
+                    }
+                    if ui.button("Find").clicked() {
+                        action = Some(BarAction::Find);
+                    }
+                    if bar == Bar::Find && ui.button("Replace…").clicked() {
+                        ed.bar = Some(Bar::Replace);
+                    }
+                    if ui.small_button("✕").on_hover_text("Close").clicked() {
+                        action = Some(BarAction::Close);
+                    }
+                });
+                if bar == Bar::Replace {
+                    ui.horizontal(|ui| {
+                        ui.label("Replace with");
+                        let r = field(ui, &mut o.replace, replace_id, 180.0);
+                        if entered(ui, &r) {
+                            action = Some(BarAction::Replace);
+                        }
+                        if escaped(ui, &r) {
+                            action = Some(BarAction::Close);
+                        }
+                        if ui.button("Replace").on_hover_text(shortcut("T")).clicked() {
+                            action = Some(BarAction::Replace);
+                        }
+                        if ui.button("Replace All").clicked() {
+                            action = Some(BarAction::ReplaceAll);
+                        }
+                    });
+                }
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut o.whole_word, "Whole Word");
+                    ui.checkbox(&mut o.case_sensitive, "Case Sensitive");
+                    ui.checkbox(&mut o.wraparound, "Wraparound Search");
+                    if let Some(n) = &ed.notice {
+                        ui.label(RichText::new(n).weak());
+                    }
+                });
+            }
+            Bar::Line(mut line) => {
+                ui.horizontal(|ui| {
+                    ui.label("Go to line");
+                    let r = field(ui, &mut line, line_id, 60.0);
+                    if entered(ui, &r) {
+                        action = Some(BarAction::GoToLine);
+                    }
+                    if escaped(ui, &r) {
+                        action = Some(BarAction::Close);
+                    }
+                    if ui.button("Go").clicked() {
+                        action = Some(BarAction::GoToLine);
+                    }
+                    if ui.small_button("✕").on_hover_text("Close").clicked() {
+                        action = Some(BarAction::Close);
+                    }
+                    if let Some(n) = &ed.notice {
+                        ui.label(RichText::new(n).weak());
+                    }
+                });
+                if ed.bar.is_some() {
+                    ed.bar = Some(Bar::Line(line));
+                }
+            }
+        }
+        if tab_to_replace {
+            ui.memory_mut(|m| m.request_focus(replace_id));
+        }
+        action
+    }
+
+    /// Find, Replace, Replace All or Go to Line in the script. The
+    /// selection shows what was found or changed.
+    fn find_action(&mut self, ctx: &egui::Context, ed: &mut ScriptEditor, edit_id: egui::Id, action: BarAction) {
+        let o = self.script_find.clone();
+        let (from, to) = selection(ctx, edit_id);
+        // The Return that did this (in a field, or on a button) isn't typing.
+        ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+        let show = |ed: &mut ScriptEditor, range: (usize, usize)| {
+            select(ctx, edit_id, range);
+            ed.scroll_to = Some(range.0);
+        };
+        ed.notice = None;
+        match action {
+            BarAction::Close => {
+                ed.bar = None;
+                ctx.memory_mut(|m| m.request_focus(edit_id));
+            }
+            BarAction::Find => match script_find::find(&ed.text, to, &o) {
+                Some(found) => show(ed, found),
+                None if o.find.is_empty() => {}
+                None => ed.notice = Some("Not found".into()),
+            },
+            BarAction::Replace => {
+                // A selection that's already a match is the one replaced;
+                // otherwise the next one after it.
+                let selected_match = script_find::find(&ed.text, from, &FindOptions { wraparound: false, ..o.clone() })
+                    == Some((from, to));
+                let start = if selected_match { from } else { to };
+                match script_find::replace_next(&ed.text, start, &o) {
+                    Some((text, replaced)) => {
+                        ed.text = text;
+                        show(ed, replaced);
+                    }
+                    None if o.find.is_empty() => {}
+                    None => ed.notice = Some("Not found".into()),
+                }
+            }
+            BarAction::ReplaceAll => {
+                let (text, count) = script_find::replace_all(&ed.text, &o);
+                if count > 0 {
+                    ed.text = text;
+                    let end = ed.text.chars().count();
+                    show(ed, (from.min(end), from.min(end)));
+                }
+                ed.notice = Some(match count {
+                    0 => "Not found".to_string(),
+                    1 => "Replaced 1".to_string(),
+                    n => format!("Replaced {n}"),
+                });
+            }
+            BarAction::GoToLine => {
+                let Some(Bar::Line(line)) = &ed.bar else { return };
+                match line.trim().parse::<usize>() {
+                    Ok(n) if n >= 1 && n <= ed.text.split('\n').count() => {
+                        ed.bar = None;
+                        let range = script_find::line_range(&ed.text, n);
+                        show(ed, range);
+                    }
+                    _ => ed.notice = Some(format!("Lines go from 1 to {}", ed.text.split('\n').count())),
+                }
+            }
+        }
     }
 
     fn save_script(&mut self, ed: &mut ScriptEditor) {

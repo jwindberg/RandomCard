@@ -12,6 +12,7 @@ mod painting;
 mod popup;
 mod recent;
 mod render;
+mod script_find;
 mod windows;
 
 use std::path::PathBuf;
@@ -125,6 +126,13 @@ pub struct App {
     color_target: painting::ColorSlot,
     infos: Vec<InfoWindow>,
     editors: Vec<ScriptEditor>,
+    /// What the script editors' Find and Replace look for.
+    script_find: script_find::FindOptions,
+    /// The script editor that has the keyboard, which takes its own
+    /// Command keys (Find, Replace, Save and the rest) ahead of the menus.
+    script_focus: Option<ObjRef>,
+    /// A Command key for a script editor, done when it's next drawn.
+    editor_command: Option<(ObjRef, script_find::EditorCommand)>,
     error: Option<ErrorAlert>,
     ask_text: String,
     dialog_init: bool,
@@ -229,6 +237,9 @@ impl App {
             color_target: painting::ColorSlot::Fill,
             infos: Vec::new(),
             editors: Vec::new(),
+            script_find: Default::default(),
+            script_focus: None,
+            editor_command: None,
             error: None,
             ask_text: String::new(),
             dialog_init: false,
@@ -681,6 +692,15 @@ impl App {
         // While a dialog is up, keys belong to it.
         if self.modal_open() {
             return;
+        }
+        // A script editor with the keyboard takes its own Command keys.
+        if let Some(obj) = self.script_focus {
+            let plain = ctx.input(|i| !i.modifiers.alt && !i.modifiers.shift);
+            for (key, _, command) in script_find::EDITOR_KEYS {
+                if plain && ctx.input_mut(|i| i.consume_shortcut(&cmd(key))) {
+                    self.editor_command = Some((obj, command));
+                }
+            }
         }
         // Command keys: offered to commandKeyDown handlers, else a menu command.
         let menu = |s: &str| KeyAction::Menu(s.to_string());

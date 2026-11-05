@@ -863,6 +863,19 @@ end square"#,
         let p = b.button(name, Rect::new(x, 208, x + 140, 236), script);
         b.card_part(c, p);
     }
+    // The script editor's Find and Replace and Go to Line.
+    let find = b.button(
+        "Find in a Script",
+        Rect::new(36, 246, 176, 274),
+        &format!(
+            "on mouseUp\n  edit script of button \"Step Through Me\"\n  put \"In the script editor: {} finds, {} finds again, {} replaces, {} goes to a line.\" into msg\nend mouseUp",
+            shortcut("F"),
+            shortcut("G"),
+            shortcut("R"),
+            shortcut("J")
+        ),
+    );
+    b.card_part(c, find);
     let mut answer = b.label("Answer", Rect::new(20, 132, 492, 156), "", 14);
     answer.text_align = TextAlign::Center;
     b.card_part(c, answer);

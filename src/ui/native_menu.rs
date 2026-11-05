@@ -114,7 +114,12 @@ impl super::App {
             // A menu takes its Command key before the window sees it, so a
             // chosen item with ⌘ held was typed: it goes through
             // commandKeyDown, as other Command keys do.
-            if !key.is_empty() && ctx.input(|i| i.modifiers.command) {
+            // A script editor with the keyboard takes its own keys (⌘F, ⌘S…).
+            if let (Some(obj), Some(command)) = (self.script_focus, super::script_find::command_for(&key))
+                && ctx.input(|i| i.modifiers.command)
+            {
+                self.editor_command = Some((obj, command));
+            } else if !key.is_empty() && ctx.input(|i| i.modifiers.command) {
                 self.command_key(ctx, &key, crate::runtime::world::KeyAction::Menu(label));
             } else {
                 self.choose_menu_item(&label);
