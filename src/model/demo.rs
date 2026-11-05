@@ -1050,6 +1050,14 @@ end mouseUp"#,
     // the user types. Nothing here calls a service of its own accord: the
     // Tour works anywhere, offline. Full examples are stacks in examples/.
     let c = b.card(main, "The Web");
+    b.stack.cards[c].script = r#"-- A reply to Send's request: the URL, and what came back. The result
+-- is empty when it worked; the responseStatus is the status either way.
+on showReply theURL, reply
+  if the responseStatus is empty then put the result into card field "Status"
+  else put the responseStatus && "in" && the responseTime && "ms" into card field "Status"
+  put reply into card field "Reply"
+end showReply"#
+        .into();
     let t = b.label("Heading", Rect::new(20, 8, 492, 32), "The web: REST and JSON", 20);
     b.card_part(c, t);
     let mut json = Part::new_field(b.id(), "JSON", Rect::new(20, 40, 250, 150));
@@ -1116,14 +1124,15 @@ end mouseUp"#,
   end if
   put card field "Method" into m
   if m is empty then put "GET" into m
+  -- with message: the script goes on, and showReply (in the card's
+  -- script) gets the reply when it comes.
+  put "Waiting…" into card field "Status"
+  put empty into card field "Reply"
   if card field "Body" is empty then
-    request m to url card field "URL"
+    request m to url card field "URL" with message "showReply"
   else
-    request m with card field "Body" to url card field "URL"
+    request m with card field "Body" to url card field "URL" with message "showReply"
   end if
-  put it into card field "Reply"
-  if the result is empty then put "OK" into card field "Status"
-  else put the result into card field "Status"
 end mouseUp"#,
     );
     b.card_part(c, Part { style: PartStyle::RoundRect, ..send });

@@ -86,6 +86,9 @@ impl Interp {
             // For building URLs: `"?query=" & urlEncode(field "Search")`.
             "urlencode" => crate::web::http::url_encode(&arg(0)),
             "urldecode" => crate::web::http::url_decode(&arg(0)),
+            // HTML forms' encoding, where + is a space.
+            "formencode" => crate::web::http::form_encode(&arg(0)),
+            "formdecode" => crate::web::http::form_decode(&arg(0)),
             "chartonum" => arg(0).chars().next().map(|c| c as u32).unwrap_or(0).to_string(),
             "numtochar" => {
                 let n = to_int(&arg(0))?;

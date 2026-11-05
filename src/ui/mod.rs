@@ -716,9 +716,15 @@ impl App {
     fn shortcuts(&mut self, ctx: &egui::Context) {
         let cmd = |k: Key| KeyboardShortcut::new(Modifiers::COMMAND, k);
         let cmd_alt = |k: Key| KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::ALT, k);
-        // Command-period always stops scripts; it can't be intercepted.
-        if ctx.input_mut(|i| i.consume_shortcut(&cmd(Key::Period))) && !self.world().stack.protection.cant_abort {
-            self.rt.abort.store(true, std::sync::atomic::Ordering::SeqCst);
+        // Command-period always stops scripts; it can't be intercepted. In
+        // a script editor it also closes the script without saving.
+        if ctx.input_mut(|i| i.consume_shortcut(&cmd(Key::Period))) {
+            if !self.world().stack.protection.cant_abort {
+                self.rt.abort.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+            if let Some(obj) = self.script_focus {
+                self.editor_command = Some((obj, script_find::EditorCommand::Discard));
+            }
         }
         // While a dialog is up, keys belong to it.
         if self.modal_open() {
@@ -1532,6 +1538,56 @@ impl App {
                 w.stack.set_field_content(card, layer, id, e.buffer.clone(), runs);
             }
             w.dirty = true;
+        }
+        // A combo field narrows its choices as you type, as HTML's datalist
+        // does: those containing what's typed show under the field.
+        let typed = e.buffer.trim().to_lowercase();
+        let matches: Vec<String> = if resp.has_focus() && !typed.is_empty() {
+            pv.part
+                .choices
+                .lines()
+                .filter(|c| {
+                    let c = c.trim().to_lowercase();
+                    c.contains(&typed) && c != typed
+                })
+                .take(8)
+                .map(String::from)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let mut picked = None;
+        if !matches.is_empty() {
+            egui::Area::new(field_edit_id(e.obj).with("suggestions"))
+                .order(egui::Order::Foreground)
+                .fixed_pos(rect.left_bottom())
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::menu(ui.style()).show(ui, |ui| {
+                        ui.set_min_width(rect.width() - 12.0);
+                        for m in &matches {
+                            // Taken on the press, before the click moves the keyboard.
+                            let r = ui.selectable_label(false, m.as_str());
+                            if r.hovered() && ui.input(|i| i.pointer.primary_pressed()) {
+                                picked = Some(m.clone());
+                            }
+                        }
+                    });
+                });
+        }
+        if let Some(text) = picked
+            && let ObjRef::Part { layer, id, card } = e.obj
+        {
+            // A change, so ending the edit sends closeField.
+            e.buffer = text.clone();
+            e.synced = text.clone();
+            e.changed = true;
+            {
+                let mut w = self.world();
+                w.stack.set_field_content(card, layer, id, text, Vec::new());
+                w.dirty = true;
+            }
+            self.end_editing();
+            return;
         }
         // Clicking elsewhere on the card, or into another text box such as
         // the message box, ends editing. Menus don't: the Font and Style

@@ -121,6 +121,9 @@ pub struct Interp {
     pub response_time: f64,
     /// The last JSON text read, parsed.
     pub json_cache: Option<(String, serde_json::Value)>,
+    /// For posting events back to this thread, as a web request made `with
+    /// message` does when its reply comes.
+    pub event_tx: Option<std::sync::mpsc::Sender<super::world::Event>>,
     pub item_delimiter: String,
     pub number_format: String,
     pub lock_messages: bool,
@@ -176,6 +179,7 @@ impl Interp {
             response_status: String::new(),
             response_time: 0.0,
             json_cache: None,
+            event_tx: None,
             item_delimiter: ",".into(),
             number_format: "0.######".into(),
             lock_messages: false,
@@ -275,6 +279,10 @@ impl Interp {
                 },
             },
             Event::Send { target, message, args } => self.dispatch_top(target, &message, args),
+            Event::WebReply { target, message, url, reply, millis } => {
+                let body = self.take_reply(reply, millis);
+                self.dispatch_top(target, &message, vec![url, body])
+            }
             Event::MsgBox(text) => self.run_msgbox(&text),
             Event::DoMenu(item) => {
                 let card = ObjRef::Card(self.w().card_id);

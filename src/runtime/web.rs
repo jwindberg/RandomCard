@@ -60,17 +60,42 @@ impl Interp {
         }
     }
 
-    /// Send a request with the script's headers and timeout. It waits on
-    /// another thread, so Command-period still stops the script. The
-    /// reply's body is the value; `the result` says how it went.
-    pub(super) fn fetch(&mut self, method: &str, url: String, body: Option<String>) -> R<String> {
-        let req = http::Request {
+    /// A request with the script's headers and timeout.
+    fn web_request(&self, method: &str, url: String, body: Option<String>) -> http::Request {
+        http::Request {
             method: method.into(),
             url: url.trim().to_string(),
             headers: http::parse_headers(&self.http_headers),
             body,
             timeout: Duration::from_secs_f64(self.http_timeout.max(0.1)),
-        };
+        }
+    }
+
+    /// Note a reply in `the result` (empty when it worked, else the status
+    /// or what went wrong), `the responseStatus`, `the responseHeaders` and
+    /// `the responseTime`; its body is the value.
+    pub(super) fn take_reply(&mut self, reply: Result<http::Response, String>, millis: f64) -> String {
+        self.response_time = millis;
+        match reply {
+            Ok(r) => {
+                self.result = if r.ok() { String::new() } else { r.status_text() };
+                self.response_status = r.status_text();
+                self.response_headers = r.headers;
+                r.body
+            }
+            Err(e) => {
+                self.result = e;
+                self.response_status.clear();
+                self.response_headers.clear();
+                String::new()
+            }
+        }
+    }
+
+    /// Send a request and wait for it. It waits on another thread, so
+    /// Command-period still stops the script.
+    pub(super) fn fetch(&mut self, method: &str, url: String, body: Option<String>) -> R<String> {
+        let req = self.web_request(method, url, body);
         let (tx, rx) = mpsc::channel();
         let started = std::time::Instant::now();
         std::thread::spawn(move || {
@@ -87,20 +112,28 @@ impl Interp {
                 Err(mpsc::RecvTimeoutError::Disconnected) => break Err("The request stopped".into()),
             }
         };
-        self.response_time = started.elapsed().as_secs_f64() * 1000.0;
-        match reply {
-            Ok(r) => {
-                self.result = if r.ok() { String::new() } else { r.status_text() };
-                self.response_status = r.status_text();
-                self.response_headers = r.headers;
-                Ok(r.body)
-            }
-            Err(e) => {
-                self.result = e;
-                self.response_status.clear();
-                self.response_headers.clear();
-                Ok(String::new())
-            }
-        }
+        Ok(self.take_reply(reply, started.elapsed().as_secs_f64() * 1000.0))
+    }
+
+    /// Send a request without waiting: the script goes on, and when the
+    /// reply comes, `message` goes to the object whose script asked, with
+    /// the URL and the reply (`on gotJoke theURL, reply`).
+    pub(super) fn fetch_later(&mut self, method: &str, url: String, body: Option<String>, message: String) -> R<()> {
+        let req = self.web_request(method, url, body);
+        let target = self.frame().me;
+        let Some(events) = self.event_tx.clone() else {
+            // No event loop (a script run on its own): reply straight away.
+            let started = std::time::Instant::now();
+            let reply = http::send(&req);
+            let body = self.take_reply(reply, started.elapsed().as_secs_f64() * 1000.0);
+            return self.send_message(target, &message, &[req.url, body]).map(|_| ());
+        };
+        std::thread::spawn(move || {
+            let started = std::time::Instant::now();
+            let reply = http::send(&req);
+            let millis = started.elapsed().as_secs_f64() * 1000.0;
+            let _ = events.send(super::world::Event::WebReply { target, message, url: req.url, reply, millis });
+        });
+        Ok(())
     }
 }

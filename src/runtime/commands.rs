@@ -341,13 +341,17 @@ impl Interp {
             }
             Cmd::Mark(what) => self.mark(what, true),
             Cmd::Unmark(what) => self.mark(what, false),
-            Cmd::Http { method, body, url } => {
+            Cmd::Http { method, body, url, message } => {
                 let method = self.eval(method)?;
                 let body = match body {
                     Some(b) => Some(self.eval(b)?),
                     None => None,
                 };
                 let url = self.eval(url)?;
+                if let Some(m) = message {
+                    let m = self.eval(m)?;
+                    return self.fetch_later(&method, url, body, m);
+                }
                 let reply = self.fetch(&method, url, body)?;
                 self.set_var("it", reply);
                 Ok(())

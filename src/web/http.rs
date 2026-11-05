@@ -74,6 +74,26 @@ pub fn url_decode(text: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Text as HTML forms send it (`application/x-www-form-urlencoded`, in the
+/// WHATWG URL Standard): a space becomes `+`; letters, digits and `*-._`
+/// stay; anything else is `%XX` bytes of its UTF-8.
+pub fn form_encode(text: &str) -> String {
+    let mut out = String::new();
+    for b in text.bytes() {
+        match b {
+            b' ' => out.push('+'),
+            b if b.is_ascii_alphanumeric() || b"*-._".contains(&b) => out.push(b as char),
+            b => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// Form-encoded text back: `+` is a space, `%XX` a byte.
+pub fn form_decode(text: &str) -> String {
+    url_decode(&text.replace('+', " "))
+}
+
 /// Headers from text, one `Name: value` a line; other lines are skipped.
 pub fn parse_headers(text: &str) -> Vec<(String, String)> {
     text.lines()
@@ -196,6 +216,9 @@ mod tests {
         assert_eq!(url_decode("chuck%20norris%20%26%20co%2F%C3%A9"), "chuck norris & co/é");
         assert_eq!(url_decode("a+b"), "a+b");
         assert_eq!(url_decode("100%"), "100%");
+        // Form encoding: spaces as +, and back.
+        assert_eq!(form_encode("chuck norris & co*"), "chuck+norris+%26+co*");
+        assert_eq!(form_decode("chuck+norris+%26+co%2B1"), "chuck norris & co+1");
     }
 
     #[test]

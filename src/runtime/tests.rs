@@ -2841,6 +2841,9 @@ fn rest_from_hypertalk() {
     // The status even when it worked, and how long it took.
     assert_eq!(run(&mut i, "get url (base & \"/jokes/random\")\nput the responseStatus"), "200 OK");
     assert!(run(&mut i, "put the responseTime").parse::<f64>().is_ok());
+    // URL and form encoding.
+    assert_eq!(run(&mut i, "put urlEncode(\"a b+c\") & \"|\" & formEncode(\"a b+c\")"), "a%20b%2Bc|a+b%2Bc");
+    assert_eq!(run(&mut i, "put urlDecode(\"a+b\") & \"|\" & formDecode(\"a+b\")"), "a+b|a b");
     // Variables called url, json, key and element still work.
     assert_eq!(run(&mut i, "put 4 into element\nput element * 2"), "8");
     assert_eq!(run(&mut i, "put 1 into url\nput 2 into json\nput 3 into key\nput url + json + key"), "6");
@@ -3017,4 +3020,57 @@ fn postcard_stack_sends_requests() {
     run(&mut i, "put empty into field \"URL\"");
     i.canned_answers.push(DialogReply::Button("OK".into()));
     assert_eq!(click(&mut i, "Query", "Send"), None);
+}
+
+#[test]
+fn requests_that_dont_wait() {
+    let base = crate::web::http::test_server::start(|method, path, _, body| match path {
+        "/slow" => {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            (200, "application/json", r#"{"value":"late joke"}"#.into())
+        }
+        "/echo" => (201, "text/plain", format!("{method}:{body}")),
+        _ => (404, "text/plain", "gone".into()),
+    });
+    let mut i = interp_with(stack());
+    let (tx, rx) = std::sync::mpsc::channel();
+    i.event_tx = Some(tx);
+    let card = lock(&i.world).card_id;
+    set_script(
+        &i,
+        ObjRef::Card(card),
+        "on gotIt theURL, reply\n  put key \"value\" of json reply && \"from\" && theURL && the responseStatus into field \"Name\"\nend gotIt\non posted theURL, reply\n  put reply && the result && the responseStatus into field \"Name\"\nend posted",
+    );
+    run(&mut i, &format!("put \"{base}\" into base"));
+    // The script goes on at once; the reply comes later as a message.
+    assert_eq!(run(&mut i, "load url (base & \"/slow\") with message \"gotIt\"\nput \"went on\""), "went on");
+    assert_eq!(run(&mut i, "put field \"Name\""), "Apple");
+    let reply = rx.recv_timeout(std::time::Duration::from_secs(5)).expect("a reply");
+    i.handle_event(reply);
+    assert_eq!(run(&mut i, "put field \"Name\""), format!("late joke from {base}/slow 200 OK"));
+    // Any verb can wait for its reply this way.
+    run(&mut i, "post \"hi\" to url (base & \"/echo\") with message \"posted\"");
+    let reply = rx.recv_timeout(std::time::Duration::from_secs(5)).expect("a reply");
+    i.handle_event(reply);
+    assert_eq!(run(&mut i, "put field \"Name\""), "POST:hi  201 Created");
+    // A handler named load still gets its message.
+    set_script(&i, ObjRef::Card(card), "on load x\n  put \"loaded\" && x into msg\nend load");
+    assert_eq!(run(&mut i, "load 3"), "loaded 3");
+    assert!(run(&mut i, "load url \"x\"").contains("with message"));
+}
+
+#[test]
+fn the_tours_web_card_sends_and_waits() {
+    let base = crate::web::http::test_server::start(|method, _, _, body| (200, "application/json", format!(r#"{{"method":"{method}","body":"{body}"}}"#)));
+    let mut i = interp_with(Stack::demo());
+    let (tx, rx) = std::sync::mpsc::channel();
+    i.event_tx = Some(tx);
+    i.handle_event(Event::Startup);
+    run(&mut i, &format!("go to card \"The Web\"\nput \"{base}/x\" into card field \"URL\"\nput \"PUT\" into card field \"Method\"\nput \"hello\" into card field \"Body\""));
+    assert_eq!(click(&mut i, "The Web", "Send"), None);
+    assert_eq!(run(&mut i, "put card field \"Status\""), "Waiting…");
+    let reply = rx.recv_timeout(std::time::Duration::from_secs(5)).expect("a reply");
+    i.handle_event(reply);
+    assert!(run(&mut i, "put card field \"Status\"").starts_with("200 OK in "));
+    assert_eq!(run(&mut i, "put card field \"Reply\""), r#"{"method":"PUT","body":"hello"}"#);
 }

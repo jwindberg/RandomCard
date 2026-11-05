@@ -36,11 +36,15 @@ pub enum EditorCommand {
     GoToLine,
     Save,
     Checkpoint,
+    /// Close, asking first if there are changes (Command-W).
+    Close,
+    /// Close without saving changes (Command-period).
+    Discard,
 }
 
 /// The Command keys a script editor takes for itself while it has the
 /// keyboard, ahead of the menus.
-pub const EDITOR_KEYS: [(Key, &str, EditorCommand); 8] = [
+pub const EDITOR_KEYS: [(Key, &str, EditorCommand); 9] = [
     (Key::F, "f", EditorCommand::Find),
     (Key::G, "g", EditorCommand::FindAgain),
     (FIND_SELECTION_KEY, FIND_SELECTION_CHAR, EditorCommand::FindSelection),
@@ -49,6 +53,7 @@ pub const EDITOR_KEYS: [(Key, &str, EditorCommand); 8] = [
     (Key::J, "j", EditorCommand::GoToLine),
     (Key::S, "s", EditorCommand::Save),
     (Key::D, "d", EditorCommand::Checkpoint),
+    (Key::W, "w", EditorCommand::Close),
 ];
 
 const FIND_SELECTION_KEY: Key = if cfg!(target_os = "macos") { Key::E } else { Key::H };
@@ -189,5 +194,6 @@ mod tests {
         assert_eq!(slice(text, (5, 8)), "  b");
         assert_eq!(command_for("G"), Some(EditorCommand::FindAgain));
         assert_eq!(command_for("q"), None);
+        assert_eq!(command_for("W"), Some(EditorCommand::Close));
     }
 }

@@ -26,7 +26,7 @@ const ZERO_ARG_FUNCS: &[&str] = &[
 const ONE_ARG_FUNCS: &[&str] = &[
     "average", "min", "max", "sum", "random", "round", "sqrt", "trunc", "sin", "cos", "tan", "atan", "exp",
     "exp1", "exp2", "ln", "ln1", "log2", "abs", "chartonum", "numtochar", "value", "length", "param",
-    "urlencode", "urldecode",
+    "urlencode", "urldecode", "formencode", "formdecode",
 ];
 
 /// Properties that may be written without `the`, e.g. `visible of field 1`.
@@ -585,7 +585,8 @@ impl Parser {
         let paint_file = matches!(w.as_str(), "import" | "export") && self.is_at(1, "paint");
         // Web verbs, only with `to url` on the line: a stack's own `post`
         // or `query` handler is still a message.
-        let web = matches!(w.as_str(), "post" | "patch" | "query" | "request") && self.to_url_ahead();
+        let web = matches!(w.as_str(), "post" | "patch" | "query" | "request") && self.to_url_ahead()
+            || w == "load" && self.is_at(1, "url");
         if COMMANDS.contains(&w.as_str()) || paint_file || web {
             let start = self.pos + 1;
             let cmd = self.command(&w)?;
@@ -738,7 +739,8 @@ impl Parser {
                 // `put body to url "…"`: HTTP PUT (a plain put never says `to`).
                 if self.is("to") && self.is_at(1, "url") {
                     self.pos += 2;
-                    return Ok(Cmd::Http { method: Expr::Lit("PUT".into()), body: Some(value), url: self.expr()? });
+                    let url = self.expr()?;
+                    return Ok(Cmd::Http { method: Expr::Lit("PUT".into()), body: Some(value), url, message: self.with_message()? });
                 }
                 let (prep, dest) = match self.prep() {
                     Some(prep) => (prep, Some(self.expr()?)),
@@ -1031,7 +1033,8 @@ impl Parser {
             "sort" => self.sort_cmd()?,
             "delete" if self.is("url") && self.starts_term_at(1) => {
                 self.advance();
-                Cmd::Http { method: Expr::Lit("DELETE".into()), body: None, url: self.expr()? }
+                let url = self.expr()?;
+                Cmd::Http { method: Expr::Lit("DELETE".into()), body: None, url, message: self.with_message()? }
             }
             "delete" => Cmd::Delete(self.expr()?),
             // `post body to url "…"`, and patch and query the same way.
@@ -1039,7 +1042,18 @@ impl Parser {
                 let body = self.expr()?;
                 self.expect("to")?;
                 self.expect("url")?;
-                Cmd::Http { method: Expr::Lit(name.to_ascii_uppercase()), body: Some(body), url: self.expr()? }
+                let url = self.expr()?;
+                Cmd::Http { method: Expr::Lit(name.to_ascii_uppercase()), body: Some(body), url, message: self.with_message()? }
+            }
+            // `load url "…" with message "gotData"`: a GET that doesn't wait.
+            "load" if self.is("url") => {
+                self.advance();
+                let url = self.expr()?;
+                let message = self.with_message()?;
+                if message.is_none() {
+                    return Err(self.err_here("Expected \"with message\" after \"load url …\""));
+                }
+                Cmd::Http { method: Expr::Lit("GET".into()), body: None, url, message }
             }
             // `request "OPTIONS" to url "…"`, `request m with body to url "…"`.
             "request" => {
@@ -1047,7 +1061,8 @@ impl Parser {
                 let body = if self.accept("with") { Some(self.expr()?) } else { None };
                 self.expect("to")?;
                 self.expect("url")?;
-                Cmd::Http { method, body, url: self.expr()? }
+                let url = self.expr()?;
+                Cmd::Http { method, body, url, message: self.with_message()? }
             }
             "choose" => {
                 if self.accept("tool") {
@@ -1351,6 +1366,15 @@ impl Parser {
                 Cmd::NoOp
             }
         })
+    }
+
+    /// A web command's optional `with message "gotData"`.
+    fn with_message(&mut self) -> PResult<Option<Expr>> {
+        if self.is("with") && self.is_at(1, "message") {
+            self.pos += 2;
+            return Ok(Some(self.expr()?));
+        }
+        Ok(None)
     }
 
     /// Whether `to url` comes later on this line.

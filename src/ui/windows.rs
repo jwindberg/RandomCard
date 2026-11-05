@@ -40,6 +40,8 @@ pub struct ScriptEditor {
     pub notice: Option<String>,
     /// A character to scroll into view when the editor is next drawn.
     pub scroll_to: Option<usize>,
+    /// Closing with unsaved changes: asking Save, Don't Save or Cancel.
+    pub confirm_close: bool,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -211,6 +213,7 @@ impl App {
             bar_focus: false,
             notice: None,
             scroll_to: None,
+            confirm_close: false,
         });
     }
 
@@ -559,8 +562,20 @@ impl App {
                 }
             }
             Some(EditorCommand::Save) => self.save_script(ed),
-            Some(EditorCommand::Checkpoint) | None => {}
+            Some(EditorCommand::Close) => ed.confirm_close = self.script_changed(ed),
+            Some(EditorCommand::Checkpoint) | Some(EditorCommand::Discard) | None => {}
         }
+        // Command-W with no changes, and Command-period: close at once (the
+        // latter without saving, as in HyperCard).
+        let quick_close = match command {
+            Some(EditorCommand::Close) => !ed.confirm_close,
+            Some(EditorCommand::Discard) => {
+                ed.text = script_of(&lock(&self.rt.world), ed.obj).unwrap_or_default();
+                true
+            }
+            _ => false,
+        };
+        let mut decided = None;
         egui::Window::new(format!("Script of {}", ed.title))
             .id(id)
             .open(&mut open)
@@ -598,6 +613,21 @@ impl App {
                         .weak(),
                     );
                 });
+                // Closing with unsaved changes asks first, as HyperCard did.
+                if ed.confirm_close {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Save changes to this script?").strong());
+                        if ui.button("Save").clicked() {
+                            decided = Some(true);
+                        }
+                        if ui.button("Don't Save").clicked() {
+                            decided = Some(false);
+                        }
+                        if ui.button("Cancel").clicked() {
+                            ed.confirm_close = false;
+                        }
+                    });
+                }
                 if let Some(a) = self.find_bar(ui, ed, [find_id, replace_id, line_id]) {
                     action = Some(a);
                 }
@@ -690,11 +720,22 @@ impl App {
                     ui.painter().extend(shapes);
                 });
             });
-        if close {
+        // The window's close box: ask first if there are changes.
+        if !open && !close && self.script_changed(ed) {
+            open = true;
+            ed.confirm_close = true;
+        }
+        match decided {
+            Some(true) => {
+                self.save_script(ed);
+                close = true;
+            }
+            Some(false) => close = true,
+            None => {}
+        }
+        if close || quick_close {
             open = false;
-        } else if !open {
-            // Closing the window keeps the edits, as HyperCard's editor did when you said yes.
-            self.save_script(ed);
+            ed.confirm_close = false;
         }
         if ed.open && !open {
             self.script_closed(ed.obj);
@@ -868,6 +909,11 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Whether the editor holds changes not yet saved to the script.
+    fn script_changed(&self, ed: &ScriptEditor) -> bool {
+        script_of(&lock(&self.rt.world), ed.obj).unwrap_or_default() != ed.text
     }
 
     fn save_script(&mut self, ed: &mut ScriptEditor) {

@@ -9,6 +9,11 @@ repository = "https://github.com/jwindberg/RandomCard"
 # examples/ holds stacks, not Cargo examples.
 autoexamples = false
 
+# build.rs: the Windows executable's icon.
+[build-dependencies]
+miniz_oxide = "0.8.9"
+winresource = { version = "0.1.34", default-features = false }
+
 # A packaging tool, not an example: Cargo's example targets are simply the
 # way to build a helper program that doesn't ship with the app.
 [[example]]

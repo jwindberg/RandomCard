@@ -435,7 +435,7 @@ language's side is `src/runtime/web.rs`.
    a plus), and JSON numbers kept exactly (RFC 8259 §6). ICNDB sends
    several categories as repeated names (`?category=dev&category=food`),
    as form encoding does, while scripts can still build any URL a service
-   wants. Still to come: a form-decoding function where `+` is a space.
+   wants.
    The Tour's The Web card: JSON read and built on the card, offline,
    and a method, URL and body of your own to send (no address of ours).
 4. ~~**PostCard**~~ Done: `examples/PostCard.rcstack`, a small Postman
@@ -452,12 +452,18 @@ language's side is `src/runtime/web.rs`.
    `choices` (one a line, also in Field Info) put a ▼ inside its right
    edge; choosing one puts it into the field (then closeField), and the
    field can still be typed into, like HTML's `<input list>` with a
-   `<datalist>`. The menu is at least the field's width. PostCard's and
-   the Tour's Method use it. Still to come: narrowing the list as you
-   type, as HTML does. Popup buttons' menus now widen to fit their items.
-5. **Requests that don't freeze a handler:** `load url "…" with message
-   "gotData"`, sending the message with the reply when it arrives. Then
-   filling cards from data, one card per record.
+   `<datalist>`. The menu is at least the field's width, and typing
+   narrows the choices to those containing what's typed. PostCard's and
+   the Tour's Method use it. Popup buttons' menus now widen to fit their
+   items.
+5. ~~**Requests that don't freeze a handler.**~~ Done: `load url U with
+   message "gotData"`, and `with message` after any web command; the
+   script goes on, and the message comes to the object whose script asked
+   (`on gotData theURL, reply`) with the result and the response
+   properties set for that reply. The Tour's Send uses it. With it,
+   `formEncode` and `formDecode` (HTML forms' encoding, `+` for a space),
+   and the combo box narrows its choices as you type. Next: filling cards
+   from data, one card per record.
 
 ## Testing
 

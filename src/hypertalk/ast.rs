@@ -361,7 +361,8 @@ pub enum Cmd {
     /// A web request with a body or none: `post B to url U`, `put B to url
     /// U`, `patch …`, `query …`, `delete url U`, and `request M [with B]
     /// to url U` for any method. The reply goes into `it`.
-    Http { method: Expr, body: Option<Expr>, url: Expr },
+    /// `with message "gotData"` sends the request without waiting.
+    Http { method: Expr, body: Option<Expr>, url: Expr, message: Option<Expr> },
     /// `set key "name" of json body to "Ada"`: the JSON in a container
     /// rewritten. `path` is the `__json` call naming the container and
     /// its steps.

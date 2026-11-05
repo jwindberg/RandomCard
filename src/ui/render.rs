@@ -371,31 +371,64 @@ fn append_spaced(ctx: &egui::Context, job: &mut LayoutJob, text: &str, m: &metri
     if start < text.len() {
         tokens.push(&text[start..]);
     }
-    // How far egui's pen has got ahead of HyperCard's.
-    let mut drift = 0.0;
-    for token in tokens {
-        let glyphs: Vec<char> = token.chars().filter(|c| *c != '\n').collect();
-        let ours: f32 = glyphs.iter().map(|c| glyph_width(ctx, &fmt.font_id, *c)).sum();
-        let theirs = m.text_width(token);
+    let measured: Vec<Token> = tokens
+        .iter()
+        .map(|t| {
+            let glyphs: Vec<char> = t.chars().filter(|c| *c != '\n').collect();
+            Token {
+                ours: glyphs.iter().map(|c| glyph_width(ctx, &fmt.font_id, *c)).sum(),
+                theirs: m.text_width(t),
+                word: glyphs.first().is_some_and(|c| *c != ' ' && *c != '\t'),
+                glyphs: glyphs.len(),
+                line_end: t.ends_with('\n'),
+            }
+        })
+        .collect();
+    for (token, (letter_spacing, lead)) in tokens.iter().zip(spacing(&measured)) {
         let mut f = fmt.clone();
-        let word = glyphs.first().is_some_and(|c| *c != ' ' && *c != '\t');
-        let mut lead = 0.0;
-        if word && glyphs.len() > 1 {
-            // egui adds the spacing between the glyphs of a section.
-            let gaps = (glyphs.len() - 1) as f32;
-            f.extra_letter_spacing = ((theirs - ours - drift) / gaps).clamp(-1.5, 0.0);
-            drift += ours + f.extra_letter_spacing * gaps - theirs;
-        } else if word {
-            drift += ours - theirs;
-        } else {
-            lead = (theirs - ours - drift).max(0.0);
-            drift += lead + ours - theirs;
-        }
-        if token.ends_with('\n') {
-            drift = 0.0;
-        }
+        f.extra_letter_spacing = letter_spacing;
         job.append(token, lead, f);
     }
+}
+
+/// A word or run of spaces, measured: egui's width and HyperCard's.
+struct Token {
+    ours: f32,
+    theirs: f32,
+    word: bool,
+    glyphs: usize,
+    line_end: bool,
+}
+
+/// Letter spacing for each word and padding before each run of spaces, so
+/// the text keeps HyperCard's widths: words are drawn a little tighter
+/// where egui's font is wider, and spaces take up what's left. `drift` is
+/// how far egui's pen is ahead of HyperCard's. A run of spaces pads by at
+/// most its own width, so text that has fallen behind (a long run with no
+/// spaces, such as JSON) catches up a little at each space rather than all
+/// at once in one wide gap.
+fn spacing(tokens: &[Token]) -> Vec<(f32, f32)> {
+    let mut drift = 0.0;
+    let mut out = Vec::with_capacity(tokens.len());
+    for t in tokens {
+        let (mut letter_spacing, mut lead) = (0.0, 0.0);
+        if t.word && t.glyphs > 1 {
+            // egui adds the spacing between the glyphs of a section.
+            let gaps = (t.glyphs - 1) as f32;
+            letter_spacing = ((t.theirs - t.ours - drift) / gaps).clamp(-1.5, 0.0);
+            drift += t.ours + letter_spacing * gaps - t.theirs;
+        } else if t.word {
+            drift += t.ours - t.theirs;
+        } else {
+            lead = (t.theirs - t.ours - drift).clamp(0.0, t.theirs.max(0.0));
+            drift += lead + t.ours - t.theirs;
+        }
+        if t.line_end {
+            drift = 0.0;
+        }
+        out.push((letter_spacing, lead));
+    }
+    out
 }
 
 fn text_format(part: &Part, color: Color32) -> TextFormat {
@@ -1206,5 +1239,31 @@ pub fn selection_handles(painter: &Painter, rect: Rect) {
     for c in [rect.left_top(), rect.right_top(), rect.left_bottom(), rect.right_bottom()] {
         let r = Rect::from_center_size(c, Vec2::splat(6.0));
         painter.rect_filled(r, CornerRadius::ZERO, BLACK);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn word(ours: f32, theirs: f32, glyphs: usize) -> Token {
+        Token { ours, theirs, word: true, glyphs, line_end: false }
+    }
+    fn space(ours: f32, theirs: f32) -> Token {
+        Token { ours, theirs, word: false, glyphs: 1, line_end: false }
+    }
+
+    #[test]
+    fn spacing_keeps_hypercards_widths() {
+        // A word wider in egui is tightened to HyperCard's width.
+        let s = spacing(&[word(110.0, 100.0, 11)]);
+        assert_eq!(s[0], (-1.0, 0.0));
+        // A space after a word that came out narrow takes up the difference.
+        let s = spacing(&[word(95.0, 100.0, 10), space(3.0, 4.0)]);
+        assert_eq!(s[1], (0.0, 4.0));
+        // A long run with no spaces falls far behind: the next space pads by
+        // no more than its own width, not by the whole difference.
+        let s = spacing(&[word(300.0, 400.0, 60), space(3.0, 4.0), word(30.0, 30.0, 5)]);
+        assert_eq!(s[1].1, 4.0);
     }
 }

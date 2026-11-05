@@ -56,13 +56,14 @@ pub fn start(stack: Stack, open: Option<std::path::PathBuf>, user_level: u8, hom
     let (dialog_replies, dialog_rx) = channel();
     let (debug, debug_rx) = channel();
     let abort = Arc::new(AtomicBool::new(false));
-    let (w, a) = (world.clone(), abort.clone());
+    let (w, a, tx) = (world.clone(), abort.clone(), events.clone());
     std::thread::Builder::new()
         .name("hypertalk".into())
         .stack_size(SCRIPT_STACK)
         .spawn(move || {
             let mut interp = interp::Interp::new(w, Some(dialog_rx), a);
             interp.debug_rx = Some(debug_rx);
+            interp.event_tx = Some(tx);
             interp.open_documents = true;
             interp.audio = crate::sound::Player::new();
             // Home's startUp ran getHomeInfo, filling its globals.

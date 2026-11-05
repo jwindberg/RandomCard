@@ -491,6 +491,9 @@ pub enum UiRequest {
 /// Messages from the UI to the script thread.
 #[derive(Clone, Debug)]
 pub enum Event {
+    /// A web request made `with message` has its reply: send the message
+    /// to the object whose script asked, with the URL and the reply.
+    WebReply { target: ObjRef, message: String, url: String, reply: Result<crate::web::http::Response, String>, millis: f64 },
     Startup,
     Send { target: ObjRef, message: String, args: Vec<String> },
     MsgBox(String),
