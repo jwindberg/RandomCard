@@ -1032,7 +1032,7 @@
   "cards": [
     {
       "id": 128,
-      "name": "Random joke",
+      "name": "Random Joke",
       "script": "",
       "background": 127,
       "parts": [],
@@ -1047,10 +1047,9 @@
       "dont_search": false,
       "bg_text": {
         "112": "Accept: application/json",
-        "110": "startDate=2026-10-26\nendDate=2026-11-03",
         "107": "https://api.chucknorris.io/jokes/random",
         "105": "GET",
-        "102": "Solar Production",
+        "102": "Random Joke",
         "126": "The simplest call: GET a URL, get JSON back. Press Send."
       },
       "bg_hilite": {}
