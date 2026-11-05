@@ -29,7 +29,7 @@ rand = "0.10.3"
 rfd = "0.17.2"
 rodio = { version = "0.23.0", default-features = false, features = ["playback"] }
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.154"
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
 
 # HTTP for scripts (`put url …`). Linux uses Rustls; Windows and macOS use
 # the system's own TLS and certificates, which also keeps the C code of

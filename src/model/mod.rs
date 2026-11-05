@@ -195,6 +195,10 @@ impl TextAlign {
     }
 }
 
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
 /// A button or field.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -245,6 +249,11 @@ pub struct Part {
     /// Every line is textHeight high, whatever its fonts.
     pub fixed_line_height: bool,
     pub scroll: i32,
+    /// A field whose text isn't saved: it works while the stack is open,
+    /// and opens empty (`the dontSave`). Saved only when set, so other
+    /// stacks' files don't change.
+    #[serde(skip_serializing_if = "is_false")]
+    pub dont_save: bool,
 
     // Colors, with LiveCode's names: the text (foreColor), the fill
     // (backColor) and the frame (borderColor). None is HyperCard's black
@@ -294,6 +303,7 @@ impl Default for Part {
             text_height: 0,
             fixed_line_height: false,
             scroll: 0,
+            dont_save: false,
             fore_color: None,
             back_color: None,
             border_color: None,
@@ -786,7 +796,38 @@ impl Stack {
 
     /// The size of the stack as saved, in bytes.
     pub fn size(&self) -> usize {
-        serde_json::to_string(self).map(|j| j.len()).unwrap_or(0)
+        serde_json::to_string(&*self.for_saving()).map(|j| j.len()).unwrap_or(0)
+    }
+
+    /// The stack as its file holds it: fields marked Don't Save are empty
+    /// there (their own text, each card's text for a background field, and
+    /// their styles). The stack itself is only copied when there are some.
+    pub fn for_saving(&self) -> std::borrow::Cow<'_, Stack> {
+        let all = || self.cards.iter().flat_map(|c| &c.parts).chain(self.backgrounds.iter().flat_map(|b| &b.parts));
+        if !all().any(|p| p.dont_save) {
+            return std::borrow::Cow::Borrowed(self);
+        }
+        let mut s = self.clone();
+        let mut bg_unsaved = Vec::new();
+        for p in s.cards.iter_mut().flat_map(|c| c.parts.iter_mut()).chain(s.backgrounds.iter_mut().flat_map(|b| b.parts.iter_mut())) {
+            if p.dont_save {
+                p.contents.clear();
+                p.styles.clear();
+                bg_unsaved.push(p.id);
+            }
+        }
+        for c in &mut s.cards {
+            for id in &bg_unsaved {
+                c.bg_text.remove(id);
+                c.bg_styles.remove(id);
+            }
+        }
+        std::borrow::Cow::Owned(s)
+    }
+
+    /// The stack's file contents.
+    pub fn to_json(&self) -> Result<String, String> {
+        serde_json::to_string_pretty(&*self.for_saving()).map_err(|e| e.to_string())
     }
 
     /// What Compact Stack would free, in bytes (`the freeSize`).
@@ -797,7 +838,7 @@ impl Stack {
     }
 
     pub fn save(&self, path: &std::path::Path) -> Result<(), String> {
-        let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        let json = self.to_json()?;
         std::fs::write(path, json).map_err(|e| format!("Can't save {}: {e}", path.display()))
     }
 
@@ -832,6 +873,37 @@ impl Stack {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dont_save_fields_save_empty() {
+        let mut s = Stack::new("t");
+        let card = s.cards[0].id;
+        let mut out = Part::new_field(50, "Out", Rect::new(0, 0, 10, 10));
+        out.contents = "result".into();
+        out.styles = vec![styles::StyleRun { start: 0, style: styles::TextStyle { size: Some(9), ..Default::default() } }];
+        out.dont_save = true;
+        let mut kept = Part::new_field(51, "Kept", Rect::new(0, 0, 10, 10));
+        kept.contents = "keep me".into();
+        s.cards[0].parts.extend([out, kept]);
+        // A background field: each card's own text isn't saved either.
+        let mut bg = Part::new_field(52, "Status", Rect::new(0, 0, 10, 10));
+        bg.dont_save = true;
+        s.backgrounds[0].parts.push(bg);
+        s.cards[0].bg_text.insert(52, "OK".into());
+        let saved = s.for_saving();
+        assert_eq!(saved.part(card, Layer::Card, 50).unwrap().contents, "");
+        assert!(saved.part(card, Layer::Card, 50).unwrap().styles.is_empty());
+        assert_eq!(saved.part(card, Layer::Card, 51).unwrap().contents, "keep me");
+        assert!(!saved.cards[0].bg_text.contains_key(&52));
+        // The stack in memory keeps it all, and the setting is saved.
+        assert_eq!(s.part(card, Layer::Card, 50).unwrap().contents, "result");
+        let back: Stack = serde_json::from_str(&s.to_json().unwrap()).unwrap();
+        assert!(back.part(card, Layer::Card, 50).unwrap().dont_save);
+        // Stacks without it save as they always did.
+        let plain = Stack::new("p");
+        assert!(matches!(plain.for_saving(), std::borrow::Cow::Borrowed(_)));
+        assert!(!plain.to_json().unwrap().contains("dont_save"));
+    }
 
     #[test]
     fn compacting() {

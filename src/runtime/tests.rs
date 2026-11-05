@@ -407,6 +407,12 @@ fn demo_stack_runs() {
     }
     // With no window, its file dialog cancels straight away.
     assert_eq!(click(&mut i, "Drawing", "Picture Files"), None);
+    // Don't Save on the Debugging card's answer line, then off.
+    run(&mut i, "go to card \"Debugging\"");
+    assert_eq!(click(&mut i, "Debugging", "Don't Save"), None);
+    assert_eq!(run(&mut i, "put the dontSave of card field \"Answer\""), "true");
+    assert_eq!(click(&mut i, "Debugging", "Don't Save"), None);
+    assert_eq!(run(&mut i, "put the dontSave of card field \"Answer\""), "false");
     // AddColor on, then off, on the card it's clicked on.
     run(&mut i, "go to card \"Drawing\"");
     assert_eq!(click(&mut i, "Drawing", "Color the House"), None);
@@ -2806,41 +2812,92 @@ fn rest_from_hypertalk() {
     assert!(r.ends_with('|') && r.len() > 1, "{r}");
     // Not JSON is an error.
     assert!(run(&mut i, "put key \"a\" of json \"hello\"").contains("Expected JSON"));
-    // Variables called url, json and key still work.
+    // Arrays: elements from 1, nested in keys, counted, listed.
+    run(&mut i, "put \"{\" & quote & \"total\" & quote & \":2,\" & quote & \"result\" & quote & \":[{\" & quote & \"value\" & quote & \":\" & quote & \"one\" & quote & \"},{\" & quote & \"value\" & quote & \":\" & quote & \"two\" & quote & \"}],\" & quote & \"tags\" & quote & \":[\" & quote & \"x\" & quote & \",\" & quote & \"y\" & quote & \"]}\" into found");
+    assert_eq!(run(&mut i, "put key \"value\" of element 2 of key \"result\" of json found"), "two");
+    assert_eq!(run(&mut i, "put element last of key \"tags\" of json found"), "y");
+    assert_eq!(run(&mut i, "put the number of elements of key \"result\" of json found"), "2");
+    assert_eq!(run(&mut i, "put the number of keys of json found"), "3");
+    assert_eq!(run(&mut i, "put the keys of json found"), "total\nresult\ntags");
+    assert_eq!(run(&mut i, "put the elements of key \"tags\" of json found"), "x\ny");
+    assert_eq!(run(&mut i, "put 0 into n\nrepeat with j = 1 to the number of elements of key \"tags\" of json found\n  put element j of key \"tags\" of json found into item j of n\nend repeat\nput n"), "x,y");
+    // Variables called url, json, key and element still work.
+    assert_eq!(run(&mut i, "put 4 into element\nput element * 2"), "8");
     assert_eq!(run(&mut i, "put 1 into url\nput 2 into json\nput 3 into key\nput url + json + key"), "6");
 }
 
 #[test]
 fn icndb_stack_calls_its_api() {
+    fn joke(id: &str, cats: &str) -> String {
+        format!(
+            r#"{{"categories":[{cats}],"created_at":"2020-01-05 13:42:19","id":"{id}","url":"https://api.chucknorris.io/jokes/{id}","value":"Joke {id}."}}"#
+        )
+    }
     let base = crate::web::http::test_server::start(|_, path, _, _| match path {
-        "/jokes/random" | "/jokes/random?category=dev" => (
+        "/jokes/random" => (200, "application/json", joke("r0", "")),
+        "/jokes/random?category=dev,food" => (200, "application/json", joke("r2", r#""dev","food""#)),
+        "/jokes/categories" => (200, "application/json", r#"["dev","food","science"]"#.into()),
+        "/jokes/abc123" => (200, "application/json", joke("abc123", r#""science""#)),
+        "/jokes/search?query=computer" => (
             200,
             "application/json",
-            format!(
-                r#"{{"categories":[{}],"created_at":"2020-01-05 13:42:19","id":"abc123","url":"https://api.chucknorris.io/jokes/abc123","value":"Chuck Norris writes code that optimizes itself."}}"#,
-                if path.ends_with("dev") { "\"dev\"" } else { "" }
-            ),
+            format!(r#"{{"total":2,"result":[{},{}]}}"#, joke("s1", ""), joke("s2", r#""dev""#)),
         ),
         _ => (404, "application/json", r#"{"status":404,"error":"Not Found"}"#.into()),
     });
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/ICNDB.rcstack");
     let mut i = interp_with(Stack::load(&path).unwrap());
     run(&mut i, &format!("put \"{base}\" into card field \"Base URL\" of card \"Connection\""));
-    // Test Connection.
+    // Connection: Test Connection.
     i.canned_answers.push(DialogReply::Button("OK".into()));
     assert_eq!(click(&mut i, "Connection", "Test Connection"), None);
     assert_eq!(run(&mut i, "put field \"Status\""), "OK");
-    // A random joke from a category.
-    run(&mut i, "go to card \"Random Joke\"\nput \"dev\" into card field \"Category\"");
+    // Random Joke: the checklist comes from /jokes/categories on opening.
+    run(&mut i, "go to card \"Random Joke\"");
+    assert_eq!(run(&mut i, "put card field \"Choices\""), "dev\nfood\nscience");
     assert_eq!(click(&mut i, "Random Joke", "Submit"), None);
-    assert_eq!(run(&mut i, "put card field \"Joke\""), "Chuck Norris writes code that optimizes itself.");
-    assert_eq!(run(&mut i, "put card field \"ID\""), "abc123");
-    assert_eq!(run(&mut i, "put card field \"Categories\""), "[\"dev\"]");
-    assert_eq!(run(&mut i, "put field \"Request\""), format!("GET {base}/jokes/random?category=dev"));
-    assert_eq!(run(&mut i, "put field \"Status\""), "OK");
-    // A wrong base URL: the status says so, and the joke fields empty.
-    run(&mut i, &format!("put \"{base}/wrong\" into card field \"Base URL\" of card \"Connection\""));
+    assert_eq!(run(&mut i, "put card field \"ID\""), "r0");
+    // Two checked: a joke from either.
+    run(&mut i, "put \"✓ dev\" into line 1 of card field \"Choices\"\nput \"✓ food\" into line 2 of card field \"Choices\"");
     assert_eq!(click(&mut i, "Random Joke", "Submit"), None);
+    assert_eq!(run(&mut i, "put field \"Request\""), format!("GET {base}/jokes/random?category=dev,food"));
+    assert_eq!(run(&mut i, "put card field \"Joke\""), "Joke r2.");
+    assert_eq!(run(&mut i, "put card field \"Categories\""), "dev,food");
+    // Categories.
+    run(&mut i, "go to card \"Categories\"");
+    assert_eq!(click(&mut i, "Categories", "Submit"), None);
+    assert_eq!(run(&mut i, "put card field \"List\""), "dev\nfood\nscience");
+    assert_eq!(run(&mut i, "put card field \"Count\""), "3 categories");
+    // Search: the result array, one joke a line.
+    run(&mut i, "go to card \"Search\"\nput \"computer\" into card field \"Query\"");
+    assert_eq!(click(&mut i, "Search", "Submit"), None);
+    assert_eq!(run(&mut i, "put card field \"Results\""), "Joke s1.\nJoke s2.");
+    assert_eq!(run(&mut i, "put card field \"Total\""), "2 jokes");
+    // Joke by ID, and one that isn't there.
+    run(&mut i, "go to card \"Joke by ID\"\nput \"abc123\" into card field \"Joke ID\"");
+    assert_eq!(click(&mut i, "Joke by ID", "Submit"), None);
+    assert_eq!(run(&mut i, "put card field \"Categories\""), "science");
+    run(&mut i, "put \"nope\" into card field \"Joke ID\"");
+    assert_eq!(click(&mut i, "Joke by ID", "Submit"), None);
     assert_eq!(run(&mut i, "put field \"Status\""), "404 Not Found");
     assert_eq!(run(&mut i, "put card field \"Joke\""), "");
+}
+
+#[test]
+fn dont_save_fields_open_empty() {
+    let dir = std::env::temp_dir().join(format!("randomcard-dontsave-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("Results.rcstack");
+    let mut s = stack();
+    s.path = Some(path.clone());
+    let mut i = interp_with(s);
+    run(&mut i, "put \"typed\" into field \"Name\"\nset the dontSave of field \"Name\" to true");
+    assert_eq!(run(&mut i, "put the dontSave of field \"Name\""), "true");
+    run(&mut i, "doMenu \"Save Stack\"");
+    // Still there while the stack is open, empty when it opens again.
+    assert_eq!(run(&mut i, "put field \"Name\""), "typed");
+    let back = Stack::load(&path).unwrap();
+    assert_eq!(back.field_text(back.cards[0].id, Layer::Background, 10), "");
+    assert!(back.part(back.cards[0].id, Layer::Background, 10).unwrap().dont_save);
+    let _ = std::fs::remove_dir_all(&dir);
 }

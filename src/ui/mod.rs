@@ -700,7 +700,7 @@ impl App {
             }
             let Some(path) = w.stack.path.clone() else { return };
             w.dirty = false;
-            serde_json::to_string_pretty(&w.stack).map(|j| (path, j))
+            w.stack.to_json().map(|j| (path, j))
         };
         self.last_autosave = Instant::now();
         if let Ok((path, json)) = json

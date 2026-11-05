@@ -6,8 +6,11 @@
 //!   read. `the httpHeaders` (one `Name: value` a line) go with every
 //!   request, `the httpTimeout` is in seconds, and `the responseHeaders`
 //!   are the last reply's.
-//! - `key "value" of json x` reads a key of a JSON object, and nests:
-//!   `key "name" of key "owner" of json x`.
+//! - `key "value" of json x` reads a key of a JSON object, `element 2 of
+//!   json x` an element of an array (from 1, or `last`), and they nest:
+//!   `key "value" of element 1 of key "result" of json x`. `the keys of
+//!   json x` and `the elements of json x` are one a line, and `the number
+//!   of elements of json x` counts them.
 
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
@@ -22,10 +25,32 @@ impl Interp {
     pub(super) fn web_function(&mut self, name: &str, args: &[String]) -> Option<R<String>> {
         match name {
             "__url" => Some(self.fetch("GET", args.first().cloned().unwrap_or_default(), None)),
-            // `json x`, then its keys from the outside in.
-            "__json" => {
-                let (source, keys) = args.split_first()?;
-                Some(json::get(source, keys).or_else(err))
+            // `json x`, then its steps from the outside in, each a kind
+            // ("k" for a key, "e" for an element) and a value.
+            "__json" | "__jsonkeys" | "__jsonelements" | "__jsoncount" => {
+                let (source, rest) = args.split_first()?;
+                let steps: Vec<json::Step> = rest
+                    .chunks(2)
+                    .map(|p| match p {
+                        [k, v] if k == "e" => json::Step::Element(v.clone()),
+                        [_, v] => json::Step::Key(v.clone()),
+                        _ => json::Step::Key(String::new()),
+                    })
+                    .collect();
+                // A loop reads the same reply again and again: parse it once.
+                if self.json_cache.as_ref().is_none_or(|(text, _)| text != source) {
+                    match json::parse(source) {
+                        Ok(v) => self.json_cache = Some((source.clone(), v)),
+                        Err(e) => return Some(err(e)),
+                    }
+                }
+                let value = json::walk(&self.json_cache.as_ref()?.1, &steps);
+                Some(Ok(match name {
+                    "__jsonkeys" => json::keys(&value),
+                    "__jsonelements" => json::elements(&value),
+                    "__jsoncount" => json::count(&value).to_string(),
+                    _ => json::text(&value),
+                }))
             }
             _ => None,
         }

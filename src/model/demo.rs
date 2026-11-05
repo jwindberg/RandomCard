@@ -333,12 +333,11 @@ pub fn build() -> Stack {
         ("Chunks", "on mouseUp\n  put \"apple,banana,cherry\" into fruits\n  put item 2 of fruits into fruit\n  answer \"The second fruit is\" && fruit & \", which starts with\" && quote & char 1 of fruit & quote & \".\"\nend mouseUp"),
         ("Do Some Math", "on mouseUp\n  put 0 into total\n  repeat with i = 1 to 100\n    add i to total\n  end repeat\n  answer \"1 + 2 + ... + 100 =\" && total & return & \"The square root of 2 is\" && sqrt(2)\nend mouseUp"),
         ("What Time Is It?", "on mouseUp\n  answer \"It is\" && the time && \"on\" && the long date & \".\"\nend mouseUp"),
-        ("Fetch a Joke", "on mouseUp\n  -- A REST call: put url, then read the JSON reply.\n  put url \"https://api.chucknorris.io/jokes/random\" into reply\n  if the result is not empty then\n    answer \"No joke came back (\" & the result & \"). Are you online?\"\n    exit mouseUp\n  end if\n  answer key \"value\" of json reply & return & return & \"From api.chucknorris.io. The ICNDB stack in the examples folder does more.\"\nend mouseUp"),
         ("Where Am I?", "on mouseUp\n  put the pathSeparator into sep\n  put the long name of this stack into p\n  delete char 1 to 7 of p\n  delete last char of p\n  if sep is not in p then\n    answer \"This stack isn't saved yet. Paths here use\" && quote & sep & quote & \", the pathSeparator.\"\n    exit mouseUp\n  end if\n  set the itemDelimiter to sep\n  put the number of items of p into n\n  answer \"This stack is\" && quote & item n of p & quote && \"in\" & return & item 1 to n - 1 of p & sep & return & return & \"Paths here use\" && quote & sep & quote & \", the pathSeparator.\"\nend mouseUp"),
     ];
     for (i, (name, script)) in basics.iter().enumerate() {
-        let y = 44 + i as i32 * 28;
-        let p = b.button(name, Rect::new(360, y, 492, y + 24), script);
+        let y = 48 + i as i32 * 33;
+        let p = b.button(name, Rect::new(360, y, 492, y + 26), script);
         b.card_part(c, p);
     }
 
@@ -1000,6 +999,22 @@ end square"#,
 end mouseUp"#,
     );
     b.card_part(c, compact);
+    // Don't Save: a field that works as usual, but opens empty.
+    let dont_save = b.button(
+        "Don't Save",
+        Rect::new(336, 246, 476, 274),
+        r#"on mouseUp
+  -- Results, replies and scratch work needn't be kept: a field marked
+  -- Don't Save (in Field Info, or by script) opens empty next time.
+  set the dontSave of card field "Answer" to not the dontSave of card field "Answer"
+  if the dontSave of card field "Answer" then
+    put "Don't Save: this line won't be saved with the stack." into card field "Answer"
+  else
+    put "This line is saved with the stack again." into card field "Answer"
+  end if
+end mouseUp"#,
+    );
+    b.card_part(c, dont_save);
     let mut answer = b.label("Answer", Rect::new(20, 132, 492, 156), "", 14);
     answer.text_align = TextAlign::Center;
     b.card_part(c, answer);

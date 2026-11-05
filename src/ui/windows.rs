@@ -418,6 +418,9 @@ impl App {
                         }
                         ui.end_row();
                         changed |= ui.checkbox(&mut p.fixed_line_height, "Fixed Line Height").changed();
+                        changed |= ui.checkbox(&mut p.dont_save, "Don't Save")
+                            .on_hover_text("Its text isn't saved: it opens empty")
+                            .changed();
                         ui.end_row();
                         ui.label(format!("{} characters", text.chars().count()));
                     }

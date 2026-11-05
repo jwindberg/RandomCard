@@ -402,10 +402,20 @@ language's side is `src/runtime/web.rs`.
    Windows and macOS. The ICNDB stack in `examples/` (the Internet Chuck
    Norris Database, api.chucknorris.io): a Connection card with the base
    URL, headers and timeout, a background `apiGet` every card shares, and
-   a Random Joke card. The Tour's Fetch a Joke.
-2. **Arrays.** `element 2 of json x`, `the keys of json x`, `the
-   elements of json x` (one a line), `the number of elements of json x`.
-   ICNDB's Categories, Search and Joke by ID cards.
+   a Random Joke card. The Tour stays offline: the web demos are
+   example stacks, since the services they call aren't ours.
+2. ~~**Arrays.**~~ Done: `element 2 of json x` (from 1, or `last`),
+   nesting with keys; `the keys of json x` and `the elements of json x`,
+   one a line; `the number of elements of json x`. Objects keep their key
+   order. ICNDB's Random Joke card checks categories from the live list
+   (`?category=dev,food` for any of several); Categories, Joke by ID and
+   Search cards, with a search result opening on Joke by ID. With it,
+   ~~Don't Save fields~~ (done: `the dontSave`, and a checkbox in Field
+   Info): a field works as usual but its text isn't saved, so a stack
+   opens without its last results. ICNDB marks its outputs this way. Still
+   to decide: a message before saving, for scripts that tidy up; since
+   stacks save themselves every few seconds, it would need to work on
+   what's written, not on the cards on screen.
 3. **Every verb, and writing JSON.** `post body to url "…"`, `put body
    into url "…"` (PUT), `delete url "…"`; `set key "done" of json x to
    true`, which rewrites the text.

@@ -1900,19 +1900,23 @@ impl Parser {
             let e = self.term()?;
             return Ok(Expr::Call("__json".into(), vec![e]));
         }
-        // `key "name" of json x`, and `key "a" of key "b" of json x`: the
-        // keys go after the text, innermost first.
-        if w == "key" && self.starts_term_at(1) {
+        // `key "name" of json x`, `element 2 of json x`, and nested,
+        // `key "id" of element 1 of key "result" of json x`: the steps go
+        // after the text, each as a kind ("k" or "e") and its value,
+        // innermost first.
+        if matches!(w, "key" | "element") && self.starts_term_at(1) {
             let save = self.pos;
+            let kind = if w == "key" { "k" } else { "e" };
             self.advance();
-            let key = self.term()?;
+            let step = self.term()?;
             if self.accept("of") {
                 return match self.term()? {
                     Expr::Call(n, mut args) if n == "__json" => {
-                        args.push(key);
+                        args.push(Expr::Lit(kind.into()));
+                        args.push(step);
                         Ok(Expr::Call(n, args))
                     }
-                    _ => Err(self.err_here("Expected \"json\" after \"key … of\"")),
+                    _ => Err(self.err_here(&format!("Expected \"json\" after \"{w} … of\""))),
                 };
             }
             self.pos = save;
@@ -2055,6 +2059,21 @@ impl Parser {
                 obj: Some(Box::new(ObjSpec::Target)),
             });
         }
+        // `the number of elements of json x` (or keys).
+        if self.is("number")
+            && (self.is_at(1, "of") || self.is_at(1, "in"))
+            && matches!(self.word_at(2), Some("elements" | "keys"))
+            && (self.is_at(3, "of") || self.is_at(3, "in"))
+        {
+            let save = self.pos;
+            self.pos += 4;
+            if let Expr::Call(n, args) = self.term()?
+                && n == "__json"
+            {
+                return Ok(Expr::Call("__jsoncount".into(), args));
+            }
+            self.pos = save;
+        }
         if self.is("number") && (self.is_at(1, "of") || self.is_at(1, "in")) {
             let save = self.pos;
             self.pos += 2;
@@ -2089,6 +2108,10 @@ impl Parser {
             let obj = self.term()?;
             let obj = match obj {
                 Expr::Object(o) => o,
+                // `the keys of json x`, `the elements of json x`.
+                Expr::Call(n, args) if n == "__json" && matches!(name.as_str(), "keys" | "elements") => {
+                    return Ok(Expr::Call(format!("__json{name}"), args));
+                }
                 other => {
                     // A property of a chunk or a dynamic object reference.
                     let len = match length {
