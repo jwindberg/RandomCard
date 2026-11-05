@@ -149,7 +149,13 @@ text, multi-level undo and redo, and script-driven painting with `drag`,
 - **FatBits** (zoomed pixel editing). Needs the card view to scale.
 - **Pattern editing** (double-clicking a pattern to change it) and
   `the pattern` affecting lines and borders, which are always solid.
-- **Paint menu:** Pickup, Scale, and Revert; `the grid`, `centered` and
+- **Keep and Revert.** HyperCard saved everything as you worked except
+  painting: a card's or background's paint changes were held until Keep
+  (Paint menu, Command-K), switching to or from the background, going to
+  another card, or quitting; until then Revert threw them all away
+  (unlike Undo, which takes back only the last change). RandomCard saves
+  paint changes as they're made, so it has neither yet.
+- **Paint menu:** Pickup and Scale; `the grid`, `centered` and
   `multiple` options. (Shift-constrained drawing is done: straight
   strokes, lines and polygon sides at multiples of 15°, squares and
   circles, straight moves of a selection, and `drag … with shiftKey`.)
@@ -497,7 +503,7 @@ their feedback. For now:
    Each should be a real OS window (an egui viewport). Small alerts and
    dialogs stay in the main window, as in HyperCard.
 7. **FatBits, an icon editor and the rest of painting:** the Options and
-   Patterns menus, editing patterns, Pickup, Scale and Revert.
+   Patterns menus, editing patterns, Pickup, Scale, and Keep and Revert.
 8. **Objects in other stacks,** and history across stacks.
 9. **Report printing, MACE sound, picture windows.**
 10. **Needs a design first:** AppleEvents (`request`, `reply`): what they
