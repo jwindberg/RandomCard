@@ -747,6 +747,42 @@ impl Stack {
         }
     }
 
+    /// Compact Stack: drop what nothing uses any more. Cards keep the text,
+    /// hilite and style runs of background fields and buttons that have
+    /// since been deleted; style runs can outlast their text; and an
+    /// imported stack can have backgrounds no card uses.
+    pub fn compact(&mut self) {
+        self.backgrounds.retain(|b| self.cards.iter().any(|c| c.background == b.id));
+        for c in &mut self.cards {
+            let Some(bg) = self.backgrounds.iter().find(|b| b.id == c.background) else { continue };
+            let has = |id: &Id, kind: Option<PartKind>| bg.parts.iter().any(|p| p.id == *id && kind.is_none_or(|k| p.kind == k));
+            c.bg_text.retain(|id, _| has(id, Some(PartKind::Field)));
+            c.bg_hilite.retain(|id, _| has(id, None));
+            c.bg_styles.retain(|id, _| has(id, Some(PartKind::Field)));
+            for (id, runs) in c.bg_styles.iter_mut() {
+                styles::normalize(runs, c.bg_text.get(id).map_or(0, |t| t.chars().count()));
+            }
+            c.bg_styles.retain(|_, runs| !runs.is_empty());
+        }
+        let parts = self.cards.iter_mut().flat_map(|c| c.parts.iter_mut());
+        for p in parts.chain(self.backgrounds.iter_mut().flat_map(|b| b.parts.iter_mut())) {
+            let len = p.contents.chars().count();
+            styles::normalize(&mut p.styles, len);
+        }
+    }
+
+    /// The size of the stack as saved, in bytes.
+    pub fn size(&self) -> usize {
+        serde_json::to_string(self).map(|j| j.len()).unwrap_or(0)
+    }
+
+    /// What Compact Stack would free, in bytes (`the freeSize`).
+    pub fn free_size(&self) -> usize {
+        let mut compacted = self.clone();
+        compacted.compact();
+        self.size().saturating_sub(compacted.size())
+    }
+
     pub fn save(&self, path: &std::path::Path) -> Result<(), String> {
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         std::fs::write(path, json).map_err(|e| format!("Can't save {}: {e}", path.display()))
@@ -783,6 +819,29 @@ impl Stack {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compacting() {
+        let mut stack = Stack::demo();
+        let card = stack.cards[0].id;
+        // Text, a hilite and styles left behind by a deleted background field.
+        stack.cards[0].bg_text.insert(9999, "left behind".into());
+        stack.cards[0].bg_hilite.insert(9999, true);
+        stack.cards[0].bg_styles.insert(9999, vec![StyleRun { start: 0, style: Default::default() }]);
+        let unused = Background { id: 9998, ..stack.backgrounds[0].clone() };
+        stack.backgrounds.push(unused);
+        let before = stack.clone();
+        assert!(stack.free_size() > 0);
+        stack.compact();
+        assert_eq!(stack.free_size(), 0);
+        assert!(!stack.cards[0].bg_text.contains_key(&9999) && !stack.cards[0].bg_hilite.contains_key(&9999));
+        assert!(stack.backgrounds.iter().all(|b| b.id != 9998));
+        assert_eq!(stack.backgrounds.len(), before.backgrounds.len() - 1);
+        assert_eq!(stack.size(), before.size() - before.free_size());
+        // Everything in use stays.
+        assert_eq!(stack.cards.len(), before.cards.len());
+        let _ = card;
+    }
 
     #[test]
     fn save_and_load_round_trip() {

@@ -59,7 +59,7 @@ impl MenuState {
         let key = item_key(item);
         let mut label = item.to_string();
         let enabled = match key.as_str() {
-            "save stack" => !self.cant_modify,
+            "save stack" | "compact stack" => !self.cant_modify,
             "undo" => self.can_undo && self.editing >= 2,
             "redo" => self.can_redo && self.editing >= 2,
             "cut" | "copy" | "clear" => {

@@ -894,6 +894,20 @@ end square"#,
         ),
     );
     b.card_part(c, find);
+    // Compact Stack, and the size and freeSize of a stack.
+    let compact = b.button(
+        "Compact Stack",
+        Rect::new(186, 246, 326, 274),
+        r#"on mouseUp
+  put the size of this stack into before
+  put the freeSize of this stack into free
+  doMenu "Compact Stack"
+  put "Compact Stack drops text and styles left by deleted background fields, and backgrounds no card uses." into what
+  if free is 0 then answer "This stack is" && before && "bytes, with nothing to free." && what
+  else answer what && "It freed" && free && "of this stack's" && before && "bytes."
+end mouseUp"#,
+    );
+    b.card_part(c, compact);
     let mut answer = b.label("Answer", Rect::new(20, 132, 492, 156), "", 14);
     answer.text_align = TextAlign::Center;
     b.card_part(c, answer);

@@ -655,10 +655,10 @@ impl Interp {
                     "cantabort" => bool_str(s.protection.cant_abort),
                     "cantpeek" => bool_str(s.protection.cant_peek),
                     "privateaccess" => bool_str(s.protection.private_access),
-                    "size" => serde_json::to_string(s).map(|j| j.len()).unwrap_or(0).to_string(),
-                    // Space Compact Stack would free. RandomCard writes stacks
-                    // whole, so there's never any.
-                    "freesize" => "0".into(),
+                    "size" => s.size().to_string(),
+                    // Space Compact Stack would free: text and styles left by
+                    // deleted background fields, and unused backgrounds.
+                    "freesize" => s.free_size().to_string(),
                     // How far the card is scrolled in its window (HyperCard
                     // 2): RandomCard always shows the whole card.
                     "scroll" => w.card_scroll.clone(),

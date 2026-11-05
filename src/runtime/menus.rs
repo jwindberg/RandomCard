@@ -70,11 +70,11 @@ pub fn item_key(name: &str) -> String {
 }
 
 /// HyperCard 2's menu items that RandomCard has nothing behind yet, or never
-/// needs (Compact Stack: stacks are written whole). Scripts can still choose,
+/// needs. Scripts can still choose,
 /// enable, disable and delete them, as Apple's stacks do, but the menus don't
 /// show them.
 pub const SCRIPT_ONLY_ITEMS: &[&str] = &[
-    "compact stack", "page setup", "print report", "text style", "icon", "audio", "help", "scroll", "next window",
+    "page setup", "print report", "text style", "icon", "audio", "help", "scroll", "next window",
 ];
 
 /// RandomCard's standard menu bar, in HyperCard's order.

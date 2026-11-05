@@ -131,7 +131,6 @@ menu bar or replace HyperCard's menus with their own.
 
 **Still to do:**
 - Options and Patterns as menus.
-- Delete Stack, which should respect `cantDelete`.
 
 **What protection can and can't do.** It keeps a stack's users from
 changing it by accident or casually. It isn't security: a `.rcstack` file
@@ -244,7 +243,7 @@ loaded to come back to.
   left.
 - **Home as HyperCard had it:** its user-level card, search paths and stack
   list. RandomCard keeps the user level in Preferences instead.
-- **Card size** changes (`set the rect of card window`), and **Compact Stack**.
+- **Card size** changes (`set the rect of card window`).
 
 ## Editing and the UI
 
@@ -403,10 +402,10 @@ their feedback. For now:
 
 1. **Color, steps 1 and 2:** color pictures, then the color palette (see
    Color). Released as 0.2.0.
-2. **Small, clearly good features,** between larger pieces: Compact Stack
-   and Delete Stack. (Shift for straight lines and perfect shapes, the
-   script editor's Find and Replace and Go to Line, and copying styled
-   text between fields are done.)
+2. **Small, clearly good features,** between larger pieces. Done so far:
+   Shift for straight lines and perfect shapes, the script editor's Find
+   and Replace and Go to Line, copying styled text between fields, and
+   Compact Stack (Delete Stack was already in).
 3. **Color, steps 3 to 5:** images with Import and Export Paint, colored
    parts and text, printing in color.
 4. **HyperCard 2.4's own features:** audit them in the real HyperCard

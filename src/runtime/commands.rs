@@ -2128,7 +2128,8 @@ impl Interp {
             _ if is_text_menu_item(&key) => self.text_menu(&key),
             // Nothing to do: stacks are written whole, printing goes through
             // PDF, and there's one window and no help stack.
-            "compact stack" | "page setup" | "scroll" | "next window" | "help" | "about hypercard"
+            "compact stack" => self.compact_stack(),
+            "page setup" | "scroll" | "next window" | "help" | "about hypercard"
             | "about randomcard" => Ok(()),
             "print report" | "text style" | "icon" | "audio" => {
                 let name = item.trim().trim_end_matches('…').trim_end_matches("...");
@@ -2153,6 +2154,22 @@ impl Interp {
                 Ok(())
             }
         }
+    }
+
+    /// Compact Stack: drop what the stack no longer uses, then save it, as
+    /// HyperCard did. A stack with no file yet, or that can't be modified,
+    /// is only compacted in memory.
+    fn compact_stack(&mut self) -> R<()> {
+        let save = {
+            let mut w = self.w();
+            let freed = w.stack.free_size();
+            if freed > 0 {
+                w.stack.compact();
+                w.dirty = true;
+            }
+            w.stack.path.is_some() && !w.stack.cant_modify && w.dirty
+        };
+        if save { self.save_stack(None) } else { Ok(()) }
     }
 
     /// Delete Stack: after asking, remove the stack's RandomCard file and go

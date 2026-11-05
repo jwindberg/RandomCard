@@ -398,6 +398,8 @@ fn demo_stack_runs() {
         assert_eq!(click(&mut i, "Debugging", b), None, "{b}");
     }
     assert_eq!(run(&mut i, "global tourVisits\nput tourVisits"), "1");
+    i.canned_answers.push(DialogReply::Button("OK".into()));
+    assert_eq!(click(&mut i, "Debugging", "Compact Stack"), None);
     // Find in a Script opens the editor on another button's script.
     assert_eq!(click(&mut i, "Debugging", "Find in a Script"), None);
     assert!(lock(&i.world).msg.contains("replaces"), "{}", lock(&i.world).msg);
@@ -1793,6 +1795,30 @@ fn hypercard_2_menu_items() {
     run(&mut i, "print bg field \"Name\"");
     let pdf = String::from_utf8_lossy(&std::fs::read(i.printed.last().unwrap()).unwrap()).to_string();
     assert!(pdf.contains("/BaseFont /Courier"), "the field printed in Courier");
+}
+
+#[test]
+fn compact_stack_frees_space_and_saves() {
+    let dir = std::env::temp_dir().join(format!("randomcard-compact-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("Roomy.rcstack");
+    let mut s = stack();
+    // Text a deleted background field left on the first card.
+    s.cards[0].bg_text.insert(4242, "nobody reads this any more".into());
+    s.save(&path).unwrap();
+    s.path = Some(path.clone());
+    let mut i = interp_with(s);
+    let free: usize = run(&mut i, "put the freeSize of this stack").parse().unwrap();
+    assert!(free > 20, "{free}");
+    let size: usize = run(&mut i, "put the size of this stack").parse().unwrap();
+    run(&mut i, "doMenu \"Compact Stack\"");
+    assert_eq!(run(&mut i, "put the freeSize of this stack"), "0");
+    assert_eq!(run(&mut i, "put the size of this stack"), (size - free).to_string());
+    // It's saved, as HyperCard's Compact Stack wrote the stack.
+    let saved = Stack::load(&path).unwrap();
+    assert!(!saved.cards[0].bg_text.contains_key(&4242));
+    assert!(!lock(&i.world).dirty);
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
