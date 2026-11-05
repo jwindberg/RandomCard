@@ -1218,6 +1218,10 @@ impl Interp {
             let mut w = self.w();
             w.card_id = id;
             w.focus = None;
+            // AddColor's temporary colors and colorBackground last only
+            // while the card is shown.
+            w.addcolor.temp.clear();
+            w.addcolor.card_off = None;
             w.note_recent(id);
             if record {
                 let pos = w.history_pos;
@@ -1492,6 +1496,7 @@ impl Interp {
                 "textfont" => s.font.clone().unwrap_or_else(|| part.text_font.clone()),
                 "textsize" => s.size.unwrap_or(part.text_size).to_string(),
                 "textstyle" => styles::normalize_style(s.style.as_deref().unwrap_or(&part.text_style)),
+                "forecolor" => s.color.or(part.fore_color).map(crate::model::color::color_text).unwrap_or_default(),
                 _ => String::new(),
             })
             .collect();
@@ -1522,6 +1527,18 @@ impl Interp {
                 let style = styles::normalize_style(v);
                 let style = (style != styles::normalize_style(&part.text_style)).then_some(style);
                 styles::apply(&mut runs, r.start, r.end, len, |s| s.style = style.clone());
+            }
+            "forecolor" => {
+                let color = if v.trim().is_empty() || v.trim().eq_ignore_ascii_case("none") {
+                    None
+                } else {
+                    match crate::model::color::parse_color(v) {
+                        Some(c) => Some(c),
+                        None => return err(format!("Expected a color but found \"{v}\"")),
+                    }
+                };
+                let color = color.filter(|c| Some(*c) != part.fore_color);
+                styles::apply(&mut runs, r.start, r.end, len, |s| s.color = color);
             }
             _ => return err(format!("Can't set the {prop} of a chunk")),
         }
@@ -1923,6 +1940,7 @@ impl Interp {
         let key = menus::item_key(item);
         match key.as_str() {
             "protect stack" => self.request(UiRequest::ProtectStack),
+            "text color" => self.request(UiRequest::TextColor),
             "preferences" => self.request(UiRequest::Preferences),
             "tool panel" => self.request(UiRequest::ToggleToolPanel),
             "print card" => {

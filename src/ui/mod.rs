@@ -3,6 +3,8 @@
 mod addcolor;
 mod debugger;
 mod editing;
+mod images;
+mod text_color;
 mod menus;
 mod levels;
 mod list_dialog;
@@ -110,6 +112,11 @@ pub struct App {
     /// Export Paint under way: the card is drawn without selections or
     /// windows over it until the screenshot is saved.
     export: Option<painting::Export>,
+    /// The system clipboard's image when a part was last copied, so Paste
+    /// can tell if another program has copied an image since.
+    system_image_at_copy: Option<u64>,
+    /// Style ▸ Text Color…, while it's open.
+    text_color: Option<text_color::TextColor>,
     prefs_open: bool,
     protect_open: bool,
     password_prompt: Option<PasswordPrompt>,
@@ -213,6 +220,8 @@ impl App {
             card_on_screen: None,
             card_origin: egui::Pos2::ZERO,
             export: None,
+            system_image_at_copy: None,
+            text_color: None,
             prefs_open: false,
             protect_open: false,
             password_prompt: None,
@@ -332,7 +341,7 @@ impl App {
         let editing = state.editing;
         let state = MenuState {
             target: self.edit_target_name(),
-            paste: self.paste_name().filter(|t| editing >= if *t == "Picture" { 3 } else { 4 }),
+            paste: self.paste_name().filter(|t| editing >= if matches!(*t, "Picture" | "") { 3 } else { 4 }),
             text_style: self.current_text_style(),
             ..state
         };
@@ -590,6 +599,7 @@ impl App {
                 UiRequest::Key(target, action) => self.key_action(ctx, target, action),
                 UiRequest::PaintOp(op) => self.apply_paint_op(op),
                 UiRequest::SelectAll => self.select_all(),
+                UiRequest::TextColor => self.open_text_color(),
                 UiRequest::SelectPaint(rect) => self.select_paint(rect),
                 UiRequest::ExportPaint(path) => self.export = Some(painting::Export::new(path)),
                 UiRequest::ProtectStack => self.open_protect_stack(),
@@ -813,7 +823,7 @@ impl App {
                     .filter_map(|e| match e {
                         egui::Event::Cut => Some(("x", "Cut")),
                         egui::Event::Copy => Some(("c", "Copy")),
-                        egui::Event::Paste(_) => Some(("v", "Paste")),
+                        egui::Event::Paste(_) | egui::Event::PasteImage(_) => Some(("v", "Paste")),
                         _ => None,
                     })
                     .collect()
@@ -2094,6 +2104,7 @@ impl eframe::App for App {
             self.canvas(ui);
         });
 
+        self.dropped_files(&ctx);
         // Export Paint: nothing over the card until its picture is taken.
         if self.export.is_some() {
             self.take_export(&ctx);
@@ -2107,6 +2118,7 @@ impl eframe::App for App {
         self.show_dialog(&ctx);
         self.show_error(&ctx);
         self.show_preferences(&ctx);
+        self.text_color_window(&ctx);
         self.show_protect_stack(&ctx);
         self.show_password_prompt(&ctx);
         self.quit_prompt(&ctx);

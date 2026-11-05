@@ -279,9 +279,8 @@ resources) for buttons, fields and rectangles.
   are FFmpeg's (LGPL) and ports of it; using one means taking on its
   license, or writing a decoder from a description of the format.
 - **AddColor pictures** (PICT resources or files) are imported but not
-  drawn, and bevels show only on transparent parts. AddColor's own XCMD
-  commands (`colorCard`, `addColor colorButton`…) aren't implemented, so
-  scripts can't change colors.
+  drawn, and bevels show only on transparent parts. AddColor's changes
+  show at once, not at the next `colorCard`.
 - **XCMDs and XFCNs.** These are 68k/PowerPC code and can't run directly.
   The common ones are built in as features; see Externals below.
 - **PICT resources:** bitmaps decode (src/import/pict.rs); QuickDraw's
@@ -364,18 +363,25 @@ together, and black on white is just the default.
    Tour's Drawing card
    paints balloons in color. Still to come: two-color patterns (a
    background color for the clear bits), and painting with transparency.
-3. **Images.** ~~HyperCard 2.x's Import Paint and Export Paint~~ (done:
-   in the File menu with a paint tool and from scripts; Import Paint
+3. ~~**Images.**~~ Done: HyperCard 2.x's Import Paint and Export Paint,
+   in the File menu with a paint tool and from scripts. Import Paint
    reads PNG, JPEG, GIF and BMP, and old MacPaint and PICT files, and
    leaves the picture selected; Export Paint saves the card as it looks,
-   parts and all, as a PNG; the Tour's Picture Files). Still to come: PNG
-   and JPEG pasted or dropped onto a card become a paint selection, as
-   pasted art was in HyperCard.
-4. **Colored parts and text.** Fill, text and frame colors for buttons and
-   fields in their Info windows and as properties (`the foreColor`,
-   `the backColor`), and a color in text style runs. AddColor's items
-   become part colors rather than a layer on top, with its commands for
-   scripts.
+   parts and all, as a PNG. An image copied in another program pastes as
+   a paint selection, and a picture file dropped onto the card lands
+   where it's dropped; either is scaled down to fit the card. Pictures
+   copied in RandomCard go onto the system clipboard for other programs.
+   The Tour's Picture Files.
+4. **Colored parts and text.** ~~Fill, text and frame colors for buttons
+   and fields in their Info windows and as properties~~ (done: `the
+   foreColor`, `the backColor` and `the borderColor`, LiveCode's names, as
+   HyperCard had none; a hilited part swaps its fill and text colors; the
+   Tour's Colors on the Fields card). ~~A color in text style runs~~
+   (done: `the foreColor` of a chunk, Style ▸ Text Color…, kept by Copy
+   Text). ~~AddColor's commands for scripts~~ (done: every addColor
+   function, on the color lists cards and backgrounds keep; the Tour's
+   Color the House). AddColor stays its own layer rather than becoming
+   part colors: its commands address items by their place in that list.
 5. **Printing in color**, including AddColor.
 
 A new release follows steps 1 and 2.
@@ -410,8 +416,8 @@ their feedback. For now:
    Shift for straight lines and perfect shapes, the script editor's Find
    and Replace and Go to Line, copying styled text between fields, and
    Compact Stack (Delete Stack was already in).
-3. **Color, steps 3 to 5:** images with Import and Export Paint, colored
-   parts and text, printing in color.
+3. **Color, steps 3 to 5:** images and colored parts and text (done,
+   released as 0.3.0), then printing in color.
 4. **HyperCard 2.4's own features:** audit them in the real HyperCard
    2.4.1 (Basilisk II, `examples/apple/emulator-2.4/run.sh`): QuickTime
    from HyperTalk, URLs, the new script editor, and its menus and tools.

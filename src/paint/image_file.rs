@@ -76,6 +76,29 @@ fn macpaint(data: &[u8]) -> Option<Picture> {
     Some(pic)
 }
 
+/// A picture from RGBA bytes, row by row (as the system clipboard gives).
+pub fn from_rgba_bytes(width: u32, height: u32, bytes: &[u8]) -> Picture {
+    from_rgba(width, height, bytes.as_chunks::<4>().0.iter().copied())
+}
+
+/// The picture's pixels as RGBA bytes, row by row.
+pub fn rgba_bytes(pic: &Picture) -> Vec<u8> {
+    pic.iter().flat_map(|p| p.0).collect()
+}
+
+/// The picture scaled down, keeping its shape, so it fits in `width` by
+/// `height`; as it is if it already fits.
+pub fn fit_within(pic: Picture, width: u32, height: u32) -> Picture {
+    if pic.width <= width && pic.height <= height || pic.width == 0 || pic.height == 0 {
+        return pic;
+    }
+    let scale = (width as f64 / pic.width as f64).min(height as f64 / pic.height as f64);
+    let (w, h) = (((pic.width as f64 * scale).round() as u32).max(1), ((pic.height as f64 * scale).round() as u32).max(1));
+    let Some(img) = image::RgbaImage::from_raw(pic.width, pic.height, rgba_bytes(&pic)) else { return pic };
+    let small = image::imageops::resize(&img, w, h, image::imageops::FilterType::Triangle);
+    from_rgba(w, h, small.pixels().map(|p| p.0))
+}
+
 /// RGBA pixels, row by row, as a PNG.
 pub fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
@@ -118,6 +141,19 @@ mod tests {
         assert_eq!(decode(&mb).unwrap().get(0, 0), Pixel::BLACK);
         // Cut short, it isn't one.
         assert!(decode(&macpaint_doc()[..600]).is_err());
+    }
+
+    #[test]
+    fn fitting() {
+        let mut big = Picture::new(1000, 500);
+        big.set(999, 499, Pixel::BLACK);
+        let small = fit_within(big, 512, 342);
+        // Half the size, the same shape.
+        assert_eq!((small.width, small.height), (512, 256));
+        let tiny = Picture::new(20, 10);
+        assert_eq!(fit_within(tiny.clone(), 512, 342), tiny);
+        let bytes = rgba_bytes(&small);
+        assert_eq!(from_rgba_bytes(512, 256, &bytes), small);
     }
 
     #[test]

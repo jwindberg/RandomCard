@@ -72,7 +72,7 @@ impl MenuState {
                 self.target.is_some()
             }
             "paste" => {
-                if let Some(t) = self.paste {
+                if let Some(t) = self.paste.filter(|t| !t.is_empty()) {
                     label = format!("Paste {t}");
                 }
                 self.paste.is_some()

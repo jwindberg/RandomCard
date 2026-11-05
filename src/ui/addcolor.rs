@@ -7,8 +7,9 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 
 use eframe::egui::Color32;
 
-use crate::model::color::ColorTarget;
-use crate::model::{Id, Part, PartKind, PartStyle, Rect, Stack};
+use crate::model::color::{ColorItem, ColorTarget};
+use crate::model::{Id, Layer, Part, PartKind, PartStyle, Rect};
+use crate::runtime::world::World;
 
 #[derive(Clone, Copy, Debug, PartialEq, Hash)]
 pub enum Shape {
@@ -30,34 +31,53 @@ pub struct ColorShape {
 /// How much color a transparent part gets, as in HyperCardPreview.
 const TRANSPARENT_ALPHA: u8 = 161;
 
-/// The shapes to color for a card, background items first. Editing the
-/// background shows only its own.
-pub fn shapes(stack: &Stack, card: Id, edit_bg: bool) -> Vec<ColorShape> {
+/// The shapes to color for a card, background items first, then AddColor's
+/// temporary items in front. Editing the background shows only its own.
+/// `colorCardLayered` puts every rectangle behind every part's color;
+/// `colorBackground` leaves the card's own out; `addColor remove`, all.
+pub fn shapes(w: &World, card: Id, edit_bg: bool) -> Vec<ColorShape> {
+    let stack = &w.stack;
+    let ac = &w.addcolor;
     let Some(c) = stack.card(card) else { return Vec::new() };
+    if ac.removed_in == Some(w.stack_serial) {
+        return Vec::new();
+    }
     let bg = stack.background(c.background);
-    let mut out = Vec::new();
-    let mut add = |items: &[crate::model::color::ColorItem], parts: &[Part]| {
-        for item in items.iter().filter(|i| i.enabled) {
-            let part = |id: Id, kind: PartKind| parts.iter().find(|p| p.id == id && p.kind == kind && p.visible);
-            let shape = match &item.target {
-                ColorTarget::Button { id, color, bevel } => part(*id, PartKind::Button).and_then(|p| part_shape(p, *color, *bevel)),
-                ColorTarget::Field { id, color, bevel } => part(*id, PartKind::Field).and_then(|p| part_shape(p, *color, *bevel)),
-                ColorTarget::Rect { rect, color, bevel } => {
-                    Some(ColorShape { rect: *rect, shape: Shape::Rect, color: opaque(*color), bevel: *bevel as i32 })
-                }
-                // PICT pictures aren't decoded yet.
-                ColorTarget::Picture { .. } => None,
-            };
-            out.extend(shape);
-        }
+    let empty = (Vec::new(), Vec::new());
+    let (bg_items, bg_parts) = bg.map_or((&empty.0, &empty.1), |b| (&b.colors, &b.parts));
+    let card_shown = !edit_bg && ac.card_off != Some(card);
+    let (cd_items, cd_parts) = if card_shown { (&c.colors, &c.parts) } else { (&empty.0, &empty.1) };
+    let temp: Vec<(&ColorItem, &Vec<Part>)> = if card == w.card_id {
+        ac.temp
+            .iter()
+            .filter(|(id, layer, _)| *id == card && (*layer == Layer::Background || !edit_bg))
+            .map(|(_, layer, item)| (item, if *layer == Layer::Card { &c.parts } else { bg_parts }))
+            .collect()
+    } else {
+        Vec::new()
     };
-    if let Some(bg) = bg {
-        add(&bg.colors, &bg.parts);
+    let mut layers: Vec<(&ColorItem, &Vec<Part>)> = Vec::new();
+    layers.extend(bg_items.iter().map(|i| (i, bg_parts)));
+    layers.extend(cd_items.iter().map(|i| (i, cd_parts)));
+    if ac.layered {
+        // Stable: within rectangles and within parts, the order stays.
+        layers.sort_by_key(|(i, _)| matches!(i.target, ColorTarget::Button { .. } | ColorTarget::Field { .. }));
     }
-    if !edit_bg {
-        add(&c.colors, &c.parts);
+    layers.extend(temp);
+    layers.into_iter().filter(|(i, _)| i.enabled).filter_map(|(item, parts)| shape(item, parts)).collect()
+}
+
+fn shape(item: &ColorItem, parts: &[Part]) -> Option<ColorShape> {
+    let part = |id: Id, kind: PartKind| parts.iter().find(|p| p.id == id && p.kind == kind && p.visible);
+    match &item.target {
+        ColorTarget::Button { id, color, bevel } => part(*id, PartKind::Button).and_then(|p| part_shape(p, *color, *bevel)),
+        ColorTarget::Field { id, color, bevel } => part(*id, PartKind::Field).and_then(|p| part_shape(p, *color, *bevel)),
+        ColorTarget::Rect { rect, color, bevel } => {
+            Some(ColorShape { rect: *rect, shape: Shape::Rect, color: opaque(*color), bevel: *bevel as i32 })
+        }
+        // PICT pictures aren't decoded yet.
+        ColorTarget::Picture { .. } => None,
     }
-    out
 }
 
 fn opaque([r, g, b]: [u8; 3]) -> [u8; 4] {

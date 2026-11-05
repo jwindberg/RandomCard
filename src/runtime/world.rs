@@ -456,6 +456,8 @@ pub enum UiRequest {
     /// A Paint menu command, applied to the selection (or the whole picture).
     PaintOp(crate::paint::PaintOp),
     SelectAll,
+    /// Style ▸ Text Color…: a color for the selected text.
+    TextColor,
     /// Select this rectangle of the picture with the Select tool (after
     /// Import Paint).
     SelectPaint((i32, i32, i32, i32)),
@@ -541,6 +543,8 @@ pub struct World {
     pub mouse: MouseState,
     pub transition: Option<Transition>,
     pub transition_seq: u64,
+    /// AddColor's switches and temporary items.
+    pub addcolor: super::addcolor::AddColorState,
     /// Unsaved changes.
     pub dirty: bool,
     /// Bumped whenever a picture changes so the UI can refresh textures.
@@ -713,6 +717,7 @@ impl World {
             mouse: MouseState::default(),
             transition: None,
             transition_seq: 0,
+            addcolor: Default::default(),
             dirty,
             picture_rev: 0,
             requests: Vec::new(),
@@ -915,6 +920,7 @@ impl World {
             font: Some(p.text_font.clone()),
             size: Some(p.text_size),
             style: Some(p.text_style.clone()),
+            color: p.fore_color,
         });
         TextClip { text: self.range_text(r), runs: styles::copy_runs(&runs, r.start, r.end.max(r.start), &own) }
     }

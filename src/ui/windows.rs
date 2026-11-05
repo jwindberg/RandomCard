@@ -350,6 +350,13 @@ impl App {
                         }
                     });
                     ui.end_row();
+                    ui.label("Colors:");
+                    ui.horizontal(|ui| {
+                        changed |= color_choice(ui, "Text", &mut p.fore_color, [0, 0, 0]);
+                        changed |= color_choice(ui, "Fill", &mut p.back_color, [255, 255, 255]);
+                        changed |= color_choice(ui, "Frame", &mut p.border_color, [0, 0, 0]);
+                    });
+                    ui.end_row();
                 });
                 ui.separator();
                 egui::Grid::new("part-flags").num_columns(2).show(ui, |ui| {
@@ -1290,6 +1297,23 @@ fn live_info(w: &World, x: i32, y: i32) -> String {
     let name = w.stack.card(card).map(|c| c.name.clone()).unwrap_or_default();
     let number = w.stack.cards.iter().position(|c| c.id == card).map_or(0, |i| i + 1);
     format!("card {number} \"{name}\"\nid {card}\nof stack \"{}\"", w.stack.name)
+}
+
+/// One of a part's colors in its Info window: a swatch to pick it, and ×
+/// to go back to black and white. Returns whether it changed.
+fn color_choice(ui: &mut egui::Ui, label: &str, color: &mut Option<crate::model::color::Rgb>, default: crate::model::color::Rgb) -> bool {
+    let mut changed = false;
+    ui.label(label);
+    let mut rgb = color.unwrap_or(default);
+    if ui.color_edit_button_srgb(&mut rgb).changed() {
+        *color = Some(rgb);
+        changed = true;
+    }
+    if color.is_some() && ui.small_button("×").on_hover_text("Back to black and white").clicked() {
+        *color = None;
+        changed = true;
+    }
+    changed
 }
 
 #[cfg(test)]

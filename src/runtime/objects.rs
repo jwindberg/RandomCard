@@ -540,6 +540,15 @@ impl Interp {
                     "visible" => bool_str(p.visible),
                     "style" => p.style.name().to_string(),
                     "textfont" => p.text_font.clone(),
+                    // Empty when the part has none, for black and white.
+                    "forecolor" | "backcolor" | "bordercolor" => {
+                        let c = match name {
+                            "forecolor" => p.fore_color,
+                            "backcolor" => p.back_color,
+                            _ => p.border_color,
+                        };
+                        c.map(crate::model::color::color_text).unwrap_or_default()
+                    }
                     "textsize" => p.text_size.to_string(),
                     "textheight" => p.line_height().to_string(),
                     "fixedlineheight" => bool_str(p.fixed_line_height),
@@ -723,11 +732,12 @@ impl Interp {
                 if matches!(name, "contents" | "text") {
                     return self.set_object_value(o, v.to_string());
                 }
-                if matches!(name, "textfont" | "textsize" | "textstyle") {
+                if matches!(name, "textfont" | "textsize" | "textstyle" | "forecolor") {
                     // The whole field takes the new setting, as in HyperCard.
                     self.w().stack.restyle_field(card, layer, id, |s| match name {
                         "textfont" => s.font = None,
                         "textsize" => s.size = None,
+                        "forecolor" => s.color = None,
                         _ => s.style = None,
                     });
                 }
@@ -777,6 +787,22 @@ impl Interp {
                         None => return bad("a style"),
                     },
                     "textfont" => p.text_font = v.to_string(),
+                    "forecolor" | "backcolor" | "bordercolor" => {
+                        // Empty (or "none") goes back to black and white.
+                        let c = if v.trim().is_empty() || v.trim().eq_ignore_ascii_case("none") {
+                            None
+                        } else {
+                            match crate::model::color::parse_color(v) {
+                                Some(c) => Some(c),
+                                None => return err(format!("Expected a color but found \"{v}\"")),
+                            }
+                        };
+                        match name {
+                            "forecolor" => p.fore_color = c,
+                            "backcolor" => p.back_color = c,
+                            _ => p.border_color = c,
+                        }
+                    }
                     "textsize" => {
                         p.text_size = to_int(v)?.clamp(6, 128) as u32;
                         // As in HyperCard, the line height follows the size.

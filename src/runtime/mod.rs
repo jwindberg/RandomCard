@@ -1,5 +1,6 @@
 //! Running stacks: the shared world state and the HyperTalk interpreter.
 
+pub mod addcolor;
 mod builtins;
 mod commands;
 mod externals;

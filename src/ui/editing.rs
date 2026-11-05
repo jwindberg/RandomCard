@@ -56,13 +56,15 @@ impl App {
     }
 
     pub(super) fn paste_name(&self) -> Option<&'static str> {
-        if self.world().tool == Tool::Browse {
-            return self.editing.is_some().then_some("Text");
+        if self.world().tool == Tool::Browse && self.editing.is_some() {
+            return Some("Text");
         }
         match &self.clipboard {
             Some(Clip::Part { part, .. }) => Some(if part.kind == PartKind::Button { "Button" } else { "Field" }),
             Some(Clip::Picture { .. }) => Some("Picture"),
-            None => None,
+            // Maybe an image from another program: looking would mean
+            // reading the system clipboard every frame, so plain "Paste".
+            None => Some(""),
         }
     }
 
@@ -81,10 +83,13 @@ impl App {
         }
         match op {
             EditOp::Copy => {
-                self.copy_selection();
+                if self.copy_selection() {
+                    self.copied_to_clipboard(ctx);
+                }
             }
             EditOp::Cut => {
                 if self.copy_selection() {
+                    self.copied_to_clipboard(ctx);
                     self.clear_selection();
                 }
             }
@@ -130,6 +135,11 @@ impl App {
     }
 
     fn paste(&mut self) {
+        // An image copied in another program since.
+        if let Some(pic) = self.newer_system_image() {
+            self.paste_image(pic, None);
+            return;
+        }
         match &self.clipboard {
             Some(Clip::Part { part, text, styles, hilite }) => {
                 let (part, text, styles, hilite) = ((**part).clone(), text.clone(), styles.clone(), *hilite);

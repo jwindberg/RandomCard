@@ -286,6 +286,13 @@ impl Interp {
         if let Some(r) = self.rinaldi_command(name, args) {
             return Some(r);
         }
+        if name == "addcolor" {
+            return Some(self.addcolor(args));
+        }
+        // It installed AddColor into a stack, which needs nothing here.
+        if name == "ac_remoteinstall" {
+            return Some(Ok(()));
+        }
         let arg = |i: usize| args.get(i).cloned().unwrap_or_default();
         Some(match name {
             // TEXWindow name, text, left, top, right, bottom, font, size,

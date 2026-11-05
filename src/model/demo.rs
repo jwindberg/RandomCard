@@ -304,7 +304,7 @@ pub fn build() -> Stack {
     lesson.text_size = 12;
     lesson.contents = "Scripts are made of handlers that respond to messages. When you click a button, RandomCard sends it \"mouseUp\":\n\non mouseUp\n  put \"Hello\" into field 1\nend mouseUp\n\nIf the button doesn't handle a message it travels on: button → card → background → stack. That is the message path.\n\nEverything is text. Chunk expressions pick text apart:\n\n  put word 2 of line 3 of field \"Notes\" into x\n  put \"!\" after the last char of x\n\nAsk and answer talk to the user:\n\n  ask \"Your name?\"\n  answer \"Hi\" && it\n\nTry the buttons on the right, then open their scripts with the Button tool. Or type into the message box (SHORTCUT_M), e.g.\n\n  put the number of cards\n  go to card \"Dice\"\n  answer the long date\n\nClick any word in this text: the field's script shows the clickText and clickLine. The list under the buttons is an autoSelect field, and its script goes to the card you pick.".replace("SHORTCUT_M", &shortcut("M"));
     // Code in Monaco, key ideas in bold.
-    let code = TextStyle { font: Some("Monaco".into()), size: Some(9), style: None };
+    let code = TextStyle { font: Some("Monaco".into()), size: Some(9), style: None, color: None };
     let bold = TextStyle { style: Some("bold".into()), ..Default::default() };
     for (needle, style) in [
         ("handlers", &bold),
@@ -520,7 +520,7 @@ on mouseUp
     answer the result
     exit mouseUp
   end if
-  answer "Saved this card as a PNG. Import Paint reads PNG, JPEG, GIF and BMP, and old MacPaint and PICT files." ¬
+  answer "Saved this card as a PNG. Import Paint reads PNG, JPEG, GIF and BMP, and old MacPaint and PICT files. You can also paste an image copied in another program, or drop a picture file onto the card." ¬
       with "Done" or "Import It"
   if it is "Done" then exit mouseUp
   doMenu "New Card"
@@ -535,6 +535,30 @@ on mouseUp
 end mouseUp"#,
     );
     b.card_part(c, Part { style: PartStyle::Standard, ..files });
+    // AddColor, HyperCard 2's Color Tools: color rectangles behind the
+    // black-and-white picture, which color only its white.
+    let addcolor = b.button(
+        "Color the House",
+        Rect::new(196, 70, 316, 92),
+        r#"
+on mouseUp
+  addColor getObjectType,cd,1
+  if the result is empty then
+    addColor addRect,cd,"0,96,512,261","42000,54000,65535",0,-1 -- sky
+    addColor addRect,cd,"90,191,210,261","65535,60000,42000",3,-1 -- walls
+    addColor addRect,cd,"0,262,512,304","30000,52000,30000",0,-1 -- grass
+    addColor colorCard,dissolve,30
+    put "AddColor colors the white of the picture; the black lines stay black."
+  else
+    repeat 3 times
+      addColor removeObject,cd,1
+    end repeat
+    addColor colorCard,dissolve,30
+    put "Back to black and white."
+  end if
+end mouseUp"#,
+    );
+    b.card_part(c, Part { style: PartStyle::Standard, ..addcolor });
 
     // ----- Animation -----
     // A small state machine in the card's script: whether the ball is
@@ -750,7 +774,7 @@ end tabKey
     // Switch, from the same collection: items to lines and back.
     let mut switch = b.button(
         "Switch",
-        Rect::new(80, 314, 180, 336),
+        Rect::new(216, 12, 300, 34),
         "on mouseUp\n  put Switch(\"red,green,blue\") into asLines\n  answer \"Switch makes items lines:\" & return & asLines & return & return & \"and lines items again:\" && Switch(asLines)\nend mouseUp",
     );
     switch.style = PartStyle::RoundRect;
@@ -781,6 +805,41 @@ end mouseUp"#,
     );
     styled.style = PartStyle::RoundRect;
     b.card_part(c, styled);
+    // Part colors: text, fill and frame.
+    let mut colors = b.button(
+        "Colors",
+        Rect::new(306, 12, 396, 34),
+        r#"on mouseUp
+  if the backColor of me is empty then
+    set the backColor of me to "navy"
+    set the foreColor of me to "white"
+    set the borderColor of me to "navy"
+    set the backColor of cd fld "Lined" to "255,250,205"
+    set the borderColor of cd fld "Lined" to "orange"
+    -- One word in its own color, as Style ▸ Text Color… gives it.
+    set the foreColor of word 1 of cd fld "Lined" to "red"
+    set the foreColor of cd fld "Wide" to "purple"
+    set the backColor of cd fld "No Wrap" to "230,240,255"
+    set the foreColor of cd fld "No Wrap" to "navy"
+    set the borderColor of cd fld "No Wrap" to "blue"
+    set the borderColor of cd fld "Scrolling" to "green"
+    put "Buttons and fields have a text, fill and frame color (the foreColor, backColor and borderColor), and words can have their own."
+  else
+    repeat with i = 1 to 4
+      put item i of "Lined,Wide,No Wrap,Scrolling" into f
+      set the foreColor of cd fld f to empty
+      set the backColor of cd fld f to empty
+      set the borderColor of cd fld f to empty
+    end repeat
+    set the foreColor of me to empty
+    set the backColor of me to empty
+    set the borderColor of me to empty
+    put "Back to black and white."
+  end if
+end mouseUp"#,
+    );
+    colors.style = PartStyle::RoundRect;
+    b.card_part(c, colors);
 
     // ----- Printing and finding -----
     let c = b.card(main, "Print & Find");

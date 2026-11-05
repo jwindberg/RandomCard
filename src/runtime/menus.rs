@@ -84,6 +84,7 @@ pub fn standard_menus() -> Vec<Menu> {
     style.extend(styles::STYLES.iter().map(|s| format!("{}{}", s[..1].to_ascii_uppercase(), &s[1..])));
     style.push("-".into());
     style.extend(styles::SIZES.iter().map(|s| format!("{s} Point")));
+    style.extend(["-".into(), "Text Color…".into()]);
     let style: Vec<&str> = style.iter().map(String::as_str).collect();
     let paint: Vec<&str> =
         ["Select All", "-"].into_iter().chain(crate::paint::PaintOp::ALL.iter().map(|op| op.name())).collect();

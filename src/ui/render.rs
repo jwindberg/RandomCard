@@ -82,9 +82,11 @@ impl Scene {
                 });
             }
         }
-        let colors = addcolor::shapes(s, card, edit_bg);
-        if !colors.is_empty() {
-            for pv in &mut parts {
+        let colors = addcolor::shapes(w, card, edit_bg);
+        for pv in &mut parts {
+            if let Some(c) = pv.part.back_color {
+                pv.fill = rgb(c);
+            } else if !colors.is_empty() {
                 let (x, y) = pv.part.rect.center();
                 pv.fill = addcolor::color_at(&colors, x, y);
             }
@@ -578,6 +580,20 @@ fn draw_card_picture(painter: &Painter, tex: &Textures, scene: &Scene, card_rect
     }
 }
 
+fn rgb([r, g, b]: [u8; 3]) -> Color32 {
+    Color32::from_rgb(r, g, b)
+}
+
+/// A part's text color (`the foreColor`): black unless it has one.
+pub fn text_color(p: &Part) -> Color32 {
+    p.fore_color.map_or(BLACK, rgb)
+}
+
+/// A part's frame color (`the borderColor`): black unless it has one.
+pub fn frame_color(p: &Part) -> Color32 {
+    p.border_color.map_or(BLACK, rgb)
+}
+
 pub fn part_rect(part: &Part, origin: Pos2) -> Rect {
     let r = part.rect;
     Rect::from_min_max(
@@ -616,9 +632,14 @@ fn draw_button(painter: &Painter, tex: &Textures, pv: &PartView, rect: Rect, pre
     // A hilited transparent icon button inverts only its icon.
     let has_icon = p.icon != 0 && !checkable;
     let only_icon_inverts = has_icon && matches!(p.style, PartStyle::Transparent | PartStyle::Oval);
-    let (fg, bg) = if inverted && !only_icon_inverts { (WHITE, BLACK) } else { (BLACK, pv.fill) };
+    // Hilited, the fill and text colors swap: white on black, in black and white.
+    let (fg, bg) = if inverted && !only_icon_inverts {
+        (p.back_color.map_or(WHITE, rgb), text_color(p))
+    } else {
+        (text_color(p), pv.fill)
+    };
     let fg = if p.enabled { fg } else { GRAY };
-    let stroke = Stroke::new(1.0, BLACK);
+    let stroke = Stroke::new(1.0, frame_color(p));
     match p.style {
         // A hilited one reverses what's under it (see `invert_under`).
         PartStyle::Transparent => {}
@@ -648,7 +669,7 @@ fn draw_button(painter: &Painter, tex: &Textures, pv: &PartView, rect: Rect, pre
             return;
         }
         PartStyle::Default => {
-            painter.rect_stroke(rect, 10.0, Stroke::new(3.0, BLACK), StrokeKind::Inside);
+            painter.rect_stroke(rect, 10.0, Stroke::new(3.0, frame_color(p)), StrokeKind::Inside);
             let inner = rect.shrink(4.0);
             painter.rect_filled(inner, 6.0, bg);
             painter.rect_stroke(inner, 6.0, stroke, StrokeKind::Inside);
@@ -667,14 +688,15 @@ fn draw_button(painter: &Painter, tex: &Textures, pv: &PartView, rect: Rect, pre
             painter.rect_filled(boxr, 0.0, if pressed { Color32::from_gray(200) } else { pv.fill });
             painter.rect_stroke(boxr, 0.0, stroke, StrokeKind::Inside);
             if pv.hilite {
-                painter.line_segment([boxr.left_top(), boxr.right_bottom()], stroke);
-                painter.line_segment([boxr.right_top(), boxr.left_bottom()], stroke);
+                let mark = Stroke::new(1.0, text_color(p));
+                painter.line_segment([boxr.left_top(), boxr.right_bottom()], mark);
+                painter.line_segment([boxr.right_top(), boxr.left_bottom()], mark);
             }
         } else {
             painter.circle_filled(boxr.center(), size / 2.0, if pressed { Color32::from_gray(200) } else { pv.fill });
             painter.circle_stroke(boxr.center(), size / 2.0, stroke);
             if pv.hilite {
-                painter.circle_filled(boxr.center(), size / 4.0, BLACK);
+                painter.circle_filled(boxr.center(), size / 4.0, text_color(p));
             }
         }
         if p.show_name {
@@ -705,12 +727,12 @@ fn draw_popup(painter: &Painter, p: &Part, rect: Rect, fg: Color32, bg: Color32)
     let boxr = Rect::from_min_max(at(b.left, b.top), at(b.right, b.bottom));
     painter.rect_filled(boxr.translate(Vec2::splat(1.0)), 0.0, BLACK);
     painter.rect_filled(boxr, 0.0, bg);
-    painter.rect_stroke(boxr, 0.0, Stroke::new(1.0, BLACK), StrokeKind::Inside);
+    painter.rect_stroke(boxr, 0.0, Stroke::new(1.0, frame_color(p)), StrokeKind::Inside);
     let tri = p.popup_triangle().map(|(x, y)| at(x, y));
     painter.add(egui::Shape::convex_polygon(tri.to_vec(), fg, Stroke::NONE));
     if p.show_name && p.title_width > 0 && !p.name.is_empty() {
         let title = painter.with_clip_rect(Rect::from_min_max(rect.min, Pos2::new(boxr.left(), rect.max.y)));
-        let label_fg = if p.enabled { BLACK } else { GRAY };
+        let label_fg = if p.enabled { text_color(p) } else { GRAY };
         draw_label(&title, p, Pos2::new(rect.left() + 2.0, boxr.center().y), Align2::LEFT_CENTER, &p.name, label_fg);
     }
     let text_rect = Rect::from_min_max(
@@ -820,7 +842,7 @@ pub fn field_job(
         let run = styles::style_at(runs, a);
         let style = run.style.as_deref().unwrap_or(&p.text_style);
         let lit = hl.is_some_and(|(s, e)| a >= s && a < e);
-        let ink = if lit { WHITE } else { BLACK };
+        let ink = if lit { WHITE } else { run.color.map_or_else(|| text_color(p), rgb) };
         let edged = styles::has_style(style, "outline") || styles::has_style(style, "shadow");
         let color = match pass {
             Pass::Plain => ink,
@@ -834,7 +856,7 @@ pub fn field_job(
         let (font, size) = (run.font.as_deref().unwrap_or(&p.text_font), run.size.unwrap_or(p.text_size));
         let mut fmt = format_for(font, size, style, color);
         if lit && matches!(pass, Pass::Plain | Pass::Shown) {
-            fmt.background = BLACK;
+            fmt.background = text_color(p);
         }
         let m = metrics::metrics(font, size, style);
         fmt.font_id.size = matched_size(ctx, font, size, &fmt.font_id);
@@ -843,7 +865,7 @@ pub fn field_job(
         append_spaced(ctx, &mut job, &text[bytes[a]..bytes[b]], &m, fmt);
     }
     if text.is_empty() {
-        let mut fmt = text_format(p, BLACK);
+        let mut fmt = text_format(p, text_color(p));
         let m = metrics::metrics(&p.text_font, p.text_size, &p.text_style);
         fmt.line_height = Some(if p.fixed_line_height { p.line_height() } else { m.line_height() } as f32);
         job.append("", 0.0, fmt);
@@ -912,7 +934,7 @@ pub fn hilite_lines(painter: &Painter, p: &Part, galley: &egui::Galley, pos: Pos
     let top = galley.pos_from_cursor(egui::text::CCursor::new(start)).top();
     let bottom = galley.pos_from_cursor(egui::text::CCursor::new(end)).bottom();
     let rows = Rect::from_x_y_ranges(text_rect.x_range(), pos.y + top..=pos.y + bottom);
-    painter.rect_filled(rows, 0.0, BLACK);
+    painter.rect_filled(rows, 0.0, text_color(p));
 }
 
 /// Where a field's text starts on screen, allowing for its scroll.
@@ -958,7 +980,7 @@ pub fn aligned_x(p: &Part, r: Rect) -> f32 {
 
 /// A field's frame and background; `fill` is its white (or AddColor color).
 pub fn draw_field_frame(painter: &Painter, p: &Part, rect: Rect, fill: Color32) {
-    let stroke = Stroke::new(1.0, BLACK);
+    let stroke = Stroke::new(1.0, frame_color(p));
     match p.style {
         PartStyle::Transparent => {}
         PartStyle::Opaque => {

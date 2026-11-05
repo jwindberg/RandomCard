@@ -309,6 +309,16 @@ they never call.
 | UpdateResFork | XCMD | 1 stack, called in 1 | Saves changes to a resource fork. | Stub | RandomCard saves stacks itself | Planned |
 | ClipToPICTRes | XCMD | 1 stack, called in 0 | Saves the clipboard as a picture resource (not called). | Stub | Resource forks don't exist on modern systems | Planned |
 
+### Color (HyperCard 2.4's Color Tools)
+
+Not from the scan above: these came with HyperCard 2.4 itself, and any
+stack colored with its Color Tools calls them.
+
+| Name | Kind | Found in | What it did | Decision | RandomCard | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| addColor | XCMD | HyperCard 2.4's Color Tools | Colored buttons, fields, rectangles and pictures behind a card's black and white, with about 40 functions (`addButton`, `colorCard`, `getObjectClicked`…). | Built in | Every function, on the color lists imported with the stack; changes show at once rather than at the next `colorCard`. Pictures are kept but not drawn yet | Done |
+| AC_RemoteInstall | XCMD | HyperCard 2.4's Color Tools | Installed addColor into a stack. | Built in | Does nothing: addColor is always there | Done |
+
 ### Sound, speech and MIDI
 
 | Name | Kind | Found in | What it did | Decision | RandomCard | Status |

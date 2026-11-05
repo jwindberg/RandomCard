@@ -364,6 +364,23 @@ fn demo_stack_runs() {
         assert_eq!(before.font, None, "the text already there keeps its look");
         assert!(w.text_clip.as_ref().is_some_and(|c| c.text == "wideMargins"));
     }
+    // Colors on, then off again.
+    assert_eq!(click(&mut i, "Fields", "Colors"), None);
+    {
+        let w = lock(&i.world);
+        let card = w.stack.cards.iter().find(|c| c.name == "Fields").unwrap();
+        let part = |n: &str| card.parts.iter().find(|p| p.name == n).unwrap();
+        assert_eq!(part("Wide").fore_color, Some([128, 0, 128]));
+        assert_eq!(part("Colors").back_color, Some([0, 0, 128]));
+        assert_eq!(part("Lined").styles[0].style.color, Some([255, 0, 0]));
+    }
+    assert_eq!(click(&mut i, "Fields", "Colors"), None);
+    {
+        let w = lock(&i.world);
+        let card = w.stack.cards.iter().find(|c| c.name == "Fields").unwrap();
+        assert!(card.parts.iter().all(|p| p.fore_color.is_none() && p.back_color.is_none() && p.border_color.is_none()));
+        assert!(card.parts.iter().all(|p| p.styles.iter().all(|r| r.style.color.is_none())));
+    }
     // Painting in color from a script, with the colors put back after.
     assert_eq!(click(&mut i, "Drawing", "Paint in Color"), None);
     {
@@ -390,6 +407,13 @@ fn demo_stack_runs() {
     }
     // With no window, its file dialog cancels straight away.
     assert_eq!(click(&mut i, "Drawing", "Picture Files"), None);
+    // AddColor on, then off, on the card it's clicked on.
+    run(&mut i, "go to card \"Drawing\"");
+    assert_eq!(click(&mut i, "Drawing", "Color the House"), None);
+    let drawing_colors = |i: &Interp| lock(&i.world).stack.cards.iter().find(|c| c.name == "Drawing").unwrap().colors.len();
+    assert_eq!(drawing_colors(&i), 3);
+    assert_eq!(click(&mut i, "Drawing", "Color the House"), None);
+    assert_eq!(drawing_colors(&i), 0);
     let before = i.printed.len();
     assert_eq!(click(&mut i, "Print & Find", "Print PostScript"), None);
     assert_eq!(click(&mut i, "Print & Find", "Open a Document"), None);
@@ -2646,4 +2670,101 @@ fn import_and_export_paint() {
     let r = run(&mut i, &format!("choose browse tool\nexport paint to file \"{}\"\nput the result", out.display()));
     assert!(r.contains("paint tool"), "{r}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn part_colors() {
+    let mut i = interp_with(stack());
+    // Black and white until given one.
+    assert_eq!(run(&mut i, "put the foreColor of button \"Go\""), "");
+    run(&mut i, "set the foreColor of button \"Go\" to \"navy\"");
+    run(&mut i, "set the backColor of button \"Go\" to \"255,200,0\"");
+    run(&mut i, "set the borderColor of field \"Name\" to \"#FF0000\"");
+    assert_eq!(run(&mut i, "put the foreColor of button \"Go\""), "0,0,128");
+    assert_eq!(run(&mut i, "put the backColor of button \"Go\""), "255,200,0");
+    assert_eq!(run(&mut i, "put the borderColor of field \"Name\""), "255,0,0");
+    let r = run(&mut i, "set the backColor of button \"Go\" to \"chartreuse\"");
+    assert!(r.contains("Expected a color"), "{r}");
+    // Empty goes back to black and white.
+    run(&mut i, "set the foreColor of button \"Go\" to empty");
+    assert_eq!(run(&mut i, "put the foreColor of button \"Go\""), "");
+    // Saved with the stack; parts without colors save as before.
+    let json = serde_json::to_string(&lock(&i.world).stack).unwrap();
+    assert!(json.contains("\"back_color\":[255,200,0]"));
+    assert!(!json.contains("fore_color"));
+}
+
+#[test]
+fn text_colors() {
+    let mut i = interp_with(stack());
+    run(&mut i, "put \"one two three\" into field \"Name\"");
+    run(&mut i, "set the foreColor of word 2 of field \"Name\" to \"red\"");
+    assert_eq!(run(&mut i, "put the foreColor of word 2 of field \"Name\""), "255,0,0");
+    assert_eq!(run(&mut i, "put the foreColor of word 1 of field \"Name\""), "");
+    assert_eq!(run(&mut i, "put the foreColor of line 1 of field \"Name\""), "mixed");
+    // Copy Text keeps it.
+    {
+        let w = lock(&i.world);
+        let card = w.card_id;
+        let r = super::world::FieldRange { card, layer: Layer::Background, field: 10, start: 4, end: 7 };
+        let clip = w.copy_text(&r);
+        assert_eq!(clip.runs[0].style.color, Some([255, 0, 0]));
+    }
+    // A color for the whole field replaces the words' own.
+    run(&mut i, "set the foreColor of field \"Name\" to \"blue\"");
+    assert_eq!(run(&mut i, "put the foreColor of line 1 of field \"Name\""), "0,0,255");
+    let r = run(&mut i, "set the foreColor of word 1 of field \"Name\" to \"plaid\"");
+    assert!(r.contains("Expected a color"), "{r}");
+}
+
+#[test]
+fn addcolor_commands() {
+    let mut i = interp_with(stack());
+    let ac = |i: &mut Interp, call: &str| run(i, &format!("addColor {call}\nput the result"));
+    // Button 11 ("Go", at 10,60,100,90) in front; a rectangle at the back.
+    assert_eq!(ac(&mut i, "addButton,cd,11,\"65535,0,0\",3,-1"), "");
+    assert_eq!(ac(&mut i, "addRect,cd,\"0,0,50,50\",\"0,0,65535\",2,0"), "");
+    assert_eq!(ac(&mut i, "getButtonIndex,cd,11"), "2");
+    assert_eq!(ac(&mut i, "getObjectClicked,cd,\"20,70\""), "2,1");
+    assert_eq!(ac(&mut i, "getObjectClicked,cd,\"5,5\""), "1,3");
+    assert_eq!(ac(&mut i, "getObjectClicked,cd,\"5,5\",buttonType"), "-1,-1");
+    assert_eq!(ac(&mut i, "getObjectColor,cd,2"), "65535,0,0");
+    assert_eq!(ac(&mut i, "getObjectBevel,cd,1"), "2");
+    assert_eq!(ac(&mut i, "getObjectBounds,cd,2"), "10,60,100,90");
+    ac(&mut i, "changeObjectColor,cd,2,\"0,65535,0\"");
+    assert_eq!(ac(&mut i, "getObjectColor,cd,2"), "0,65535,0");
+    // Moving to the back puts the button first.
+    assert_eq!(ac(&mut i, "moveToBack,cd,2"), "1");
+    assert_eq!(ac(&mut i, "getObjectType,cd,1"), "buttonType");
+    // A turned-off item isn't clicked, but keeps its place.
+    ac(&mut i, "disableObject,cd,1");
+    assert_eq!(ac(&mut i, "getObjectClicked,cd,\"20,70\""), "-1,-1");
+    assert_eq!(ac(&mut i, "getButtonIndex,cd,11"), "1");
+    ac(&mut i, "removeObject,cd,1");
+    assert_eq!(ac(&mut i, "getButtonIndex,cd,11"), "-1");
+    assert_eq!(ac(&mut i, "getObjectColor,cd,9"), "");
+    // Colors of deleted parts go with compact.
+    ac(&mut i, "addButton,cd,999,\"0,0,0\",0,-1");
+    ac(&mut i, "compact,cd");
+    assert_eq!(lock(&i.world).stack.cards[0].colors.len(), 1);
+    // Temporary colors last until colorCard.
+    ac(&mut i, "colorRect,cd,\"0,0,10,10\",\"65535,65535,0\",0");
+    assert_eq!(lock(&i.world).addcolor.temp.len(), 1);
+    ac(&mut i, "colorCard");
+    assert!(lock(&i.world).addcolor.temp.is_empty());
+    // While disabled, calls are ignored.
+    ac(&mut i, "disable");
+    ac(&mut i, "addRect,cd,\"0,0,5,5\",\"0,0,0\",0,-1");
+    ac(&mut i, "enable");
+    assert_eq!(lock(&i.world).stack.cards[0].colors.len(), 1);
+    ac(&mut i, "remove");
+    assert!(lock(&i.world).addcolor.removed_in.is_some());
+    ac(&mut i, "install, 16");
+    assert_eq!(ac(&mut i, "depth"), "16");
+    // The background's own list.
+    ac(&mut i, "addField,bg,10,\"65535,65535,0\",0,-1");
+    assert_eq!(ac(&mut i, "getFieldIndex,bg,10"), "1");
+    assert_eq!(ac(&mut i, "getFieldIndex,cd,10"), "-1");
+    assert!(ac(&mut i, "fly,cd").contains("no function"));
+    assert!(ac(&mut i, "addRect,xx,\"0,0,5,5\",\"0,0,0\",0,-1").contains("cd or bg"));
 }

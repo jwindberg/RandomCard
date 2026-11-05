@@ -596,6 +596,8 @@ fn read_styles(data: &[u8], fonts: &HashMap<i16, String>) -> R<HashMap<i32, Text
             font: (font != -1).then(|| fonts.get(&font).cloned().unwrap_or_else(|| "Geneva".into())),
             size: (size > 0).then_some(size as u32),
             style: (style != -1).then(|| style_names(flags)),
+            // HyperCard kept a color here but always drew text in black.
+            color: None,
         });
     }
     Ok(table)
@@ -1007,7 +1009,7 @@ mod tests {
         assert_eq!(fields[1].contents, "formatted content: fontsizestyleall");
         let run = |start, font: Option<&str>, size, style: Option<&str>| StyleRun {
             start,
-            style: TextStyle { font: font.map(String::from), size, style: style.map(String::from) },
+            style: TextStyle { font: font.map(String::from), size, style: style.map(String::from), color: None },
         };
         assert_eq!(
             fields[1].styles,

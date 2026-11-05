@@ -17,6 +17,9 @@ pub struct TextStyle {
     /// Comma-separated, as HyperTalk writes it: "bold,italic", or "plain".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub style: Option<String>,
+    /// The text's color (`the foreColor` of a chunk).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<super::color::Rgb>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -174,6 +177,7 @@ pub fn copy_runs(runs: &[StyleRun], start: usize, end: usize, own: &TextStyle) -
         font: s.font.clone().or_else(|| own.font.clone()),
         size: s.size.or(own.size),
         style: s.style.clone().or_else(|| own.style.clone()),
+        color: s.color.or(own.color),
     };
     let mut out = vec![StyleRun { start: 0, style: filled(&style_at(runs, start)) }];
     out.extend(runs.iter().filter(|r| r.start > start && r.start < end).map(|r| StyleRun {
@@ -199,7 +203,7 @@ mod tests {
     fn copying_runs() {
         // "Hello world": "world" is bold, in a Geneva 12 field.
         let runs = vec![StyleRun { start: 6, style: bold() }];
-        let own = TextStyle { font: Some("Geneva".into()), size: Some(12), style: Some("plain".into()) };
+        let own = TextStyle { font: Some("Geneva".into()), size: Some(12), style: Some("plain".into()), color: None };
         let clip = copy_runs(&runs, 4, 9, &own);
         let geneva = |style: &str| TextStyle { style: Some(style.into()), ..own.clone() };
         assert_eq!(

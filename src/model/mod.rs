@@ -245,6 +245,16 @@ pub struct Part {
     /// Every line is textHeight high, whatever its fonts.
     pub fixed_line_height: bool,
     pub scroll: i32,
+
+    // Colors, with LiveCode's names: the text (foreColor), the fill
+    // (backColor) and the frame (borderColor). None is HyperCard's black
+    // and white.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fore_color: Option<color::Rgb>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub back_color: Option<color::Rgb>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub border_color: Option<color::Rgb>,
 }
 
 impl Default for Part {
@@ -284,6 +294,9 @@ impl Default for Part {
             text_height: 0,
             fixed_line_height: false,
             scroll: 0,
+            fore_color: None,
+            back_color: None,
+            border_color: None,
         }
     }
 }
