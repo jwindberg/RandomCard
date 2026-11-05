@@ -370,8 +370,9 @@ pub enum Cmd {
     EditScript(Expr),
     Select(Select),
     ClickAt(Expr),
-    /// `drag from 10,10 to 100,100`: paints with the current paint tool.
-    Drag { from: Expr, to: Expr },
+    /// `drag from 10,10 to 100,100 with shiftKey`: paints with the current
+    /// paint tool, and the keys held.
+    Drag { from: Expr, to: Expr, keys: Vec<String> },
     /// `type "e" with commandKey, shiftKey`: the text, and the keys held.
     Type(Expr, Vec<String>),
     Convert { value: Expr, to: String },

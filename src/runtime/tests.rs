@@ -362,6 +362,18 @@ fn demo_stack_runs() {
     }
     assert_eq!(run(&mut i, "set the brushColor to \"#FF8000\"\nput the brushColor"), "255,128,0");
     run(&mut i, "set the brushColor to black");
+    // Shift straightens each drag: a circle, spokes at multiples of 15°,
+    // and a brush stroke straight across.
+    assert_eq!(click(&mut i, "Drawing", "Draw with Shift"), None);
+    {
+        let w = lock(&i.world);
+        let pic = &w.stack.card(w.card_id).unwrap().picture;
+        let black = |x, y| pic.get(x, y) == crate::model::Pixel::BLACK;
+        assert!(black(50, 111), "the circle's bottom, past the oval's drag");
+        assert!(black(50, 106), "the spoke turned straight down");
+        assert!(black(230, 84) && !black(230, 96), "the brush stroke straight across");
+        assert_eq!(w.tool, crate::runtime::world::Tool::Browse);
+    }
     let before = i.printed.len();
     assert_eq!(click(&mut i, "Print & Find", "Print PostScript"), None);
     assert_eq!(click(&mut i, "Print & Find", "Open a Document"), None);

@@ -517,13 +517,16 @@ impl Interp {
                 }
                 self.click_at(x, y)
             }
-            Cmd::Drag { from, to } => {
+            Cmd::Drag { from, to, keys } => {
                 let (a, b) = (self.eval(from)?, self.eval(to)?);
-                let (Some(a), Some(b)) = (parse_point(&a), parse_point(&b)) else {
+                let (Some(a), Some(mut b)) = (parse_point(&a), parse_point(&b)) else {
                     return err("Expected points after drag from … to …");
                 };
                 let mut w = self.w();
                 if let Some(tool) = w.tool.drag_tool() {
+                    if keys.iter().any(|k| k.trim_end_matches("key") == "shift") {
+                        b = crate::paint::constrain(tool, a, b);
+                    }
                     let settings = w.paint_settings();
                     if let Some(pic) = w.layer_picture_mut() {
                         crate::paint::apply_drag(pic, tool, a, b, &settings);

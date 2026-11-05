@@ -1172,10 +1172,16 @@ impl Parser {
                 let from = self.list_expr()?;
                 self.expect("to")?;
                 let to = self.list_expr()?;
+                let mut keys = Vec::new();
                 if self.accept("with") {
-                    self.list_expr()?;
+                    while !self.at_stmt_end() {
+                        if let Some(w) = self.word() {
+                            keys.push(w.to_ascii_lowercase());
+                        }
+                        self.advance();
+                    }
                 }
-                Cmd::Drag { from, to }
+                Cmd::Drag { from, to, keys }
             }
             "type" => {
                 let e = self.expr()?;

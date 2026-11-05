@@ -467,6 +467,42 @@ on mouseUp
 end mouseUp"#,
     );
     b.card_part(c, Part { style: PartStyle::Standard, ..balloons });
+    // Shift while you drag: each drag below is a little off, and Shift
+    // straightens it, the way it does with the mouse.
+    let straight = b.button(
+        "Draw with Shift",
+        Rect::new(20, 40, 140, 62),
+        r#"
+on mouseUp
+  put the filled into oldFilled
+  put the lineSize into oldSize
+  put the pattern into oldPattern
+  choose oval tool
+  set the filled to false
+  set the lineSize to 2
+  -- A drag for an oval: Shift makes it a circle.
+  drag from "30,72" to "70,90" with shiftKey
+  choose line tool
+  set the lineSize to 1
+  -- Spokes a few degrees off: Shift turns them to multiples of 15°.
+  repeat with i = 1 to 12
+    put (i * 30 + 6) * pi / 180 into angle
+    put 50 + round(18 * cos(angle)) into x
+    put 92 + round(18 * sin(angle)) into y
+    drag from "50,92" to x & "," & y with shiftKey
+  end repeat
+  -- A sloping brush stroke: Shift keeps it straight across.
+  choose brush tool
+  set the pattern to 1
+  drag from "90,84" to "240,96" with shiftKey
+  set the pattern to oldPattern
+  set the lineSize to oldSize
+  set the filled to oldFilled
+  choose browse tool
+  put "Hold Shift as you drag for circles, squares, lines at 15° and straight strokes." into msg
+end mouseUp"#,
+    );
+    b.card_part(c, Part { style: PartStyle::Standard, ..straight });
 
     // ----- Animation -----
     // A small state machine in the card's script: whether the ball is

@@ -17,6 +17,9 @@ pub struct PaintStroke {
     last: (i32, i32),
     /// The pencil's color, fixed for the whole stroke.
     color: Pixel,
+    /// Shift with a freehand tool: the way it goes, chosen by the first
+    /// move after Shift is pressed, and the point it goes straight from.
+    axis: Option<(paint::Axis, (i32, i32))>,
 }
 
 pub enum Marquee {
@@ -356,7 +359,7 @@ impl App {
         let p = resp.interact_pointer_pos().or(resp.hover_pos()).map(to_card);
         match tool {
             Tool::Select | Tool::Lasso => return self.selection_input(ctx, resp, p, tool),
-            Tool::Polygon => return self.polygon_input(resp, p),
+            Tool::Polygon => return self.polygon_input(ctx, resp, p),
             Tool::Text => return self.text_input(resp, p),
             _ => {}
         }
@@ -377,7 +380,7 @@ impl App {
             } else {
                 settings.line_color
             };
-            self.stroke = Some(PaintStroke { start, last: start, color });
+            self.stroke = Some(PaintStroke { start, last: start, color, axis: None });
             if freehand(tool) {
                 self.freehand(tool, start, start, color, &settings);
             }
@@ -386,8 +389,23 @@ impl App {
             }
             return;
         }
-        let Some(stroke) = &self.stroke else { return };
+        let Some(stroke) = &mut self.stroke else { return };
         let (start, last, color) = (stroke.start, stroke.last, stroke.color);
+        // Shift goes straight: across or down for the freehand tools, at a
+        // multiple of 15° for lines, and square for shapes.
+        let shift = ctx.input(|i| i.modifiers.shift);
+        let p = match tool.drag_tool() {
+            Some(_) if freehand(tool) => {
+                if !shift {
+                    stroke.axis = None;
+                } else if stroke.axis.is_none() {
+                    stroke.axis = paint::Axis::of(last, p).map(|axis| (axis, last));
+                }
+                stroke.axis.map_or(p, |(axis, from)| axis.keep(from, p))
+            }
+            Some(t) if shift => paint::constrain(t, start, p),
+            _ => p,
+        };
         if resp.dragged() {
             // The spray can keeps spraying while held still.
             if freehand(tool) && (p != last || tool == Tool::Spray) {
@@ -444,7 +462,15 @@ impl App {
             match &mut self.marquee {
                 Some(Marquee::Selecting { end, .. }) => *end = p,
                 Some(Marquee::Lassoing { points }) if points.last() != Some(&p) => points.push(p),
-                Some(Marquee::Moving { press, offset, .. }) => *offset = (p.0 - press.0, p.1 - press.1),
+                Some(Marquee::Moving { press, offset, .. }) => {
+                    *offset = (p.0 - press.0, p.1 - press.1);
+                    // Shift moves it straight across or straight up and down.
+                    if ctx.input(|i| i.modifiers.shift)
+                        && let Some(axis) = paint::Axis::of((0, 0), *offset)
+                    {
+                        *offset = axis.keep((0, 0), *offset);
+                    }
+                }
                 _ => {}
             }
         }
@@ -492,8 +518,9 @@ impl App {
 
     /// The polygon tool: click corners; click the first corner to close the
     /// shape, or double-click to finish an open one.
-    fn polygon_input(&mut self, resp: &egui::Response, p: Option<(i32, i32)>) {
+    fn polygon_input(&mut self, ctx: &egui::Context, resp: &egui::Response, p: Option<(i32, i32)>) {
         let Some(p) = p else { return };
+        let p = self.polygon_point(ctx, p);
         if resp.double_clicked() {
             self.finish_polygon(false);
             return;
@@ -511,6 +538,15 @@ impl App {
                     pts.push(p);
                 }
             }
+        }
+    }
+
+    /// The polygon's next corner: with Shift, its side goes at a multiple
+    /// of 15°.
+    fn polygon_point(&self, ctx: &egui::Context, p: (i32, i32)) -> (i32, i32) {
+        match self.polygon.as_ref().and_then(|pts| pts.last()) {
+            Some(&last) if ctx.input(|i| i.modifiers.shift) => paint::snap_15(last, p),
+            _ => p,
         }
     }
 
@@ -676,7 +712,9 @@ impl App {
         if let Some(pts) = &self.polygon {
             let mut line: Vec<Pos2> = pts.iter().map(|p| at(p.0, p.1)).collect();
             if let Some(mouse) = ctx.input(|i| i.pointer.latest_pos()) {
-                line.push(mouse);
+                let card = ((mouse.x - origin.x).floor() as i32, (mouse.y - origin.y).floor() as i32);
+                let corner = self.polygon_point(ctx, card);
+                line.push(at(corner.0, corner.1));
             }
             painter.add(egui::Shape::line(line, stroke));
         }

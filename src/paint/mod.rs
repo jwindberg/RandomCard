@@ -330,6 +330,67 @@ pub fn regular_polygon_points(center: (i32, i32), corner: (i32, i32), sides: u32
         .collect()
 }
 
+/// Shift with the line tool: `b` turned to the nearest multiple of 15°
+/// around `a`, keeping its length. The polygon tools use it too.
+pub fn snap_15(a: (i32, i32), b: (i32, i32)) -> (i32, i32) {
+    let (dx, dy) = ((b.0 - a.0) as f32, (b.1 - a.1) as f32);
+    let length = (dx * dx + dy * dy).sqrt();
+    let step = 15f32.to_radians();
+    let angle = (dy.atan2(dx) / step).round() * step;
+    (a.0 + (length * angle.cos()).round() as i32, a.1 + (length * angle.sin()).round() as i32)
+}
+
+/// Shift with a shape tool: the corner moved so the shape is a square or
+/// a circle, as big as the longer side of the drag.
+pub fn square(a: (i32, i32), b: (i32, i32)) -> (i32, i32) {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let side = dx.abs().max(dy.abs());
+    let sign = |d: i32| if d < 0 { -1 } else { 1 };
+    (a.0 + side * sign(dx), a.1 + side * sign(dy))
+}
+
+/// Which way a Shift-drag goes: horizontally or vertically.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Axis {
+    Horizontal,
+    Vertical,
+}
+
+impl Axis {
+    /// The way a move from `a` to `b` mostly goes, once it has moved at all.
+    pub fn of(a: (i32, i32), b: (i32, i32)) -> Option<Axis> {
+        let (dx, dy) = ((b.0 - a.0).abs(), (b.1 - a.1).abs());
+        if dx == 0 && dy == 0 {
+            None
+        } else if dx >= dy {
+            Some(Axis::Horizontal)
+        } else {
+            Some(Axis::Vertical)
+        }
+    }
+
+    /// `b` kept on the line through `a` that goes this way.
+    pub fn keep(self, a: (i32, i32), b: (i32, i32)) -> (i32, i32) {
+        match self {
+            Axis::Horizontal => (b.0, a.1),
+            Axis::Vertical => (a.0, b.1),
+        }
+    }
+}
+
+/// Where a Shift-drag with `tool` from `a` to `b` really ends. The
+/// freehand tools keep their own Axis, since it's chosen at the start.
+pub fn constrain(tool: DragTool, a: (i32, i32), b: (i32, i32)) -> (i32, i32) {
+    match tool {
+        DragTool::Line | DragTool::RegularPolygon => snap_15(a, b),
+        DragTool::Rect | DragTool::RoundRect | DragTool::Oval => square(a, b),
+        DragTool::Pencil | DragTool::Brush | DragTool::Eraser | DragTool::Spray => {
+            Axis::of(a, b).map_or(b, |axis| axis.keep(a, b))
+        }
+        DragTool::Curve => b,
+    }
+}
+
 /// Bucket fill: the region of same-colored pixels (clear counts as white)
 /// around (x, y), painted with `ink`. Colors must match exactly: painting
 /// is never smoothed, so a shape's edge holds the paint in.
@@ -626,6 +687,25 @@ pub fn apply_drag(pic: &mut Picture, tool: DragTool, a: (i32, i32), b: (i32, i32
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shift_constraints() {
+        // Lines snap to multiples of 15°, keeping their length.
+        assert_eq!(snap_15((0, 0), (100, 3)), (100, 0));
+        assert_eq!(snap_15((0, 0), (98, 102)), (100, 100));
+        assert_eq!(snap_15((10, 10), (10, -40)), (10, -40));
+        let (x, y) = snap_15((0, 0), (85, 52));
+        assert!((x, y) == (86, 50), "30°: {x},{y}");
+        // Shapes become squares, the size of the longer side, either way.
+        assert_eq!(square((10, 10), (40, 20)), (40, 40));
+        assert_eq!(square((10, 10), (0, 50)), (-30, 50));
+        // The freehand tools go straight across or straight down.
+        assert_eq!(constrain(DragTool::Pencil, (5, 5), (30, 9)), (30, 5));
+        assert_eq!(constrain(DragTool::Brush, (5, 5), (7, 40)), (5, 40));
+        assert_eq!(Axis::of((1, 1), (1, 1)), None);
+        assert_eq!(constrain(DragTool::Oval, (0, 0), (20, 8)), (20, 20));
+        assert_eq!(constrain(DragTool::Curve, (0, 0), (20, 8)), (20, 8));
+    }
 
     #[test]
     fn fill_bounded() {

@@ -149,10 +149,11 @@ text, multi-level undo and redo, and script-driven painting with `drag`,
 **Missing:**
 - **FatBits** (zoomed pixel editing). Needs the card view to scale.
 - **Pattern editing** (double-clicking a pattern to change it) and
-  `the pattern` affecting lines and borders, which are always black.
+  `the pattern` affecting lines and borders, which are always solid.
 - **Paint menu:** Pickup, Scale, and Revert; `the grid`, `centered` and
-  `multiple` options; Shift-constrained drawing (straight lines, squares,
-  circles).
+  `multiple` options. (Shift-constrained drawing is done: straight
+  strokes, lines and polygon sides at multiples of 15°, squares and
+  circles, straight moves of a selection, and `drag … with shiftKey`.)
 
 ## Fields and text
 
@@ -399,11 +400,11 @@ The order follows what RandomCard's users ask for, so it will change with
 their feedback. For now:
 
 1. **Color, steps 1 and 2:** color pictures, then the color palette (see
-   Color). Then a new release.
+   Color). Released as 0.2.0.
 2. **Small, clearly good features,** between larger pieces: the script
-   editor's find and replace and go to line; Shift for straight lines and
-   perfect shapes; copying styled text between fields; Compact Stack and
-   Delete Stack.
+   editor's find and replace and go to line; copying styled text between
+   fields; Compact Stack and Delete Stack. (Shift for straight lines and
+   perfect shapes is done.)
 3. **Color, steps 3 to 5:** images with Import and Export Paint, colored
    parts and text, printing in color.
 4. **HyperCard 2.4's own features:** audit them in the real HyperCard
