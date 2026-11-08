@@ -25,6 +25,9 @@ cargo run --release -- "Home"       # imports an original HyperCard stack
 cargo test                          # language, runtime and demo-stack tests
 ```
 
+On a Mac, `tools/make_mac_app.sh` builds `RandomCard.app` and puts it in
+`/Applications`, or in the folder you name (`tools/make_mac_app.sh ~/Applications`).
+
 ## What's there
 
 The language is described in [HYPERTALK.md](HYPERTALK.md), the HyperTalk
