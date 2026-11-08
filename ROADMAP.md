@@ -512,8 +512,9 @@ their feedback. For now:
 3. **Color, steps 3 to 5:** images and colored parts and text (done,
    released as 0.3.0), then printing in color.
 4. **HyperCard 2.4's own features:** audit them in the real HyperCard
-   2.4.1 (Basilisk II, `examples/apple/emulator-2.4/run.sh`): QuickTime
-   from HyperTalk, URLs, the new script editor, and its menus and tools.
+   2.4.1 (Basilisk II, `examples/apple/emulator-2.4/run.sh`): movies
+   from HyperTalk (in today's video formats, .mov included, not classic QuickTime), URLs, the
+   new script editor, and its menus and tools.
 5. **The card window:** global rect and loc, scrolling (hBarLoc, vBarLoc),
    zoom, `moveWindow` and `sizeWindow`, and card size changes.
 6. **Multiple windows.** `go to stack … in a new window`, and
@@ -577,10 +578,11 @@ first three are favorites.
   `open file`, as replacements for the XCMDs stacks used for this.
 - **Resizable cards.** Cards that grow with the window, beyond HyperCard's
   fixed card sizes.
-- **Media.** Video playback in a card region, recording sound
-  (`record sound`), and playing common audio files. QuickTime music
-  tracks too (note data for a General MIDI synthesizer, as Lost and Found
-  plays its theme songs).
+- **Media.** Video playback in a card region, in today's formats (MOV,
+  MP4, M4V, MPEG), recording sound (`record sound`), and playing common
+  audio files. Not classic QuickTime: its old codecs (Cinepak, Apple
+  Video, Sorenson), music tracks and QuickTime VR are as dead as the Mac
+  they ran on, so RandomCard won't read them.
 - **More modern controls** (see the design principles). Sliders are done:
   `set the style of button "Red" to slider`, its contents its value, `the
   min`, `the max` and `the step` as HTML's range input names them, and

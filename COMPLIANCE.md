@@ -95,8 +95,9 @@ properties` (lists of what's available) are also missing.
 
 ## Still to audit
 
-- **What 2.4 and 2.4.1 added** (New Features manual): QuickTime movies driven
-  from HyperTalk, linking to URLs, opening many files, the enhanced script
+- **What 2.4 and 2.4.1 added** (New Features manual): movies driven
+  from HyperTalk (HyperTalk's side only; RandomCard plays today's video
+  formats, .mov included, not classic QuickTime codecs or music tracks), linking to URLs, opening many files, the enhanced script
   editor, the improved Picture command, new syntax. Done so far: `the
   soundChannel` (eight channels, `play stop` for the current one, `stop
   sound` for all), checked in 2.4.1 with Shattered Stone.
