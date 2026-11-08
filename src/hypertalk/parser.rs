@@ -15,7 +15,7 @@ const STOP_WORDS: &[&str] = &[
 ];
 
 const ZERO_ARG_FUNCS: &[&str] = &[
-    "date", "time", "seconds", "secs", "sec", "ticks", "mouse", "mouseloc", "mouseh", "mousev", "mouseclick",
+    "date", "time", "seconds", "secs", "sec", "ticks", "mouse", "mouseloc", "mouseh", "mousev", "mouseclick", "keysdown",
     "clickloc", "clickh", "clickv", "clickchunk", "clickline", "clicktext", "shiftkey", "optionkey",
     "commandkey", "cmdkey", "controlkey", "ctrlkey", "result", "tool", "paramcount", "params", "version",
     "selectedtext", "selectedchunk", "selectedline", "selectedfield", "selectedloc", "foundtext",
@@ -219,11 +219,19 @@ struct Parser {
     pos: usize,
     /// How many multi-line `if` blocks enclose the current position.
     if_depth: usize,
+    /// The parameters of the handler being parsed: one named `message` or
+    /// `msg` is that variable there, not the Message box, as in HyperCard.
+    params: Vec<String>,
+    /// Parsing which line or character a chunk is (`line scroll of x`):
+    /// there a property's name before "of" is a variable, not the property
+    /// without `the`, as in HyperCard (Shattered Stone keeps a variable
+    /// `scroll`). Functions such as `number of` still work.
+    in_chunk_index: bool,
 }
 
 impl Parser {
     fn new(src: &str) -> PResult<Parser> {
-        Ok(Parser { toks: lex(src)?, pos: 0, if_depth: 0 })
+        Ok(Parser { toks: lex(src)?, pos: 0, if_depth: 0, params: Vec::new(), in_chunk_index: false })
     }
 
     // ----- token helpers -----
@@ -461,7 +469,10 @@ impl Parser {
                 params.push(self.symbol()?);
             }
         }
-        let body = self.block(&["end"])?;
+        self.params = params.iter().map(|p| p.to_lowercase()).collect();
+        let body = self.block(&["end"]);
+        self.params.clear();
+        let body = body?;
         self.expect("end")?;
         let end_name = self.handler_name()?;
         if end_name != name {
@@ -586,7 +597,9 @@ impl Parser {
         // Web verbs, only with `to url` on the line: a stack's own `post`
         // or `query` handler is still a message.
         let web = matches!(w.as_str(), "post" | "patch" | "query" | "request") && self.to_url_ahead()
-            || w == "load" && self.is_at(1, "url");
+            || w == "load" && self.is_at(1, "url")
+            // `flush keys`; a stack's own `flush` handler is still a message.
+            || w == "flush" && self.is_at(1, "keys");
         if COMMANDS.contains(&w.as_str()) || paint_file || web {
             let start = self.pos + 1;
             let cmd = self.command(&w)?;
@@ -1045,6 +1058,10 @@ impl Parser {
                 let url = self.expr()?;
                 Cmd::Http { method: Expr::Lit(name.to_ascii_uppercase()), body: Some(body), url, message: self.with_message()? }
             }
+            "flush" => {
+                self.expect("keys")?;
+                Cmd::FlushKeys
+            }
             // `load url "…" with message "gotData"`: a GET that doesn't wait.
             "load" if self.is("url") => {
                 self.advance();
@@ -1267,9 +1284,23 @@ impl Parser {
             }
             "play" => {
                 if self.accept("stop") {
-                    return Ok(Cmd::PlayStop);
+                    let song = if self.at_stmt_end() { None } else { Some(self.expr()?) };
+                    return Ok(Cmd::PlayStop(song));
                 }
-                let sound = self.expr()?;
+                // `play theSound ("c4" & "e")`: HyperCard takes a variable
+                // before parentheses as the sound and the parentheses as the
+                // notes, not as a call to a function named theSound.
+                let variable_then_notes = self.word().is_some_and(|w| {
+                    !ZERO_ARG_FUNCS.contains(&w) && !ONE_ARG_FUNCS.contains(&w) && !EXPR_START_WORDS.contains(&w) && constant(w).is_none()
+                }) && matches!(self.tok_at(1), Tok::Sym("("))
+                    && !matches!(self.tok_at(2), Tok::Sym(")"));
+                let sound = if variable_then_notes {
+                    let text = self.toks[self.pos].text.clone();
+                    self.advance();
+                    Expr::Var(text)
+                } else {
+                    self.expr()?
+                };
                 let mut tempo = None;
                 let mut notes = Vec::new();
                 let mut notes_start = None;
@@ -1327,6 +1358,10 @@ impl Parser {
             "create" if self.is("menu") => {
                 self.advance();
                 Cmd::CreateMenu(self.expr()?)
+            }
+            "stop" if self.is("sound") && self.at_stmt_end_at(1) => {
+                self.advance();
+                Cmd::StopSound
             }
             "start" | "stop" if self.is("using") => {
                 self.advance();
@@ -1542,7 +1577,10 @@ impl Parser {
             return Ok(ShowHide::BgPicture);
         }
         if self.accept_any(&["picture", "pict"]).is_some() {
-            self.expect("of")?;
+            // HyperTalk takes "in" for "of": hide picture in card "bathroom".
+            if !self.accept("in") {
+                self.expect("of")?;
+            }
             return Ok(ShowHide::PictureOf(self.expr()?));
         }
         if self.is("tool") && self.is_at(1, "window") {
@@ -1667,6 +1705,12 @@ impl Parser {
             self.advance();
         }
         let card_at = |n: usize| self.word_at(n).is_some_and(is_card_word);
+        // `go to cd id` with no id: HyperCard compiles it and says "No such
+        // card" only if it runs (Shattered Stone's exits to nowhere).
+        if card_at(0) && self.is_at(1, "id") && self.at_stmt_end_at(2) {
+            self.pos += 2;
+            return Ok(GoDest::Card(CardSpec::Which(Which::Id(Box::new(Expr::Lit(String::new()))))));
+        }
         let simple_position = self.at_stmt_end_at(1)
             || card_at(1) && self.at_stmt_end_at(2)
             || self.is_at(1, "marked") && card_at(2) && self.at_stmt_end_at(3);
@@ -1814,6 +1858,12 @@ impl Parser {
                     let t = self.symbol()?;
                     e = Expr::IsType(false, Box::new(e), t);
                     continue;
+                } else if self.is_at(1, "no") && self.word_at(2).is_some_and(|w| TYPE_NAMES.contains(&w)) {
+                    // HyperCard takes "is no integer" for "is not an integer".
+                    self.pos += 2;
+                    let t = self.symbol()?;
+                    e = Expr::IsType(false, Box::new(e), t);
+                    continue;
                 } else {
                     break;
                 }
@@ -1918,6 +1968,13 @@ impl Parser {
                 let test = Expr::Call(call.into(), vec![arg]);
                 return Ok(if positive { test } else { Expr::Unary(UnOp::Not, Box::new(test)) });
             }
+            // `there is a cd picture`: whether it has any painting.
+            if self.word().is_some_and(|w| is_card_word(w) || is_bg_word(w)) && matches!(self.word_at(1), Some("picture" | "pict")) {
+                let layer = if self.word().is_some_and(is_card_word) { "card" } else { "bkgnd" };
+                self.pos += 2;
+                let test = Expr::Call("__pictureexists".into(), vec![Expr::Lit(layer.into())]);
+                return Ok(if positive { test } else { Expr::Unary(UnOp::Not, Box::new(test)) });
+            }
             let Some(obj) = self.object()? else {
                 return Err(self.err_here("Expected an object after \"there is a\""));
             };
@@ -1942,7 +1999,11 @@ impl Parser {
             }
             Tok::Sym("(") => {
                 self.advance();
-                let e = self.expr()?;
+                // Parentheses start afresh: `line (number of lines of x + 1)`.
+                let was = std::mem::replace(&mut self.in_chunk_index, false);
+                let e = self.expr();
+                self.in_chunk_index = was;
+                let e = e?;
                 if !self.accept_sym(")") {
                     return Err(self.err_here("Expected \")\""));
                 }
@@ -1953,6 +2014,12 @@ impl Parser {
                 Ok(Expr::Unary(UnOp::Neg, Box::new(self.term()?)))
             }
             Tok::Word(w) => self.word_term(&w),
+            // `set itemDelimiter to :`: HyperCard takes a bare colon as
+            // the character (Lost and Found splits Mac paths so).
+            Tok::Sym(":") => {
+                self.advance();
+                Ok(Expr::Lit(":".into()))
+            }
             _ => Err(self.err_here("Expected an expression")),
         }
     }
@@ -2078,7 +2145,7 @@ impl Parser {
         // words wherever a value goes (`put item 3 of x into Seconds`).
         let alone = matches!(self.tok_at(1), Tok::Sym(")" | ","))
             || matches!(w, "seconds" | "secs" | "sec" | "ticks" | "tick");
-        if STOP_WORDS.contains(&w) && !alone && !matches!(w, "to" | "times" | "where" | "pict" | "picture" | "before" | "after") {
+        if STOP_WORDS.contains(&w) && !alone && !matches!(w, "to" | "times" | "where" | "pict" | "picture" | "before" | "after" | "box") {
             return Err(self.err_here("Expected an expression"));
         }
         let text = self.toks[self.pos.min(self.toks.len() - 1)].text.clone();
@@ -2090,7 +2157,10 @@ impl Parser {
     fn implicit_the(&self) -> bool {
         let n = if self.length_word(0).is_some() && self.word_at(1).is_some() { 1 } else { 0 };
         let Some(w) = self.word_at(n) else { return false };
-        let known = PROPERTIES.contains(&w) || ONE_ARG_FUNCS.contains(&w);
+        // In a chunk's position a property's name is a variable (`line
+        // scroll of x`), but functions still work (`char it to it + number
+        // of chars in x`).
+        let known = PROPERTIES.contains(&w) && (!self.in_chunk_index || w == "number") || ONE_ARG_FUNCS.contains(&w);
         // An external window's own property: `messageName of window wName`.
         let of_window = self.is_at(n + 1, "of") && self.is_at(n + 2, "window") && self.starts_term_at(n + 3);
         of_window || known && (self.is_at(n + 1, "of") || w == "number" && self.is_at(n + 1, "in"))
@@ -2162,6 +2232,28 @@ impl Parser {
             self.advance();
         }
         let name = self.symbol()?;
+        // `the selectedButton of [card | bkgnd] family 2 [of card 4]`.
+        if name == "selectedbutton" && self.is("of") {
+            let save = self.pos;
+            self.advance();
+            let layer = match self.word() {
+                Some(w) if is_bg_word(w) => {
+                    self.advance();
+                    "bkgnd"
+                }
+                Some(w) if is_card_word(w) && self.is_at(1, "family") => {
+                    self.advance();
+                    "card"
+                }
+                _ => "card",
+            };
+            if self.accept("family") {
+                let family = self.term()?;
+                let card = if self.accept("of") { self.term()? } else { Expr::Lit(String::new()) };
+                return Ok(Expr::Call("__selectedbutton".into(), vec![Expr::Lit(layer.into()), family, card]));
+            }
+            self.pos = save;
+        }
         if self.is("of") || self.is("in") {
             if ONE_ARG_FUNCS.contains(&name.as_str()) {
                 self.advance();
@@ -2323,6 +2415,14 @@ impl Parser {
         Ok(None)
     }
 
+    /// Which line, word or character a chunk is: see `in_chunk_index`.
+    fn chunk_index_expr(&mut self) -> PResult<Expr> {
+        let was = std::mem::replace(&mut self.in_chunk_index, true);
+        let e = self.expr();
+        self.in_chunk_index = was;
+        e
+    }
+
     fn chunk_term(&mut self) -> PResult<Option<Expr>> {
         let Some(w) = self.word() else { return Ok(None) };
         // `the` was already consumed if present.
@@ -2336,12 +2436,12 @@ impl Parser {
                 return Ok(None);
             }
             self.advance();
-            (kind, ChunkIndex::Expr(Box::new(self.expr()?)))
+            (kind, ChunkIndex::Expr(Box::new(self.chunk_index_expr()?)))
         } else {
             return Ok(None);
         };
         let end = if matches!(start, ChunkIndex::Expr(_)) && self.accept("to") {
-            Some(Box::new(self.expr()?))
+            Some(Box::new(self.chunk_index_expr()?))
         } else {
             None
         };
@@ -2383,6 +2483,10 @@ impl Parser {
             "target" if n == 0 => {
                 self.advance();
                 return Ok(Some(ObjSpec::Target));
+            }
+            // A handler's parameter of that name is a variable.
+            "msg" | "message" if n == 0 && self.params.contains(&w) && !self.is_at(1, "box") && !self.is_at(1, "window") => {
+                return Ok(None);
             }
             "msg" | "message" => {
                 self.pos += n + 1;

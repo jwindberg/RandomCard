@@ -1,6 +1,7 @@
 //! The RandomCard window: menus, tool palette, the card, and the message box.
 
 mod addcolor;
+mod bitmap_fonts;
 mod debugger;
 mod editing;
 mod images;
@@ -15,6 +16,7 @@ mod popup;
 mod recent;
 mod render;
 mod script_find;
+mod system_fonts;
 mod windows;
 
 use std::path::PathBuf;
@@ -115,6 +117,8 @@ pub struct App {
     /// The system clipboard's image when a part was last copied, so Paste
     /// can tell if another program has copied an image since.
     system_image_at_copy: Option<u64>,
+    /// The stack whose bitmap fonts are installed, by stack serial.
+    fonts_for: Option<u64>,
     /// Style ▸ Text Color…, while it's open.
     text_color: Option<text_color::TextColor>,
     prefs_open: bool,
@@ -221,6 +225,7 @@ impl App {
             card_origin: egui::Pos2::ZERO,
             export: None,
             system_image_at_copy: None,
+            fonts_for: None,
             text_color: None,
             prefs_open: false,
             protect_open: false,
@@ -713,6 +718,29 @@ impl App {
 
     // ----- keyboard -----
 
+    /// The keys held now, for `the keysDown`, by HyperCard's names.
+    fn publish_keys_down(&mut self, ctx: &egui::Context) {
+        let (keys, mods) = ctx.input(|i| (i.keys_down.clone(), i.modifiers));
+        let mut names: Vec<String> = keys.iter().filter_map(|k| key_name(*k)).collect();
+        names.sort();
+        if mods.shift {
+            names.push("shift".into());
+        }
+        if mods.alt {
+            names.push("option".into());
+        }
+        if mods.command {
+            names.push("command".into());
+        }
+        if mods.ctrl && mods.mac_cmd {
+            names.push("control".into());
+        }
+        let mut w = self.world();
+        if w.keys_down != names {
+            w.keys_down = names;
+        }
+    }
+
     fn shortcuts(&mut self, ctx: &egui::Context) {
         let cmd = |k: Key| KeyboardShortcut::new(Modifiers::COMMAND, k);
         let cmd_alt = |k: Key| KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::ALT, k);
@@ -896,7 +924,7 @@ impl App {
         let target = self.key_target();
         if self.world().tool == Tool::Browse && self.handles(target, "commandkeydown") {
             let message = "commandKeyDown".to_string();
-            self.send(Event::Key { target, message, args: vec![ch.into()], default: action });
+            self.send(Event::Key { target, message, args: vec![ch.into()], default: action, at: Instant::now() });
         } else {
             self.key_action(ctx, target, action);
         }
@@ -1006,7 +1034,7 @@ impl App {
             })
         });
         for (message, args, default) in sends {
-            self.send(Event::Key { target, message: message.into(), args, default });
+            self.send(Event::Key { target, message: message.into(), args, default, at: Instant::now() });
         }
         for action in local {
             self.key_action(ctx, target, action);
@@ -2127,7 +2155,16 @@ impl eframe::App for App {
             self.stack_seen = serial;
             self.forget_stack_view();
         }
+        // The stack's own bitmap fonts, when a different stack opens.
+        // Or the system's Japanese font, when Japanese is first drawn.
+        system_fonts::note_input(&ctx);
+        if self.fonts_for != Some(serial) || system_fonts::pending() {
+            self.fonts_for = Some(serial);
+            let stack = self.world().stack.clone();
+            bitmap_fonts::install(&ctx, &stack);
+        }
         self.enforce_level();
+        self.publish_keys_down(&ctx);
         self.shortcuts(&ctx);
         self.keyboard(&ctx);
 
@@ -2205,4 +2242,34 @@ impl eframe::App for App {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
     }
+}
+
+/// A key's name in `the keysDown`: HyperCard's (`left`, `return`, `tab`…
+/// as arrowKey, returnKey and tabKey call them), letters and digits as
+/// typed, F1 to F15.
+fn key_name(key: Key) -> Option<String> {
+    let name = match key {
+        Key::ArrowLeft => "left",
+        Key::ArrowRight => "right",
+        Key::ArrowUp => "up",
+        Key::ArrowDown => "down",
+        Key::Space => "space",
+        Key::Enter => "return",
+        Key::Tab => "tab",
+        Key::Escape => "escape",
+        Key::Backspace => "delete",
+        Key::Delete => "forwardDelete",
+        Key::Home => "home",
+        Key::End => "end",
+        Key::PageUp => "pageUp",
+        Key::PageDown => "pageDown",
+        other => {
+            let n = other.name();
+            if n.chars().count() == 1 || (n.starts_with('F') && n[1..].parse::<u8>().is_ok()) {
+                return Some(n.to_lowercase());
+            }
+            return None;
+        }
+    };
+    Some(name.into())
 }

@@ -1,6 +1,7 @@
 //! The stack data model: stacks contain backgrounds and cards; backgrounds and
 //! cards each hold a picture layer plus buttons and fields ("parts").
 
+pub mod bitmap_font;
 pub mod color;
 mod demo;
 pub mod home;
@@ -463,6 +464,46 @@ pub struct Sound {
     pub samples: Vec<i16>,
 }
 
+/// One size of a bitmap font family, as a `FONT` or `NFNT` resource holds
+/// it (see `bitmap_font`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StackFont {
+    pub family: String,
+    pub size: u32,
+    #[serde(with = "bytes64")]
+    pub data: Vec<u8>,
+}
+
+impl StackFont {
+    pub fn parse(&self) -> Option<bitmap_font::BitmapFont> {
+        bitmap_font::BitmapFont::parse(&self.family, self.size, &self.data)
+    }
+}
+
+/// A song: a soundtracker module (MOD, XM, S3M or IT) as its file holds it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Song {
+    pub name: String,
+    #[serde(with = "bytes64")]
+    pub data: Vec<u8>,
+}
+
+/// Bytes stored as base64.
+mod bytes64 {
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(b: &[u8], s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&STANDARD.encode(b))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+        let text = String::deserialize(d)?;
+        STANDARD.decode(text).map_err(serde::de::Error::custom)
+    }
+}
+
 /// Samples are stored as base64 little-endian 16-bit PCM.
 mod pcm {
     use base64::Engine;
@@ -535,6 +576,14 @@ pub struct Stack {
     /// Palettes by resource id, for the `palette` command.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub palettes: BTreeMap<i32, Palette>,
+    /// Songs (soundtracker modules) by resource id; `play` plays them by
+    /// name, on their own channel.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub songs: BTreeMap<i32, Song>,
+    /// Bitmap fonts the stack carries: one size of a family each, as its
+    /// `FONT` or `NFNT` resource held it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub fonts: Vec<StackFont>,
     /// The paint pattern palette: 40 patterns of 8 rows, numbered from 1.
     #[serde(default = "default_patterns")]
     pub patterns: Vec<[u8; 8]>,
@@ -574,6 +623,8 @@ impl Stack {
             protection: Protection::default(),
             icons: BTreeMap::new(),
             sounds: BTreeMap::new(),
+            songs: BTreeMap::new(),
+            fonts: Vec::new(),
             palettes: BTreeMap::new(),
             patterns: default_patterns(),
             path: None,
@@ -600,6 +651,11 @@ impl Stack {
     }
 
     /// Find a sound by name (case-insensitively) or id.
+    pub fn find_song(&self, name: &str) -> Option<&Song> {
+        let t = name.trim();
+        self.songs.values().find(|s| s.name.eq_ignore_ascii_case(t))
+    }
+
     pub fn find_sound(&self, name: &str) -> Option<&Sound> {
         let t = name.trim();
         self.sounds

@@ -149,14 +149,14 @@ fn house(p: &mut Picture) {
 const STACK_SCRIPT: &str = r#"-- A menu of the stack's own. Its items arrive as doMenu messages.
 on openStack
   if there is no menu "Tour" then create menu "Tour"
-  put "Contents,Basics,Dice,Drawing,Animation,Sound,Keys,Fields,Print & Find,Icons,Debugging,Palettes,The Web,-,Address Book" into menu "Tour"
+  put "Contents,Basics,Dice,Drawing,Animation,Sound,Keys,Fields,Print & Find,Icons,Debugging,Palettes,The Web,Japanese,-,Address Book" into menu "Tour"
 end openStack
 
 on doMenu what
   if what is "Address Book" then
     visual effect zoom open
     go to first card of background "Address"
-  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation,Sound,Keys,Fields,Print & Find,Icons,Debugging,Palettes,The Web," then
+  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation,Sound,Keys,Fields,Print & Find,Icons,Debugging,Palettes,The Web,Japanese," then
     visual effect dissolve
     go to card what
   else
@@ -282,6 +282,7 @@ pub fn build() -> Stack {
         ("Palettes", "on mouseUp\n  visual effect wipe right\n  go to card \"Palettes\"\nend mouseUp"),
         ("Address Book", "on mouseUp\n  visual effect zoom open\n  go to first card of background \"Address\"\nend mouseUp"),
         ("The Web", "on mouseUp\n  visual effect dissolve\n  go to card \"The Web\"\nend mouseUp"),
+        ("Japanese", "on mouseUp\n  visual effect wipe left\n  go to card \"Japanese\"\nend mouseUp"),
     ];
     for (i, (name, script)) in buttons.iter().enumerate() {
         let (col, row) = ((i % 3) as i32, (i / 3) as i32);
@@ -1156,6 +1157,36 @@ end mouseUp"#,
     reply.lock_text = true;
     reply.text_size = 9;
     b.card_part(c, reply);
+
+    // ----- Japanese: stacks from HyperCard J come in as Unicode, drawn in
+    // the system's Japanese font. Nothing on the card is Japanese until a
+    // button puts it there, so the font loads only then.
+    let c = b.card(main, "Japanese");
+    let t = b.label("Heading", Rect::new(20, 10, 492, 36), "Japanese text", 20);
+    b.card_part(c, t);
+    let about = b.label(
+        "About",
+        Rect::new(20, 42, 492, 112),
+        "Apple sold HyperCard J in Japan, and its stacks keep their text in Shift-JIS. RandomCard imports them as Unicode and draws Japanese in your system's Japanese font, loaded the first time Japanese appears. Click a button, or type in the field with a Japanese input method.",
+        12,
+    );
+    b.card_part(c, about);
+    let mut field = Part::new_field(b.id(), "Japanese", Rect::new(36, 122, 476, 182));
+    field.text_size = 18;
+    b.card_part(c, field);
+    let japanese_buttons = [
+        ("Say Hello", "on mouseUp\n  put \"こんにちは。RandomCard へようこそ！\" into field \"Japanese\"\nend mouseUp"),
+        (
+            "Characters",
+            "on mouseUp\n  put \"花札スタック\" into field \"Japanese\"\n  answer \"花札スタック (the Hanafuda stack) is\" && the number of chars of field \"Japanese\" && \"characters.\" & return & \"charToNum(\" & quote & \"花\" & quote & \") is\" && charToNum(\"花\") & \", its Unicode code point, and numToChar(26413) is\" && numToChar(26413) & \".\"\nend mouseUp",
+        ),
+        ("Clear", "on mouseUp\n  put empty into field \"Japanese\"\nend mouseUp"),
+    ];
+    for (i, (name, script)) in japanese_buttons.iter().enumerate() {
+        let x = 36 + i as i32 * 150;
+        let p = b.button(name, Rect::new(x, 196, x + 140, 224), script);
+        b.card_part(c, p);
+    }
 
     // ----- Address book: a second background with per-card field text -----
     let addr = b.background("Address", ADDRESS_BG_SCRIPT);

@@ -57,17 +57,22 @@ mirroring the discs' folders, re-run whenever the importer improves.
 
 ## Where we are
 
-1,703 distinct stacks.
+1,706 distinct stacks (1,703 until 2026-11-08, when fixing typos in one
+copy of a stack set three others with the typo apart).
 
 | Level | Stacks |
 | --- | --- |
-| Open cleanly (levels 1–3) | 820 (748 at the first index) |
+| Open cleanly (levels 1–3) | 1,016 (820 on 2026-11-04, 748 at the first index) |
 | Tested at level 4 | all 748 (320 without compiled externals, then the 428 with them), then 297 more whose scripts parse since #48, then the other 149 (#53) |
-| **Work fully (level 4)** | **1,029** (11 after fix steps, marked *; 52 use stubs, marked †; 3 checked by driven steps, marked ‡) |
+| **Work fully (level 4)** | **1,057** (11 after fix steps, marked *; 52 use stubs, marked †; 3 checked by driven steps, marked ‡) |
 
 On 2026-11-03, after #53 (quoted words), every stack tested so far (1,385) was
 clicked again (FULL2.tsv): no stack that worked stopped working. Again on
-2026-11-04 after fix steps and #56 (FULL4.tsv): none stopped working.
+2026-11-04 after fix steps and #56 (FULL4.tsv): none stopped working. And on
+2026-11-08 after Japanese import and the Prisim games' fixes, all 1,431 that
+open (FULL5.tsv): one stopped working (Printer Checklist, a chunk's position
+`it + number of chars in w`), fixed and rechecked (RECHECK5.tsv), and 28
+more work, among them Apple's HyperCard J stacks, now read as Japanese.
 (A first try, FULL3.tsv, linked only each stack's own folder; companions in
 the folders beside it went missing, so it doesn't count.)
 

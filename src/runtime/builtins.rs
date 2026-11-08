@@ -52,10 +52,8 @@ impl Interp {
             "ln1" => self.fmt(num(0)?.ln_1p()),
             "log2" => self.fmt(num(0)?.log2()),
             "random" => {
-                let n = to_int(&arg(0))?;
-                if n < 1 {
-                    return err("random needs a positive number");
-                }
+                // HyperCard gives 1 for 0 or less.
+                let n = to_int(&arg(0))?.max(1);
                 rand::random_range(1..=n).to_string()
             }
             "min" | "max" | "sum" | "average" => {
@@ -83,6 +81,15 @@ impl Interp {
 
             // Text
             "length" => arg(0).chars().count().to_string(),
+            // textWidth(text, font, size, style): its width in pixels, by
+            // classic Mac metrics (Geneva 12 plain unless given).
+            "textwidth" => {
+                let font = if arg(1).trim().is_empty() { "Geneva".to_string() } else { arg(1) };
+                let size = if arg(2).trim().is_empty() { 12 } else { to_int(&arg(2))?.clamp(1, 256) as u32 };
+                let style = if arg(3).trim().is_empty() { "plain".to_string() } else { arg(3) };
+                let width = crate::model::metrics::metrics(&font, size, &style).text_width(&arg(0));
+                width.round().to_string()
+            }
             // For building URLs: `"?query=" & urlEncode(field "Search")`.
             "urlencode" => crate::web::http::url_encode(&arg(0)),
             "urldecode" => crate::web::http::url_decode(&arg(0)),
@@ -132,6 +139,8 @@ impl Interp {
                 bool_str(c)
             }
             "shiftkey" => up_down(self.w().mouse.shift),
+            // The keys held down now, by name: left, space, a…
+            "keysdown" => self.w().keys_down.join(","),
             "optionkey" => up_down(self.w().mouse.option),
             "commandkey" | "cmdkey" | "controlkey" | "ctrlkey" => up_down(self.w().mouse.command),
 
@@ -249,6 +258,15 @@ impl Interp {
             "pathseparator" => super::paths::SEPARATOR.into(),
             "osname" => std::env::consts::OS.into(),
             "diskspace" | "heapspace" => "1000000000".into(),
+            "__pictureexists" => {
+                let w = self.w();
+                let blank = if arg(0) == "card" {
+                    w.stack.card(w.card_id).is_none_or(|c| c.picture.is_blank())
+                } else {
+                    w.stack.background(w.bg_id()).is_none_or(|b| b.picture.is_blank())
+                };
+                bool_str(!blank)
+            }
             "__fileexists" => bool_str(super::paths::native(&arg(0)).exists()),
             // `there is a folder "…"`.
             "__folderexists" => bool_str(super::paths::native(&arg(0)).is_dir()),
@@ -270,7 +288,7 @@ impl Interp {
 
 /// `the foundText`, `selectedChunk`, `clickLine` and friends: the text of a
 /// range, or where it is ("char 3 to 7 of card field 1", "line 2 of …").
-fn range_info(w: &World, r: &FieldRange, which: &str) -> String {
+pub(super) fn range_info(w: &World, r: &FieldRange, which: &str) -> String {
     let field = w.range_field_name(r);
     match which {
         "text" => w.range_text(r),

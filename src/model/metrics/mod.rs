@@ -25,13 +25,17 @@ pub struct FamilyStyles {
 }
 
 /// Metrics for one font, size and style.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Metrics {
     base: &'static FontMetrics,
+    /// A stack's own bitmap font, measured by its own widths.
+    pub bitmap: Option<std::sync::Arc<super::bitmap_font::BitmapFont>>,
     /// How much the base size is scaled, when there's no bitmap of this size.
     scale: f32,
     /// Pixels the style adds to every character.
     extra: i32,
+    /// The text size asked for.
+    size: u32,
     pub ascent: u32,
     pub descent: u32,
     pub leading: u32,
@@ -68,6 +72,22 @@ fn extra_width(fraction: i16, size: u32) -> i32 {
 }
 
 pub fn metrics(font: &str, size: u32, style: &str) -> Metrics {
+    // A font the stack carries comes first.
+    if let Some(b) = super::bitmap_font::font(font, size) {
+        let scale = size.max(1) as f32 / b.size.max(1) as f32;
+        let scaled = |v: u32| (v as f32 * scale).round() as u32;
+        let extra = i32::from(styles::has_style(style, "bold"));
+        return Metrics {
+            base: base_font("Geneva", size.clamp(1, 255)),
+            scale,
+            extra,
+            size,
+            ascent: scaled(b.ascent),
+            descent: scaled(b.descent),
+            leading: scaled(b.leading),
+            bitmap: Some(b),
+        };
+    }
     let family = family_of(font);
     let size = size.clamp(1, 255);
     let base = base_font(family, size);
@@ -97,9 +117,11 @@ pub fn metrics(font: &str, size: u32, style: &str) -> Metrics {
         base,
         scale,
         extra,
+        size,
         ascent: scaled(base.ascent),
         descent: scaled(base.descent),
         leading: scaled(base.leading),
+        bitmap: None,
     }
 }
 
@@ -111,6 +133,18 @@ impl Metrics {
 
     /// How far a character advances the pen.
     pub fn width(&self, c: char) -> f32 {
+        if let Some(b) = &self.bitmap {
+            if c == '\n' {
+                return 0.0;
+            }
+            if let Some(g) = b.glyph(c) {
+                return ((g.advance as f32 * self.scale).round() as i32 + self.extra).max(0) as f32;
+            }
+        }
+        // Japanese fonts drew full-width characters a size wide.
+        if let Some(ems) = east_asian_width(c) {
+            return ((self.size as f32 * ems).round() as i32 + self.extra).max(0) as f32;
+        }
         let code = mac_roman_code(c).unwrap_or(b'?');
         let w = match code {
             32.. => self.base.widths[(code - 32) as usize],
@@ -128,6 +162,16 @@ impl Metrics {
 /// HyperCard's automatic textHeight for a text size.
 pub fn default_text_height(size: u32) -> u32 {
     (size * 4).div_ceil(3)
+}
+
+/// The width of a Japanese character in ems: kana, kanji and full-width
+/// forms are one, half-width katakana a half.
+fn east_asian_width(c: char) -> Option<f32> {
+    match c as u32 {
+        0xff61..=0xff9f => Some(0.5),
+        0x3000..=0x30ff | 0x3400..=0x4dbf | 0x4e00..=0x9fff | 0xf900..=0xfaff | 0xff01..=0xff60 | 0xffe0..=0xffe6 => Some(1.0),
+        _ => None,
+    }
 }
 
 fn mac_roman_code(c: char) -> Option<u8> {
@@ -148,6 +192,8 @@ mod tests {
         assert_eq!(g.width(' '), 4.0);
         // Bold adds a pixel to every character in Geneva, which has no style table.
         assert_eq!(metrics("Geneva", 12, "bold").width(' '), 5.0);
+        // Japanese: full width is the size, half-width katakana half of it.
+        assert_eq!(metrics("Osaka", 12, "plain").text_width("花札ｱ"), 30.0);
         // Courier is fixed width, and stays so when bold.
         let c = metrics("Courier", 12, "bold");
         assert_eq!(c.width('i'), c.width('W'));

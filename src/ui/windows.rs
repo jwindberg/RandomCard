@@ -202,6 +202,7 @@ impl App {
             let w = lock(&self.rt.world);
             (script_of(&w, obj).unwrap_or_default(), object_title(&w, obj))
         };
+        super::system_fonts::note_text(&text);
         self.editors.push(ScriptEditor {
             obj,
             title,

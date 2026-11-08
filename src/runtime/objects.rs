@@ -62,7 +62,13 @@ impl Interp {
                 let v = self.eval(e)?;
                 match parse_int(&v) {
                     Some(n) => ids.get((n - 1) as usize).copied().filter(|_| n >= 1),
-                    None => names.iter().position(|n| n.eq_ignore_ascii_case(v.trim())).map(|i| ids[i]),
+                    // A name exactly (Tic-Tac-Toe names buttons with tabs),
+                    // else without the spaces around it.
+                    None => names
+                        .iter()
+                        .position(|n| n.eq_ignore_ascii_case(&v))
+                        .or_else(|| names.iter().position(|n| n.eq_ignore_ascii_case(v.trim())))
+                        .map(|i| ids[i]),
                 }
             }
         };
@@ -411,6 +417,8 @@ impl Interp {
             "httpheaders" => self.http_headers.clone(),
             "httptimeout" => self.fmt(self.http_timeout),
             "responseheaders" => self.response_headers.clone(),
+            "soundvolume" => self.audio.volume().to_string(),
+            "soundchannel" => self.audio.channel().to_string(),
             "responsestatus" => self.response_status.clone(),
             "responsetime" => self.fmt(self.response_time.round()),
             "lockscreen" => bool_str(w.lock_screen),
@@ -422,6 +430,7 @@ impl Interp {
             "pattern" => w.pattern.to_string(),
             "brush" => w.brush.to_string(),
             "polysides" => w.poly_sides.to_string(),
+            "multispace" => w.multi_space.to_string(),
             "pencolor" => crate::model::color::color_text(rgb(w.line_color)),
             "brushcolor" => crate::model::color::color_text(rgb(w.fill_color)),
             "textfont" => w.paint_font.clone(),
@@ -451,6 +460,9 @@ impl Interp {
             }
             "numberformat" => self.number_format = v.to_string(),
             "httpheaders" => self.http_headers = v.to_string(),
+            "soundvolume" => self.audio.set_volume(to_int(v)?.clamp(0, 7) as u8),
+            // HyperCard 2.4: which of the eight channels `play` uses.
+            "soundchannel" => self.audio.set_channel(to_int(v)?.clamp(1, 8) as usize),
             "httptimeout" => self.http_timeout = super::interp::to_number(v)?.clamp(0.1, 3600.0),
             "lockscreen" => self.w().lock_screen = to_bool(v)?,
             "lockmessages" | "lockmsgs" => self.lock_messages = to_bool(v)?,
@@ -460,6 +472,7 @@ impl Interp {
             "pattern" => self.w().pattern = to_int(v)?.clamp(1, 40) as usize,
             "brush" => self.w().brush = to_int(v)?.clamp(1, 32) as u32,
             "polysides" => self.w().poly_sides = to_int(v)?.clamp(3, 50) as u32,
+            "multispace" => self.w().multi_space = to_int(v)?.max(1) as u32,
             // The paint colors: lines and text, and the pattern.
             "pencolor" | "brushcolor" => {
                 let Some([r, g, b]) = crate::model::color::parse_color(v) else {
@@ -585,6 +598,13 @@ impl Interp {
                             }
                         }
                     }
+                    // HyperCard 2.2: the selection, when it's in this field
+                    // (a list field's chosen lines), else empty.
+                    "selectedtext" | "selectedline" | "selectedchunk" => w
+                        .current_selection()
+                        .filter(|r| r.layer == layer && r.field == id)
+                        .map(|r| super::builtins::range_info(&w, r, &name[8..]))
+                        .unwrap_or_default(),
                     "locktext" => bool_str(p.lock_text),
                     "dontwrap" => bool_str(p.dont_wrap),
                     "autotab" => bool_str(p.auto_tab),

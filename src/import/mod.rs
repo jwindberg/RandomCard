@@ -12,8 +12,10 @@ mod addcolor;
 pub mod fix_steps;
 pub mod pict;
 mod resources;
+mod text;
 
 pub use resources::{hypercard_icon, hypercard_icons};
+pub use text::TextEncoding;
 mod woba;
 
 use std::collections::{HashMap, HashSet};
@@ -88,14 +90,16 @@ pub fn import_bytes(bytes: &[u8], path: &Path, password: Option<&str>) -> Result
     let data = data_fork(bytes).ok_or("This is not a HyperCard stack.")?;
     let blocks = read_blocks(data)?;
     let name = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Imported".into());
-    let mut stack = convert(&blocks, &name, password)?;
+    let (mut stack, enc) = convert(&blocks, &name, password)?;
     if let Some(fork) = resources::find_resource_fork(path, bytes) {
-        stack.icons = resources::icons(&fork);
-        stack.sounds = resources::sounds(&fork);
-        stack.palettes = resources::palettes(&fork);
-        addcolor::apply(&mut stack, &resources::parse(&fork));
+        stack.icons = resources::icons(&fork, enc);
+        stack.sounds = resources::sounds(&fork, enc);
+        stack.songs = resources::songs(&fork, enc);
+        stack.fonts = resources::fonts(&fork, enc);
+        stack.palettes = resources::palettes(&fork, enc);
+        addcolor::apply(&mut stack, &resources::parse(&fork, enc), enc);
     }
-    add_chain_resources(&mut stack, path);
+    add_chain_resources(&mut stack, path, enc);
     stack.imported_from = Some(path.to_path_buf());
     Ok(stack)
 }
@@ -103,7 +107,7 @@ pub fn import_bytes(bytes: &[u8], path: &Path, password: Option<&str>) -> Result
 /// Fetch icons the stack's buttons use, and icons and sounds its scripts
 /// name, from further along the resource chain when the stack's own fork
 /// lacks them, and finally from HyperCard's built-in icons.
-fn add_chain_resources(stack: &mut Stack, path: &Path) {
+fn add_chain_resources(stack: &mut Stack, path: &Path, enc: TextEncoding) {
     let all_parts = stack.cards.iter().flat_map(|c| &c.parts).chain(stack.backgrounds.iter().flat_map(|b| &b.parts));
     let mut missing_icons: HashSet<i32> = all_parts.map(|p| p.icon).filter(|i| *i != 0).collect();
     missing_icons.retain(|i| !stack.icons.contains_key(i));
@@ -111,7 +115,7 @@ fn add_chain_resources(stack: &mut Stack, path: &Path) {
     let mut have_sounds: HashSet<String> = stack.sounds.values().map(|s| s.name.to_lowercase()).collect();
     let mut have_icons: HashSet<String> = stack.icons.values().map(|i| i.name.to_lowercase()).collect();
     let forks = resources::chain_forks(path);
-    let chain = forks.iter().map(|f| resources::icons(f)).chain(std::iter::once(resources::hypercard_icons().clone()));
+    let chain = forks.iter().map(|f| resources::icons(f, enc)).chain(std::iter::once(resources::hypercard_icons().clone()));
     for icons in chain {
         for (id, icon) in icons {
             let name = icon.name.to_lowercase();
@@ -124,7 +128,7 @@ fn add_chain_resources(stack: &mut Stack, path: &Path) {
         }
     }
     for fork in &forks {
-        for (id, palette) in resources::palettes(fork) {
+        for (id, palette) in resources::palettes(fork, enc) {
             // Scripts name palettes in quotes: palette "Navigator".
             let name = palette.name.to_lowercase();
             let had = stack.palettes.values().any(|p| p.name.eq_ignore_ascii_case(&name));
@@ -132,7 +136,7 @@ fn add_chain_resources(stack: &mut Stack, path: &Path) {
                 stack.palettes.insert(id, palette);
             }
         }
-        for (id, sound) in resources::sounds(fork) {
+        for (id, sound) in resources::sounds(fork, enc) {
             let name = sound.name.to_lowercase();
             // Scripts name sounds in quotes: play "boing".
             if !name.is_empty() && !have_sounds.contains(&name) && scripts.contains(&format!("\"{name}\"")) {
@@ -222,12 +226,21 @@ impl<'a> Reader<'a> {
         })
     }
 
-    /// A null-terminated MacRoman string; tolerates a missing terminator at the end.
-    fn cstring(&mut self) -> String {
+    /// A null-terminated string; tolerates a missing terminator at the end.
+    fn cstring(&mut self, enc: TextEncoding) -> String {
+        enc.decode(self.cbytes())
+    }
+
+    /// A null-terminated script.
+    fn script(&mut self, enc: TextEncoding) -> String {
+        enc.decode_script(self.cbytes())
+    }
+
+    fn cbytes(&mut self) -> &'a [u8] {
         let rest = &self.data[self.pos.min(self.data.len())..];
         let len = rest.iter().position(|b| *b == 0).unwrap_or(rest.len());
         self.pos += (len + 1).min(rest.len());
-        mac_roman(&rest[..len])
+        &rest[..len]
     }
 }
 
@@ -242,14 +255,7 @@ pub(crate) const MAC_ROMAN_HIGH: [char; 128] = [
 
 /// Decode MacRoman text, turning classic Mac carriage returns into newlines.
 pub fn mac_roman(bytes: &[u8]) -> String {
-    bytes
-        .iter()
-        .map(|b| match *b {
-            b'\r' => '\n',
-            b if b < 0x80 => b as char,
-            b => MAC_ROMAN_HIGH[(b - 0x80) as usize],
-        })
-        .collect()
+    TextEncoding::MacRoman.decode(bytes)
 }
 
 // ----- blocks -----
@@ -332,7 +338,7 @@ fn decrypt_header(data: &[u8], password: &str) -> R<Vec<u8>> {
     Ok(out)
 }
 
-fn read_stack_block(data: &[u8], password: Option<&str>) -> R<StackInfo> {
+fn read_stack_block(data: &[u8], password: Option<&str>, enc: TextEncoding) -> R<StackInfo> {
     let mut r = Reader::new(data);
     let format = r.u32()?;
     if !(1..=10).contains(&format) {
@@ -364,7 +370,7 @@ fn read_stack_block(data: &[u8], password: Option<&str>) -> R<StackInfo> {
     };
     let mut size = Reader::at(data, 0x1a8);
     let (height, width) = (size.i16()?, size.i16()?);
-    let script = if data.len() > 0x5f0 { Reader::at(data, 0x5f0).cstring() } else { String::new() };
+    let script = if data.len() > 0x5f0 { Reader::at(data, 0x5f0).script(enc) } else { String::new() };
     // The stack's 40 paint patterns, 8 bytes each.
     let patterns = data.get(0x2b0..0x2b0 + 320).and_then(|bytes| {
         let pats: Vec<[u8; 8]> = bytes.as_chunks::<8>().0.to_vec();
@@ -381,14 +387,14 @@ fn read_stack_block(data: &[u8], password: Option<&str>) -> R<StackInfo> {
     })
 }
 
-fn read_fonts(data: &[u8]) -> R<HashMap<i16, String>> {
+fn read_fonts(data: &[u8], enc: TextEncoding) -> R<HashMap<i16, String>> {
     let mut r = Reader::new(data);
     let count = r.u32()?;
     r.skip(4)?;
     let mut fonts = HashMap::new();
     for _ in 0..count {
         let id = r.i16()?;
-        let name = r.cstring();
+        let name = r.cstring(enc);
         // Records are word aligned.
         if !r.pos.is_multiple_of(2) {
             r.pos += 1;
@@ -451,8 +457,9 @@ struct PartRec {
 struct ContentRec {
     /// Negative for card parts, positive for background parts.
     id: i16,
-    text: String,
-    /// Style runs: where each starts, and its id in the style table.
+    /// The text as stored: its encoding depends on its fonts.
+    bytes: Vec<u8>,
+    /// Style runs: the byte each starts at, and its id in the style table.
     runs: Vec<(usize, i32)>,
 }
 
@@ -468,7 +475,7 @@ struct Layer {
     script: String,
 }
 
-fn read_layer(b: &Block, is_card: bool) -> R<Layer> {
+fn read_layer(b: &Block, is_card: bool, enc: TextEncoding) -> R<Layer> {
     let mut r = Reader::new(b.data);
     let bitmap = r.i32()?;
     let flags = r.u16()?;
@@ -495,14 +502,14 @@ fn read_layer(b: &Block, is_card: bool) -> R<Layer> {
             return corrupt("bad part record");
         }
         let rec = r.bytes(size - 2)?;
-        parts.push(read_part(rec)?);
+        parts.push(read_part(rec, enc)?);
     }
     let mut contents = Vec::new();
     for _ in 0..content_count {
         let id = r.i16()?;
         if b.v1 {
             // Plain, null-terminated text, not aligned.
-            contents.push(ContentRec { id, text: r.cstring(), runs: Vec::new() });
+            contents.push(ContentRec { id, bytes: r.cbytes().to_vec(), runs: Vec::new() });
             continue;
         }
         let len = r.u16()? as usize;
@@ -510,15 +517,15 @@ fn read_layer(b: &Block, is_card: bool) -> R<Layer> {
         if !len.is_multiple_of(2) {
             r.pos += 1;
         }
-        let (text, runs) = content_text(payload);
-        contents.push(ContentRec { id, text, runs });
+        let (bytes, runs) = content_bytes(payload);
+        contents.push(ContentRec { id, bytes: bytes.to_vec(), runs });
     }
-    let name = r.cstring();
-    let script = r.cstring();
+    let name = r.cstring(enc);
+    let script = r.script(enc);
     Ok(Layer { id: b.id, bitmap, flags, link, parts, contents, name, script })
 }
 
-fn read_part(rec: &[u8]) -> R<PartRec> {
+fn read_part(rec: &[u8], enc: TextEncoding) -> R<PartRec> {
     let mut r = Reader::new(rec);
     let id = r.i16()?;
     let kind = r.u8()?;
@@ -534,9 +541,9 @@ fn read_part(rec: &[u8]) -> R<PartRec> {
     let text_style = r.u8()?;
     r.skip(1)?;
     let line_height = r.i16()?;
-    let name = r.cstring();
+    let name = r.cstring(enc);
     r.pos += 1;
-    let script = r.cstring();
+    let script = r.script(enc);
     Ok(PartRec {
         id,
         is_field: kind == 2,
@@ -558,7 +565,7 @@ fn read_part(rec: &[u8]) -> R<PartRec> {
 
 /// Field text and its style runs. Styled text starts with a 2-byte length
 /// (high bit set) covering itself and 4-byte runs: text position, style id.
-fn content_text(payload: &[u8]) -> (String, Vec<(usize, i32)>) {
+fn content_bytes(payload: &[u8]) -> (&[u8], Vec<(usize, i32)>) {
     let mut runs = Vec::new();
     let text = match payload.first() {
         None => &[][..],
@@ -574,16 +581,40 @@ fn content_text(payload: &[u8]) -> (String, Vec<(usize, i32)>) {
         Some(_) => &payload[1..],
     };
     let end = text.iter().rposition(|b| *b != 0).map(|i| i + 1).unwrap_or(0);
-    // MacRoman has one byte per character, so positions carry over.
-    (mac_roman(&text[..end]), runs)
+    (&text[..end], runs)
+}
+
+/// How a stack's field text is decoded: each run in the encoding of its
+/// font, as the Mac drew it. A Japanese stack's Geneva text is MacRoman.
+struct FieldText {
+    enc: TextEncoding,
+    /// The font id of each style in the style table that sets one.
+    style_fonts: HashMap<i32, i16>,
+}
+
+impl FieldText {
+    /// A part's text and its style runs, positioned by character.
+    fn decode(&self, c: &ContentRec, part_font: i16) -> (String, Vec<(usize, i32)>) {
+        let font_at = |i: usize| {
+            let run = c.runs.iter().rev().find(|(start, _)| *start <= i);
+            run.and_then(|(_, style)| self.style_fonts.get(style).copied()).unwrap_or(part_font)
+        };
+        let (text, positions) = text::decode_mixed(&c.bytes, |i| self.enc.for_font(font_at(i)));
+        // Runs count bytes; a Japanese character takes two.
+        let end = *positions.last().unwrap_or(&0);
+        let runs = c.runs.iter().map(|&(start, style)| (positions.get(start).copied().unwrap_or(end), style)).collect();
+        (text, runs)
+    }
 }
 
 /// The STBL block: text styles by id. -1 leaves a setting to the field.
-fn read_styles(data: &[u8], fonts: &HashMap<i16, String>) -> R<HashMap<i32, TextStyle>> {
+/// Also the font id of each style that sets one.
+fn read_styles(data: &[u8], fonts: &HashMap<i16, String>) -> R<(HashMap<i32, TextStyle>, HashMap<i32, i16>)> {
     let mut r = Reader::new(data);
     let count = r.u32()?;
     r.skip(4)?;
     let mut table = HashMap::new();
+    let mut style_fonts = HashMap::new();
     for _ in 0..count {
         let id = r.i32()?;
         r.skip(8)?; // unknown, line height, ascent
@@ -592,6 +623,9 @@ fn read_styles(data: &[u8], fonts: &HashMap<i16, String>) -> R<HashMap<i32, Text
         let size = r.i16()?;
         r.skip(6)?; // color
         let flags = (style as u16 >> 8) as u8;
+        if font != -1 {
+            style_fonts.insert(id, font);
+        }
         table.insert(id, TextStyle {
             font: (font != -1).then(|| fonts.get(&font).cloned().unwrap_or_else(|| "Geneva".into())),
             size: (size > 0).then_some(size as u32),
@@ -600,7 +634,7 @@ fn read_styles(data: &[u8], fonts: &HashMap<i16, String>) -> R<HashMap<i32, Text
             color: None,
         });
     }
-    Ok(table)
+    Ok((table, style_fonts))
 }
 
 fn style_names(flags: u8) -> String {
@@ -653,16 +687,28 @@ fn read_bitmap(data: &[u8], width: u32, height: u32) -> R<Picture> {
 
 // ----- conversion to RandomCard's model -----
 
-fn convert(blocks: &[Block], name: &str, password: Option<&str>) -> R<Stack> {
-    let info = read_stack_block(blocks[0].data, password)?;
-    let fonts = match blocks.iter().find(|b| &b.kind == b"FTBL") {
-        Some(b) => read_fonts(b.data)?,
-        None => HashMap::new(),
+/// The stack, and the encoding its text was in.
+fn convert(blocks: &[Block], name: &str, password: Option<&str>) -> R<(Stack, TextEncoding)> {
+    // The fonts' ids tell the encoding, for the rest and their own names:
+    // from the font table, or without one (HyperCard 1.x), the parts' own.
+    let (fonts, enc) = match blocks.iter().find(|b| &b.kind == b"FTBL") {
+        Some(b) => {
+            let enc = TextEncoding::of_fonts(read_fonts(b.data, TextEncoding::MacRoman)?.into_keys());
+            (read_fonts(b.data, enc)?, enc)
+        }
+        None => {
+            let layers = blocks.iter().filter(|b| &b.kind == b"BKGD" || &b.kind == b"CARD");
+            let ids = layers.filter_map(|b| read_layer(b, &b.kind == b"CARD", TextEncoding::MacRoman).ok());
+            (HashMap::new(), TextEncoding::of_fonts(ids.flat_map(|l| l.parts.into_iter().map(|p| p.font))))
+        }
     };
-    let style_table = match blocks.iter().find(|b| &b.kind == b"STBL") {
+    let info = read_stack_block(blocks[0].data, password, enc)?;
+    let (style_table, style_fonts) = match blocks.iter().find(|b| &b.kind == b"STBL") {
         Some(b) => read_styles(b.data, &fonts)?,
-        None => HashMap::new(),
+        None => (HashMap::new(), HashMap::new()),
     };
+    let field_text = FieldText { enc, style_fonts };
+    let font_of = |layer: &Layer, id: i16| layer.parts.iter().find(|p| p.id == id).map_or(0, |p| p.font);
     let bitmaps: HashMap<i32, &[u8]> =
         blocks.iter().filter(|b| &b.kind == b"BMAP").map(|b| (b.id, b.data)).collect();
     let picture = |id: i32| -> R<Picture> {
@@ -674,7 +720,7 @@ fn convert(blocks: &[Block], name: &str, password: Option<&str>) -> R<Stack> {
 
     // Backgrounds, in their linked-list order where possible.
     let mut bg_layers: Vec<Layer> =
-        blocks.iter().filter(|b| &b.kind == b"BKGD").map(|b| read_layer(b, false)).collect::<R<_>>()?;
+        blocks.iter().filter(|b| &b.kind == b"BKGD").map(|b| read_layer(b, false, enc)).collect::<R<_>>()?;
     let mut ordered = Vec::new();
     let mut seen = HashSet::new();
     let mut next = info.first_bg;
@@ -690,7 +736,7 @@ fn convert(blocks: &[Block], name: &str, password: Option<&str>) -> R<Stack> {
     let card_layers: HashMap<i32, Layer> = blocks
         .iter()
         .filter(|b| &b.kind == b"CARD")
-        .map(|b| read_layer(b, true).map(|l| (l.id, l)))
+        .map(|b| read_layer(b, true, enc).map(|l| (l.id, l)))
         .collect::<R<_>>()?;
     let order = match read_card_order(blocks)? {
         Some(o) => o,
@@ -715,8 +761,9 @@ fn convert(blocks: &[Block], name: &str, password: Option<&str>) -> R<Stack> {
         // Background contents: shared field text, button contents.
         for c in layer.contents.iter().filter(|c| c.id > 0) {
             if let Some(p) = parts.iter_mut().find(|p| p.id == c.id as Id) {
-                p.contents = c.text.clone();
-                p.styles = style_runs(&c.runs, &style_table, p, c.text.chars().count());
+                let (text, runs) = field_text.decode(c, font_of(layer, c.id));
+                p.styles = style_runs(&runs, &style_table, p, text.chars().count());
+                p.contents = text;
             }
         }
         max_id = max_id.max(layer.id).max(parts.iter().map(|p| p.id as i32).max().unwrap_or(0));
@@ -739,6 +786,7 @@ fn convert(blocks: &[Block], name: &str, password: Option<&str>) -> R<Stack> {
             return corrupt("card without a background");
         };
         let bg_parts: HashMap<Id, Part> = bg.parts.iter().map(|p| (p.id, p.clone())).collect();
+        let bg_layer = ordered.iter().find(|l| l.id == layer.link);
         let mut parts: Vec<Part> = layer.parts.iter().map(|p| convert_part(p, &fonts)).collect();
         let mut card = Card {
             id: card_id as Id,
@@ -755,21 +803,23 @@ fn convert(blocks: &[Block], name: &str, password: Option<&str>) -> R<Stack> {
         for c in &layer.contents {
             if c.id < 0 {
                 if let Some(p) = parts.iter_mut().find(|p| p.id == (-(c.id as i32)) as Id) {
-                    p.contents = c.text.clone();
-                    p.styles = style_runs(&c.runs, &style_table, p, c.text.chars().count());
+                    let (text, runs) = field_text.decode(c, font_of(layer, c.id.wrapping_neg()));
+                    p.styles = style_runs(&runs, &style_table, p, text.chars().count());
+                    p.contents = text;
                 }
             } else {
                 // This card's text for a background field, or hilite of a background button.
+                let (text, runs) = field_text.decode(c, bg_layer.map_or(0, |l| font_of(l, c.id)));
                 match bg_parts.get(&(c.id as Id)) {
                     Some(p) if p.kind == PartKind::Field && !p.shared_text => {
-                        card.bg_text.insert(c.id as Id, c.text.clone());
-                        let runs = style_runs(&c.runs, &style_table, p, c.text.chars().count());
+                        let runs = style_runs(&runs, &style_table, p, text.chars().count());
+                        card.bg_text.insert(c.id as Id, text);
                         if !runs.is_empty() {
                             card.bg_styles.insert(c.id as Id, runs);
                         }
                     }
                     Some(p) if p.kind == PartKind::Button => {
-                        card.bg_hilite.insert(c.id as Id, c.text == "1");
+                        card.bg_hilite.insert(c.id as Id, text == "1");
                     }
                     _ => {}
                 }
@@ -783,7 +833,7 @@ fn convert(blocks: &[Block], name: &str, password: Option<&str>) -> R<Stack> {
         return Err("This stack has no cards.".into());
     }
     stack.next_id = max_id.max(0) as Id + 1;
-    Ok(stack)
+    Ok((stack, enc))
 }
 
 fn convert_part(p: &PartRec, fonts: &HashMap<i16, String>) -> Part {
@@ -912,10 +962,20 @@ mod tests {
 
     #[test]
     fn content_records() {
-        assert_eq!(content_text(b"\0hello\0").0, "hello");
+        assert_eq!(content_bytes(b"\0hello\0").0, b"hello");
         // Styled: 2-byte length (with high bit) covering itself and one 4-byte run.
-        assert_eq!(content_text(&[0x80, 0x06, 0, 1, 0, 7, b'h', b'i']), ("hi".into(), vec![(1, 7)]));
-        assert_eq!(content_text(b"").0, "");
+        assert_eq!(content_bytes(&[0x80, 0x06, 0, 1, 0, 7, b'h', b'i']), (&b"hi"[..], vec![(1, 7)]));
+        assert_eq!(content_bytes(b"").0, b"");
+        // Runs count bytes: in Japanese, the run after 花 starts at character 1.
+        let payload = [0x80, 0x0a, 0, 0, 0, 3, 0, 2, 0, 4, 0x89, 0xd4, b'a'];
+        let (bytes, runs) = content_bytes(&payload);
+        let c = ContentRec { id: 1, bytes: bytes.to_vec(), runs };
+        let japanese = FieldText { enc: TextEncoding::MacJapanese, style_fonts: HashMap::from([(4, 3)]) };
+        assert_eq!(japanese.decode(&c, 16384), ("花a".into(), vec![(0, 3), (1, 4)]));
+        // In Geneva (3), even a Japanese stack's text is MacRoman: © is 0xA9.
+        let c = ContentRec { id: 1, bytes: b"\xa9 1990".to_vec(), runs: Vec::new() };
+        assert_eq!(japanese.decode(&c, 3).0, "© 1990");
+        assert_eq!(japanese.decode(&c, 0).0, "ｩ 1990");
         assert_eq!(style_names(0x03), "bold,italic");
     }
 
@@ -935,7 +995,7 @@ mod tests {
         let mut stack = Stack::new("Test");
         stack.script = "on mouseUp\n  play \"boing\"\nend mouseUp".into();
         stack.cards[0].parts.push(Part { icon: 3001, ..Part::new_button(1, "B", Rect::new(0, 0, 10, 10)) });
-        add_chain_resources(&mut stack, &dir.join("Test"));
+        add_chain_resources(&mut stack, &dir.join("Test"), TextEncoding::MacRoman);
         std::fs::remove_dir_all(&dir).ok();
         let names: Vec<&str> = stack.sounds.values().map(|s| s.name.as_str()).collect();
         assert_eq!(names, vec!["Boing"]);

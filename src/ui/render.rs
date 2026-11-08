@@ -9,7 +9,7 @@ use eframe::egui::{
 };
 
 use crate::model::styles::{self, StyleRun};
-use crate::model::{Icon, Id, Layer, POPUP_TEXT_INSET, Part, PartKind, PartStyle, Picture, Pixel, TextAlign, metrics};
+use crate::model::{Icon, Id, Layer, POPUP_TEXT_INSET, Part, PartKind, PartStyle, Picture, Pixel, TextAlign, bitmap_font, metrics};
 use crate::runtime::world::{FieldRange, ObjRef, World};
 
 use super::addcolor::{self, ColorShape};
@@ -287,6 +287,10 @@ impl Textures {
 
 /// The nearest built-in font: monospaced for Courier and Monaco.
 pub(super) fn font_id(font: &str, size: u32) -> FontId {
+    // A stack's own bitmap font.
+    if let Some(family) = super::bitmap_fonts::family(font, size) {
+        return FontId::new(size.clamp(1, 256) as f32, family);
+    }
     let font = font.to_ascii_lowercase();
     let family = if font.contains("courier") || font.contains("monaco") || font.contains("mono") {
         FontFamily::Monospace
@@ -309,12 +313,12 @@ fn format_for(font: &str, size: u32, style: &str, color: Color32) -> TextFormat 
 }
 
 thread_local! {
-    /// egui's glyph widths, by monospace, size and character.
-    static GLYPH_WIDTHS: std::cell::RefCell<HashMap<(bool, u32, char), f32>> = Default::default();
+    /// egui's glyph widths, by family, size and character.
+    static GLYPH_WIDTHS: std::cell::RefCell<HashMap<(FontFamily, u32, char), f32>> = Default::default();
 }
 
 fn glyph_width(ctx: &egui::Context, font: &FontId, c: char) -> f32 {
-    let key = (font.family == FontFamily::Monospace, font.size.to_bits(), c);
+    let key = (font.family.clone(), font.size.to_bits(), c);
     if let Some(w) = GLYPH_WIDTHS.with(|g| g.borrow().get(&key).copied()) {
         return w;
     }
@@ -331,6 +335,9 @@ thread_local! {
 /// The size to draw a HyperCard font at so that its text is about as wide
 /// as it was in HyperCard, leaving less for letter spacing to make up.
 fn matched_size(ctx: &egui::Context, font: &str, size: u32, id: &FontId) -> f32 {
+    if bitmap_font::font(font, size).is_some() {
+        return id.size;
+    }
     let key = (font.to_ascii_lowercase(), size);
     if let Some(s) = MATCHED_SIZES.with(|m| m.borrow().get(&key).copied()) {
         return s;
@@ -351,6 +358,12 @@ fn matched_size(ctx: &egui::Context, font: &str, size: u32, id: &FontId) -> f32 
 /// widen to bring the next word to its place. (A space never starts a
 /// wrapped line, so the extra room can't indent one.)
 fn append_spaced(ctx: &egui::Context, job: &mut LayoutJob, text: &str, m: &metrics::Metrics, fmt: TextFormat) {
+    super::system_fonts::note_text(text);
+    // A stack's own bitmap font is drawn with HyperCard's widths already.
+    if m.bitmap.is_some() {
+        job.append(text, 0.0, fmt);
+        return;
+    }
     // Words and runs of spaces, each its own section; a newline ends a word.
     let mut tokens: Vec<&str> = Vec::new();
     let mut start = 0;

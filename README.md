@@ -66,8 +66,12 @@ and 2.x stack files. MacBinary-wrapped files work too. The import brings in:
   rectangles. They're drawn as AddColor drew them: the white of the card
   takes the color, and black stays black.
 
-Text is converted from MacRoman. The result opens as an unsaved stack;
-save it to keep it as a `.rcstack`.
+Text is converted to Unicode from MacRoman, or from MacJapanese
+(Shift-JIS) for stacks made with Japanese HyperCard, which RandomCard
+tells by their Japanese fonts. Japanese text is drawn in the system's
+Japanese font (Noto Sans CJK on Linux, Hiragino on macOS, Yu Gothic on
+Windows). The result opens as an unsaved stack; save it to keep it as a
+`.rcstack`.
 
 Linux and Windows have no resource forks, so RandomCard looks where Mac
 files usually carry them: a `Name.rsrc` file beside the stack, an

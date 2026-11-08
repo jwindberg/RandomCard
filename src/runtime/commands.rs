@@ -54,8 +54,17 @@ impl Interp {
                     Some(e) if is_menu(e) => Ok(()),
                     Some(Expr::Menu(r)) => self.set_menu_property(r, &prop, &v),
                     Some(e @ (Expr::Chunk(..) | Expr::Selection)) => self.set_chunk_property(e, &prop, &v),
+                    Some(Expr::Object(spec)) => {
+                        let o = self.resolve(spec)?;
+                        self.set_property(o, &prop, &v)
+                    }
                     Some(e) => {
-                        let o = self.resolve_dynamic(e)?;
+                        let text = self.eval(e)?;
+                        // `set the textStyle of the foundChunk to bold`.
+                        if let Some(chunk) = Self::chunk_in_text(&text) {
+                            return self.set_chunk_property(&chunk, &prop, &v);
+                        }
+                        let o = self.parse_object_text(&text)?;
                         self.set_property(o, &prop, &v)
                     }
                 }
@@ -356,6 +365,11 @@ impl Interp {
                 self.set_var("it", reply);
                 Ok(())
             }
+            Cmd::FlushKeys => {
+                // Key messages typed until now are dropped when they arrive.
+                self.keys_flushed = Some(std::time::Instant::now());
+                Ok(())
+            }
             Cmd::SetJson { path, value } => {
                 let Expr::Call(_, args) = path else { return err("Expected JSON") };
                 let value = self.eval(value)?;
@@ -642,6 +656,14 @@ impl Interp {
                 for n in notes {
                     text.push(self.eval(n)?);
                 }
+                // A song: on its own channel, looping, beside sounds.
+                let song = self.w().stack.find_song(&name).cloned();
+                if let Some(song) = song {
+                    if let Err(e) = self.audio.play_song(&song.name, &song.data) {
+                        self.result = e;
+                    }
+                    return Ok(());
+                }
                 // The stack's own sound, else RandomCard's stand-in for a HyperCard voice.
                 let found = self.w().stack.find_sound(&name).cloned();
                 let Some(snd) = found.or_else(|| crate::sound::builtin(&name)) else {
@@ -653,8 +675,18 @@ impl Interp {
                 self.audio.play(&snd.name, samples, snd.rate);
                 Ok(())
             }
-            Cmd::PlayStop => {
+            Cmd::StopSound => {
+                self.audio.stop_all();
+                Ok(())
+            }
+            Cmd::PlayStop(None) => {
                 self.audio.stop();
+                Ok(())
+            }
+            // `play stop "title music"`: that song, if it's the one playing.
+            Cmd::PlayStop(Some(song)) => {
+                let name = self.eval(song)?;
+                self.audio.stop_song(&name);
                 Ok(())
             }
             Cmd::Dial(number) => {
@@ -664,6 +696,11 @@ impl Interp {
             }
             Cmd::Speak(e) => {
                 let text = self.eval(e)?;
+                // Speech is sound: only when there's sound output, so scripts
+                // run without a window (tests, the stack exerciser) stay quiet.
+                if !self.audio.audible() {
+                    return Ok(());
+                }
                 // Use a system speech synthesizer when one is installed.
                 for prog in ["spd-say", "espeak", "say"] {
                     if std::process::Command::new(prog).arg(&text).spawn().is_ok() {
@@ -855,6 +892,10 @@ impl Interp {
     fn go(&mut self, dest: &GoDest) -> R<()> {
         self.result.clear();
         let target = match dest {
+            // `go to cd id` with no id (see the parser): an error when run.
+            GoDest::Card(CardSpec::Which(Which::Id(e))) if matches!(e.as_ref(), Expr::Lit(t) if t.is_empty()) => {
+                return err("No such card.");
+            }
             GoDest::Card(CardSpec::Back) => return self.go_history(-1),
             GoDest::Card(CardSpec::Forth) => return self.go_history(1),
             GoDest::Home => return self.go_home(),
@@ -1530,6 +1571,29 @@ impl Interp {
                 _ => String::new(),
             })
             .collect();
+        // `the textWidth of line 3 of field 1`: its width in pixels, each
+        // run in its own font, size and style.
+        if prop == "textwidth" {
+            let text: Vec<char> = w.stack.field_text(r.card, r.layer, r.field).chars().collect();
+            let (start, end) = (r.start.min(text.len()), r.end.min(text.len()));
+            let mut cuts: Vec<usize> = vec![start, end];
+            cuts.extend(runs.iter().map(|run| run.start).filter(|s| *s > start && *s < end));
+            cuts.sort_unstable();
+            let width: f32 = cuts
+                .windows(2)
+                .map(|c| {
+                    let s = styles::style_at(&runs, c[0]);
+                    let piece: String = text[c[0]..c[1]].iter().collect();
+                    crate::model::metrics::metrics(
+                        s.font.as_deref().unwrap_or(&part.text_font),
+                        s.size.unwrap_or(part.text_size),
+                        s.style.as_deref().unwrap_or(&part.text_style),
+                    )
+                    .text_width(&piece)
+                })
+                .sum();
+            return Ok(width.round().to_string());
+        }
         values.dedup();
         Ok(if values.len() == 1 { values.remove(0) } else { "mixed".into() })
     }

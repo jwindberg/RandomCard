@@ -500,7 +500,8 @@ pub enum Event {
     DoMenu(String),
     /// A keyboard message (keyDown, returnInField, tabKey, ...), with what
     /// the key does if no handler takes it.
-    Key { target: ObjRef, message: String, args: Vec<String>, default: KeyAction },
+    /// `at`: when the key was typed, so `flush keys` can drop older ones.
+    Key { target: ObjRef, message: String, args: Vec<String>, default: KeyAction, at: std::time::Instant },
     /// Open a stack file (RandomCard or HyperCard), asking for its password
     /// if it needs one.
     OpenFile(std::path::PathBuf),
@@ -548,6 +549,8 @@ pub struct World {
     pub transition_seq: u64,
     /// AddColor's switches and temporary items.
     pub addcolor: super::addcolor::AddColorState,
+    /// The keys held down now, by name (`the keysDown`), kept by the UI.
+    pub keys_down: Vec<String>,
     /// Unsaved changes.
     pub dirty: bool,
     /// Bumped whenever a picture changes so the UI can refresh textures.
@@ -581,6 +584,8 @@ pub struct World {
     pub pattern: usize,
     pub brush: u32,
     pub poly_sides: u32,
+    /// The space between shapes drawn with Draw Multiple (`the multiSpace`).
+    pub multi_space: u32,
     /// The paint colors: lines, borders, the pencil and text
     /// (`the penColor`), and the pattern's set bits (`the brushColor`).
     pub line_color: crate::model::Pixel,
@@ -721,6 +726,7 @@ impl World {
             transition: None,
             transition_seq: 0,
             addcolor: Default::default(),
+            keys_down: Vec::new(),
             dirty,
             picture_rev: 0,
             requests: Vec::new(),
@@ -741,6 +747,7 @@ impl World {
             pattern: 1,
             brush: 3,
             poly_sides: 4,
+            multi_space: 1,
             line_color: crate::model::Pixel::BLACK,
             fill_color: crate::model::Pixel::BLACK,
             paint_font: "Geneva".into(),

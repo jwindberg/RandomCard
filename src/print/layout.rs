@@ -114,7 +114,7 @@ pub fn layout(text: &str, runs: &[StyleRun], s: &Setting, width: f32) -> Vec<Lin
             }
             None if line_chars.is_empty() => {
                 // An empty line takes the style of where it is.
-                let m = chars.get(range.start).map_or(base, |c| c.m);
+                let m = chars.get(range.start).map_or_else(|| base.clone(), |c| c.m.clone());
                 (m.ascent as f32, m.line_height() as f32)
             }
             None => {

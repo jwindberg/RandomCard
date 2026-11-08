@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use super::mac_roman;
+use super::TextEncoding;
 use crate::model::{Icon, Palette, PaletteButton, Picture, Pixel, Rect, Sound};
 
 const APPLE_SINGLE: u32 = 0x0005_1600;
@@ -135,11 +135,11 @@ pub struct Resource<'a> {
 }
 
 /// Parse a resource fork's map. Damaged entries are skipped.
-pub fn parse(fork: &[u8]) -> Vec<Resource<'_>> {
-    parse_inner(fork).unwrap_or_default()
+pub fn parse(fork: &[u8], enc: TextEncoding) -> Vec<Resource<'_>> {
+    parse_inner(fork, enc).unwrap_or_default()
 }
 
-fn parse_inner(fork: &[u8]) -> Option<Vec<Resource<'_>>> {
+fn parse_inner(fork: &[u8], enc: TextEncoding) -> Option<Vec<Resource<'_>>> {
     let data_off = be32(fork, 0)? as usize;
     let map_off = be32(fork, 4)? as usize;
     let map_len = be32(fork, 12)? as usize;
@@ -163,7 +163,7 @@ fn parse_inner(fork: &[u8]) -> Option<Vec<Resource<'_>>> {
             } else {
                 let n = name_list + name_off as usize;
                 let len = *map.get(n)? as usize;
-                mac_roman(map.get(n + 1..n + 1 + len)?)
+                enc.decode(map.get(n + 1..n + 1 + len)?)
             };
             let at = data_off + offset;
             let Some(len) = be32(fork, at) else { continue };
@@ -229,8 +229,8 @@ pub fn hypercard_icon(id_or_name: &str) -> Option<(i32, Icon)> {
 }
 
 /// All the 'ICON' resources in a resource fork.
-pub fn icons(fork: &[u8]) -> BTreeMap<i32, Icon> {
-    parse(fork)
+pub fn icons(fork: &[u8], enc: TextEncoding) -> BTreeMap<i32, Icon> {
+    parse(fork, enc)
         .into_iter()
         .filter(|r| &r.kind == b"ICON")
         .filter_map(|r| Some((r.id as i32, decode_icon(r.data, &r.name)?)))
@@ -238,23 +238,74 @@ pub fn icons(fork: &[u8]) -> BTreeMap<i32, Icon> {
 }
 
 /// All the 'snd ' resources in a resource fork that can be decoded.
-pub fn sounds(fork: &[u8]) -> BTreeMap<i32, Sound> {
-    parse(fork)
+pub fn sounds(fork: &[u8], enc: TextEncoding) -> BTreeMap<i32, Sound> {
+    parse(fork, enc)
         .into_iter()
         .filter(|r| &r.kind == b"snd ")
         .filter_map(|r| Some((r.id as i32, decode_snd(r.data, &r.name)?)))
         .collect()
 }
 
+/// Bitmap fonts: each size of each family, from 'FOND' font association
+/// tables (pointing at 'NFNT' or 'FONT' resources) and the older 'FONT'
+/// numbering (family × 128 + size, size 0 naming the family). Plain style
+/// only; families without a name are skipped.
+pub fn fonts(fork: &[u8], enc: TextEncoding) -> Vec<crate::model::StackFont> {
+    use std::collections::HashMap;
+    let res = parse(fork, enc);
+    let mut names: HashMap<i32, String> = HashMap::new();
+    for r in res.iter().filter(|r| &r.kind == b"FONT" && (r.id as i32) & 127 == 0 && !r.name.is_empty()) {
+        names.insert((r.id as i32) >> 7, r.name.clone());
+    }
+    let mut out: Vec<crate::model::StackFont> = Vec::new();
+    let mut add = |family: &str, size: u32, data: &[u8]| {
+        if size > 0 && !out.iter().any(|f| f.family.eq_ignore_ascii_case(family) && f.size == size) {
+            out.push(crate::model::StackFont { family: family.to_string(), size, data: data.to_vec() });
+        }
+    };
+    let strike = |id: i16| res.iter().find(|r| (&r.kind == b"NFNT" || &r.kind == b"FONT") && r.id == id);
+    for fond in res.iter().filter(|r| &r.kind == b"FOND") {
+        let Some(fam_id) = be16(fond.data, 2) else { continue };
+        let name = if fond.name.is_empty() { names.get(&(fam_id as i32)).cloned() } else { Some(fond.name.clone()) };
+        let Some(name) = name else { continue };
+        let count = be16(fond.data, 52).map_or(0, |n| n as i16 as i32 + 1);
+        for i in 0..count.max(0) as usize {
+            let at = 54 + i * 6;
+            let (Some(size), Some(style), Some(id)) = (be16(fond.data, at), be16(fond.data, at + 2), be16(fond.data, at + 4)) else { break };
+            if style == 0
+                && let Some(r) = strike(id as i16)
+            {
+                add(&name, size as u32, r.data);
+            }
+        }
+    }
+    for r in res.iter().filter(|r| &r.kind == b"FONT" && (r.id as i32) & 127 != 0) {
+        if let Some(name) = names.get(&((r.id as i32) >> 7)) {
+            add(name, ((r.id as i32) & 127) as u32, r.data);
+        }
+    }
+    out
+}
+
+/// Songs: PlayMOD's 'MODr' resources, soundtracker modules RandomCard can
+/// play.
+pub fn songs(fork: &[u8], enc: TextEncoding) -> BTreeMap<i32, crate::model::Song> {
+    parse(fork, enc)
+        .into_iter()
+        .filter(|r| &r.kind == b"MODr" && crate::sound::song::check(r.data).is_ok())
+        .map(|r| (r.id as i32, crate::model::Song { name: r.name.clone(), data: r.data.to_vec() }))
+        .collect()
+}
+
 /// All the palettes in a resource fork: each 'PLTE' with the 'PICT' it names.
-pub fn palettes(fork: &[u8]) -> BTreeMap<i32, Palette> {
-    let res = parse(fork);
+pub fn palettes(fork: &[u8], enc: TextEncoding) -> BTreeMap<i32, Palette> {
+    let res = parse(fork, enc);
     res.iter()
         .filter(|r| &r.kind == b"PLTE")
         .filter_map(|r| {
             let pict_id = be16(r.data, 8)? as i16;
             let pict = res.iter().find(|p| &p.kind == b"PICT" && p.id == pict_id)?;
-            Some((r.id as i32, decode_palette(r.data, &r.name, pict.data)?))
+            Some((r.id as i32, decode_palette(r.data, &r.name, pict.data, enc)?))
         })
         .collect()
 }
@@ -263,7 +314,7 @@ pub fn palettes(fork: &[u8]) -> BTreeMap<i32, Palette> {
 /// id, and the picture frame's top left), the button count at 22, then each
 /// button's rect (top, left, bottom, right, in the picture's coordinates),
 /// two flag bytes, and its message as a Pascal string, padded to even.
-pub fn decode_palette(data: &[u8], name: &str, pict: &[u8]) -> Option<Palette> {
+pub fn decode_palette(data: &[u8], name: &str, pict: &[u8], enc: TextEncoding) -> Option<Palette> {
     let pict = super::pict::decode(pict)?;
     let count = be16(data, 22)? as usize;
     let mut at = 24;
@@ -272,7 +323,7 @@ pub fn decode_palette(data: &[u8], name: &str, pict: &[u8]) -> Option<Palette> {
         let v = |i: usize| be16(data, at + i).map(|v| v as i16 as i32);
         let (top, left, bottom, right) = (v(0)?, v(2)?, v(4)?, v(6)?);
         let len = *data.get(at + 10)? as usize;
-        let message = mac_roman(data.get(at + 11..at + 11 + len)?).trim().to_string();
+        let message = enc.decode(data.get(at + 11..at + 11 + len)?).trim().to_string();
         let rect = Rect::new(left - pict.left, top - pict.top, right - pict.left, bottom - pict.top);
         buttons.push(PaletteButton { rect, message });
         at += 11 + len;
@@ -451,10 +502,10 @@ pub mod tests {
     fn sounds_in_a_fork() {
         let snd = standard_snd(&[0x80; 100], 11025, 60, (0, 0));
         let fork = make_fork(&[(b"ICON", 1, "", vec![0; 128]), (b"snd ", 9, "Ding", snd)]);
-        let sounds = sounds(&fork);
+        let sounds = sounds(&fork, TextEncoding::MacRoman);
         assert_eq!(sounds[&9].name, "Ding");
         assert_eq!(sounds[&9].samples.len(), 100);
-        assert_eq!(icons(&fork).len(), 1);
+        assert_eq!(icons(&fork, TextEncoding::MacRoman).len(), 1);
     }
 
     #[test]
@@ -546,7 +597,7 @@ pub mod tests {
             }
         }
         let fork = make_fork(&[(b"ICON", 128, "Box", bits.to_vec())]);
-        let icons = icons(&fork);
+        let icons = icons(&fork, TextEncoding::MacRoman);
         let icon = &icons[&128];
         assert_eq!(icon.name, "Box");
         assert_eq!(icon.picture.get(0, 0), Pixel::CLEAR);
@@ -570,7 +621,7 @@ pub mod tests {
         plte.extend([0, 10, 0, 28, 0, 12, 0, 36, 0, 0, 3]);
         plte.extend(b"two");
         let fork = make_fork(&[(b"PLTE", 7, "Tools", plte), (b"PICT", 7, "Tools", pict)]);
-        let palettes = palettes(&fork);
+        let palettes = palettes(&fork, TextEncoding::MacRoman);
         let p = &palettes[&7];
         assert_eq!(p.name, "Tools");
         assert_eq!((p.picture.width, p.picture.height), (16, 2));

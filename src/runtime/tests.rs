@@ -321,13 +321,13 @@ fn startup_comes_before_open_stack_once() {
 fn demo_stack_runs() {
     let mut i = interp_with(Stack::demo());
     i.handle_event(Event::Startup);
-    assert_eq!(run(&mut i, "put field \"Page\""), "Card 1 of 16");
+    assert_eq!(run(&mut i, "put field \"Page\""), "Card 1 of 17");
     let current = |i: &Interp| {
         let w = lock(&i.world);
         w.stack.card(w.card_id).unwrap().name.clone()
     };
     // The stack's own Tour menu.
-    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "15");
+    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "16");
     i.handle_event(Event::DoMenu("Dice".into()));
     assert_eq!(current(&i), "Dice");
     i.handle_event(Event::DoMenu("First".into()));
@@ -421,6 +421,16 @@ fn demo_stack_runs() {
     assert_eq!(run(&mut i, "put line 5 of the choices of card field \"Method\""), "QUERY");
     run(&mut i, "set the choices of card field \"Method\" to \"GET\" & return & \"HEAD\"");
     assert_eq!(run(&mut i, "put the number of lines of the choices of card field \"Method\""), "2");
+    // Japanese: a character each, and charToNum gives Unicode.
+    assert_eq!(click(&mut i, "Contents", "Japanese"), None);
+    assert_eq!(current(&i), "Japanese");
+    assert_eq!(click(&mut i, "Japanese", "Say Hello"), None);
+    assert_eq!(run(&mut i, "put card field \"Japanese\""), "こんにちは。RandomCard へようこそ！");
+    i.canned_answers.push(DialogReply::Button("OK".into()));
+    assert_eq!(click(&mut i, "Japanese", "Characters"), None);
+    assert_eq!(run(&mut i, "put the number of chars of card field \"Japanese\""), "6");
+    assert_eq!(run(&mut i, "put charToNum(\"花\") && numToChar(26413)"), "33457 札");
+    assert_eq!(click(&mut i, "Japanese", "Clear"), None);
     // Don't Save on the Debugging card's answer line, then off.
     run(&mut i, "go to card \"Debugging\"");
     assert_eq!(click(&mut i, "Debugging", "Don't Save"), None);
@@ -574,7 +584,7 @@ fn demo_stack_runs() {
     assert_eq!(run(&mut i, "put the number of cards of this background"), "4");
     i.canned_answers.push(DialogReply::Button("Delete".into()));
     assert_eq!(click(&mut i, "", "Delete"), None);
-    assert_eq!(run(&mut i, "put the number of cards"), "16");
+    assert_eq!(run(&mut i, "put the number of cards"), "17");
     assert_eq!(click(&mut i, "Grace Hopper", "Contents"), None);
     assert_eq!(current(&i), "Contents");
     assert_eq!(run(&mut i, "put the userLevel"), "5");
@@ -662,6 +672,7 @@ fn keyboard_messages() {
             message: message.into(),
             args: args.iter().map(|a| a.to_string()).collect(),
             default,
+            at: std::time::Instant::now(),
         });
         std::mem::take(&mut lock(&i.world).requests)
     };
@@ -1902,10 +1913,14 @@ fn index_stacks() {
     let root = PathBuf::from(root);
 
     // Every stack, found by its data ("STAK" at byte 4), grouped by content.
+    // ORIGINALS holds the untouched copies of stacks whose typos were fixed.
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else { return };
         for e in entries.flatten() {
             let p = e.path();
+            if p.is_dir() && p.file_name().is_some_and(|n| n == "ORIGINALS") {
+                continue;
+            }
             if p.is_dir() {
                 walk(&p, out);
             } else if p.extension().is_none_or(|x| x != "rsrc") {
@@ -2023,7 +2038,8 @@ fn index_one(path: &std::path::Path) -> Facts {
     };
     let mut f = Facts { cards: stack.cards.len(), ..Facts::default() };
     // What it is: the comment at the top of its stack script, or the first
-    // line of text on its first card.
+    // line of text on its first card (Japanese counting double: 北海道 is a
+    // name).
     let comment: Vec<String> = stack
         .script
         .lines()
@@ -2039,7 +2055,7 @@ fn index_one(path: &std::path::Path) -> Facts {
         let c = &stack.cards[0];
         let texts = c.parts.iter().filter(|p| p.kind == crate::model::PartKind::Field).map(|p| stack.field_text(c.id, Layer::Card, p.id))
             .chain(stack.background(c.background).into_iter().flat_map(|b| b.parts.iter()).filter(|p| p.kind == crate::model::PartKind::Field).map(|p| stack.field_text(c.id, Layer::Background, p.id)));
-        texts.flat_map(|t| t.lines().map(str::to_string).collect::<Vec<_>>()).find(|l| l.chars().filter(|c| c.is_alphanumeric()).count() > 3).unwrap_or_default()
+        texts.flat_map(|t| t.lines().map(str::to_string).collect::<Vec<_>>()).find(|l| l.chars().filter(|c| c.is_alphanumeric()).map(|c| if c as u32 >= 0x3000 { 2 } else { 1 }).sum::<usize>() > 3).unwrap_or_default()
     };
     f.about = f.about.chars().take(140).collect();
     let mut scripts = vec![stack.script.clone()];
@@ -3073,4 +3089,310 @@ fn the_tours_web_card_sends_and_waits() {
     i.handle_event(reply);
     assert!(run(&mut i, "put card field \"Status\"").starts_with("200 OK in "));
     assert_eq!(run(&mut i, "put card field \"Reply\""), r#"{"method":"PUT","body":"hello"}"#);
+}
+
+#[test]
+fn the_selected_button_of_a_family() {
+    let mut s = stack();
+    for (id, name) in [(31, "Easy"), (32, "Hard")] {
+        let mut b = Part::new_button(id, name, Rect::new(10, 100, 80, 120));
+        b.family = 2;
+        s.cards[0].parts.push(b);
+    }
+    let mut bg = Part::new_button(41, "Loud", Rect::new(10, 130, 80, 150));
+    bg.family = 1;
+    s.backgrounds[0].parts.push(bg);
+    let mut i = interp_with(s);
+    assert_eq!(run(&mut i, "put the selectedButton of family 2"), "");
+    run(&mut i, "set the hilite of button \"Hard\" to true");
+    // Card button 3: "Go" is the first card button.
+    assert_eq!(run(&mut i, "put the selectedButton of family 2"), "card button 3");
+    assert_eq!(run(&mut i, "put the selectedButton of card family 2 of card 1"), "card button 3");
+    run(&mut i, "set the hilite of bkgnd button \"Loud\" to true");
+    assert_eq!(run(&mut i, "put the selectedButton of bkgnd family 1"), "bkgnd button 1");
+    // The descriptor works as an object, as scripts use it.
+    assert_eq!(run(&mut i, "do \"put the short name of\" && the selectedButton of family 2"), "Hard");
+}
+
+#[test]
+fn text_width() {
+    let mut i = interp_with(stack());
+    let plain: u32 = run(&mut i, "put textWidth(\"Hello\", \"Geneva\", 12, \"plain\")").parse().unwrap();
+    let bold: u32 = run(&mut i, "put textWidth(\"Hello\", \"Geneva\", 12, \"bold\")").parse().unwrap();
+    let big: u32 = run(&mut i, "put textWidth(\"Hello\", \"Geneva\", 24, \"plain\")").parse().unwrap();
+    assert!(plain > 20 && bold > plain && big > plain * 3 / 2, "{plain} {bold} {big}");
+    // Geneva 12 plain unless given.
+    assert_eq!(run(&mut i, "put textWidth(\"Hello\")"), plain.to_string());
+    // A chunk of a field: in its own font, size and style.
+    run(&mut i, "put \"Hello there\" into field \"Name\"\nset the textSize of field \"Name\" to 12\nset the textFont of field \"Name\" to \"Geneva\"");
+    assert_eq!(run(&mut i, "put the textWidth of word 1 of field \"Name\""), plain.to_string());
+    run(&mut i, "set the textStyle of word 1 of field \"Name\" to bold");
+    assert_eq!(run(&mut i, "put the textWidth of word 1 of field \"Name\""), bold.to_string());
+}
+
+#[test]
+fn keys_held_and_flushed() {
+    use super::world::KeyAction;
+    let mut i = interp_with(stack());
+    assert_eq!(run(&mut i, "put the keysDown"), "");
+    lock(&i.world).keys_down = vec!["left".into(), "space".into()];
+    assert_eq!(run(&mut i, "put the keysDown"), "left,space");
+    assert_eq!(run(&mut i, "if \"left\" is in the keysDown then put \"moving\""), "moving");
+    // Keys typed before `flush keys` are dropped; later ones arrive.
+    let card = lock(&i.world).card_id;
+    set_script(&i, ObjRef::Card(card), "on keyDown k\n  put k after msg\nend keyDown");
+    run(&mut i, "put empty into msg");
+    let typed_before = std::time::Instant::now();
+    run(&mut i, "flush keys");
+    let key = |at| Event::Key { target: ObjRef::Card(card), message: "keyDown".into(), args: vec!["x".into()], default: KeyAction::Nothing, at };
+    i.handle_event(key(typed_before));
+    assert_eq!(lock(&i.world).msg, "");
+    i.handle_event(key(std::time::Instant::now()));
+    assert_eq!(lock(&i.world).msg, "x");
+    // A handler named flush still gets its message.
+    set_script(&i, ObjRef::Card(card), "on flush\n  put \"flushed\" into msg\nend flush");
+    assert_eq!(run(&mut i, "flush"), "flushed");
+}
+
+/// Import a stack and report its songs, rendering a second of each:
+/// RANDOMCARD_SONGS=path cargo test --release stack_songs -- --ignored --nocapture
+#[test]
+#[ignore]
+fn stack_songs() {
+    let Ok(path) = std::env::var("RANDOMCARD_SONGS") else { return };
+    let s = crate::import::load_any(std::path::Path::new(&path), None).expect("can't open the stack");
+    for (id, song) in &s.songs {
+        let src = crate::sound::song::SongSource::new(&song.data, 44_100).expect("a song");
+        let second: Vec<f32> = src.take(88_200).collect();
+        let loudest = second.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+        println!("song {id} {:?}: {} bytes, loudest sample in its first second {loudest:.3}", song.name, song.data.len());
+    }
+}
+
+#[test]
+fn songs_save_and_play() {
+    let mut s = stack();
+    // Not a real module: what matters here is storing and finding it.
+    s.songs.insert(1000, crate::model::Song { name: "title music".into(), data: vec![1, 2, 3, 250] });
+    let json = s.to_json().unwrap();
+    let back: Stack = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.songs, s.songs);
+    assert!(back.find_song("Title Music").is_some());
+    // play finds it as a song, not a sound; this one can't be played.
+    let mut i = interp_with(back);
+    let r = run(&mut i, "play \"title music\"\nput the result");
+    assert!(r.contains("Not a song") || r.is_empty(), "{r}");
+    assert!(!run(&mut i, "put the result").contains("Can't find sound"));
+    // Stacks without songs save as before.
+    assert!(!stack().to_json().unwrap().contains("\"songs\""));
+}
+
+/// Import a stack and show its bitmap fonts, with a few characters drawn
+/// in text: RANDOMCARD_FONTS=path RANDOMCARD_CHARS=abc cargo test --release stack_fonts -- --ignored --nocapture
+#[test]
+#[ignore]
+fn stack_fonts() {
+    let Ok(path) = std::env::var("RANDOMCARD_FONTS") else { return };
+    let chars = std::env::var("RANDOMCARD_CHARS").unwrap_or_else(|_| "AB".into());
+    let s = crate::import::load_any(std::path::Path::new(&path), None).expect("can't open the stack");
+    for f in &s.fonts {
+        let Some(font) = f.parse() else {
+            println!("{} {}: can't read", f.family, f.size);
+            continue;
+        };
+        println!("{} {}: ascent {} descent {} leading {}, {} characters", font.family, font.size, font.ascent, font.descent, font.leading, font.glyphs.len());
+        for c in chars.chars() {
+            let Some(g) = font.glyphs.get(&c) else { continue };
+            println!("  {c:?} advance {} left {} width {}", g.advance, g.left, g.width);
+            for row in g.pixels.chunks(g.width.max(1) as usize) {
+                println!("    {}", row.iter().map(|p| if *p { '#' } else { '.' }).collect::<String>());
+            }
+        }
+    }
+}
+
+/// Import a HyperCard stack (or open any stack) and save it as a RandomCard
+/// stack: RANDOMCARD_CONVERT=in RANDOMCARD_OUT=out.rcstack cargo test --release convert_stack -- --ignored
+#[test]
+#[ignore]
+fn convert_stack() {
+    let (Ok(input), Ok(output)) = (std::env::var("RANDOMCARD_CONVERT"), std::env::var("RANDOMCARD_OUT")) else { return };
+    let s = crate::import::load_any(std::path::Path::new(&input), None).expect("can't open the stack");
+    s.save(std::path::Path::new(&output)).expect("can't save");
+    println!("{} cards, {} backgrounds, {} fonts, {} songs, {} sounds -> {output}", s.cards.len(), s.backgrounds.len(), s.fonts.len(), s.songs.len(), s.sounds.len());
+}
+
+#[test]
+fn a_parameter_named_message() {
+    let mut i = interp_with(stack());
+    let card = lock(&i.world).card_id;
+    set_script(&i, ObjRef::Card(card), "on relay message, target\n  put message into field \"Name\"\n  send message to target\nend relay\non hello\n  put \"hello came\" into msg\nend hello");
+    run(&mut i, "put \"box text\" into msg");
+    assert_eq!(run(&mut i, "relay \"hello\", \"this card\"\nput msg"), "hello came");
+    assert_eq!(run(&mut i, "put field \"Name\""), "hello");
+}
+
+#[test]
+fn picture_in_a_card() {
+    // HyperTalk takes "in" for "of" (Adventures of Sean).
+    let mut i = interp_with(stack());
+    assert_eq!(run(&mut i, "hide picture in card 2\nput the showPict of card 2"), "false");
+    assert_eq!(run(&mut i, "show picture of card 2\nput the showPict of card 2"), "true");
+}
+
+#[test]
+fn message_box_variables_are_globals() {
+    // HyperCard: a variable used in the message box is a global.
+    let mut i = interp_with(stack());
+    set_script(&i, ObjRef::Stack, "on setIt\nglobal score\nput 12 into score\nend setIt\nfunction score\nglobal score\nreturn score\nend score");
+    assert_eq!(run(&mut i, "setIt\nput score"), "12");
+    assert_eq!(run(&mut i, "put 30 into score\nput score"), "30");
+    assert_eq!(run(&mut i, "put score()"), "30");
+    // One that was never set is still its own name.
+    assert_eq!(run(&mut i, "put nothingHere"), "nothingHere");
+}
+
+#[test]
+fn the_selected_text_of_a_field() {
+    // HyperCard 2.2: a list field's chosen line, asked of the field.
+    let mut i = interp_with(stack());
+    run(&mut i, "put \"red\" & return & \"green\" & return & \"blue\" into field \"Name\"");
+    run(&mut i, "select line 2 of field \"Name\"");
+    assert_eq!(run(&mut i, "put the selectedText of field \"Name\""), "green");
+    assert_eq!(run(&mut i, "put the selectedLine of field \"Name\""), "line 2 of bkgnd field 1");
+    assert_eq!(run(&mut i, "put the selectedChunk of field \"Name\""), "char 5 to 9 of bkgnd field 1");
+    // Nothing chosen in it: empty.
+    run(&mut i, "select empty");
+    assert_eq!(run(&mut i, "put the selectedText of field \"Name\""), "");
+}
+
+
+/// What HyperGames needed, each checked against HyperCard 2.4.1.
+#[test]
+fn hypergames_language() {
+    let mut i = interp_with(stack());
+    // "is no integer" is "is not an integer".
+    assert_eq!(run(&mut i, "put (\"5\" is no integer) && (\"x\" is no integer) && (\"x\" is no number)"), "false true true");
+    // random of 0 or less is 1.
+    assert_eq!(run(&mut i, "put random(0) && random(-3)"), "1 1");
+    // A variable before parentheses is the sound, the parentheses the notes.
+    assert_eq!(run(&mut i, "put \"boing\" into theSound\nplay theSound (\"c4\" & \"e\")\nput \"played\""), "played");
+    // Whether a card or background has any painting.
+    assert_eq!(run(&mut i, "put (there is a cd picture) && (there is no bg picture)"), "false true");
+    // The paint spacing for Draw Multiple: 1 until set.
+    assert_eq!(run(&mut i, "put the multiSpace"), "1");
+    assert_eq!(run(&mut i, "set the multiSpace to 16\nput the multiSpace"), "16");
+}
+
+#[test]
+fn the_found_chunk_as_a_chunk() {
+    // Story Machine: style the found text, then replace it.
+    let mut i = interp_with(stack());
+    let id = lock(&i.world).card_id;
+    lock(&i.world).stack.card_mut(id).unwrap().parts.push(Part::new_field(30, "Answer", Rect::new(10, 100, 200, 200)));
+    run(&mut i, "put \"Once --@hero@-- went\" into cd fld \"Answer\"");
+    assert_eq!(run(&mut i, "find string \"--@hero@--\" in cd fld \"Answer\"\nput the foundChunk"), "char 6 to 15 of card field 1");
+    run(&mut i, "set the textStyle of the foundChunk to \"bold\"");
+    assert_eq!(run(&mut i, "put the textStyle of char 7 of cd fld \"Answer\""), "bold");
+    assert_eq!(run(&mut i, "put \"Sam\" into the foundChunk\nput cd fld \"Answer\""), "Once Sam went");
+}
+
+#[test]
+fn names_of_spaces_and_tabs() {
+    // Tic-Tac-Toe names its squares tab & "X" & tab: the target finds them.
+    let mut i = interp_with(stack());
+    let id = lock(&i.world).card_id;
+    for name in [" ", "\tX\t"] {
+        lock(&i.world).stack.card_mut(id).unwrap().parts[0].name = name.into();
+        set_script(&i, ObjRef::Part { layer: Layer::Card, id: 11, card: id }, "on mouseUp\nset the name of the target to (tab & \"O\" & tab)\nput the short name of me\nend mouseUp");
+        assert_eq!(run(&mut i, "send mouseUp to card button id 11"), "\tO\t");
+    }
+}
+
+#[test]
+fn sound_channels() {
+    // HyperCard 2.4: `play` uses the current channel, so a chord is three.
+    let mut i = interp_with(stack());
+    assert_eq!(run(&mut i, "put the soundChannel"), "1");
+    run(&mut i, "set soundChannel to 1\nplay \"harpsichord\" c\nset soundChannel to 2\nplay \"harpsichord\" e\nset soundChannel to 3\nplay \"harpsichord\" g");
+    assert_eq!(run(&mut i, "put the soundChannel && the sound"), "3 harpsichord");
+    // play stop: this channel only; stop sound: all of them.
+    assert_eq!(run(&mut i, "play stop\nput the sound"), "done");
+    assert_eq!(run(&mut i, "set soundChannel to 1\nput the sound"), "harpsichord");
+    assert_eq!(run(&mut i, "stop sound\nput the sound"), "done");
+}
+
+#[test]
+fn a_variable_named_box() {
+    // Get Rich Quick keeps "global box"; HyperCard allows it, and "message
+    // box" still means the message box.
+    let mut i = interp_with(stack());
+    assert_eq!(run(&mut i, "put 5 into box\nput box + 1"), "6");
+    assert_eq!(run(&mut i, "if box = 5 then put \"yes\""), "yes");
+    assert_eq!(run(&mut i, "put \"hi\" into message box"), "hi");
+    assert_eq!(run(&mut i, "put \"there\" into msg box\nput msg box"), "there");
+}
+
+#[test]
+fn a_variable_in_a_chunk_position() {
+    // Shattered Stone: `line scroll of cd fld "events"`, scroll a variable,
+    // not the field's scroll property.
+    let mut i = interp_with(stack());
+    run(&mut i, "put \"a\" & return & \"b\" into field 1");
+    assert_eq!(run(&mut i, "put 2 into scroll\nput \"x\" into line scroll of field 1\nput line 2 of field 1"), "x");
+    assert_eq!(run(&mut i, "put line 1 to scroll of field 1"), "a\nx");
+    // Properties without `the` still work elsewhere, and in parentheses.
+    assert_eq!(run(&mut i, "put scroll of field 1"), "0");
+    assert_eq!(run(&mut i, "put line (number of lines of field 1) of field 1"), "x");
+    // Functions do work there (Printer Checklist).
+    assert_eq!(run(&mut i, "put \"abcdef\" into g\nput \"cd\" into w\nget offset(w, g)\ndelete char it to it+number of chars in w of g\nput g"), "abf");
+    assert_eq!(run(&mut i, "put char 2 to length of \"xyz\" of \"abcdef\""), "bc");
+}
+
+#[test]
+fn a_bare_colon() {
+    // HyperCard takes `set itemDelimiter to :` as the colon (checked in 2.4.1).
+    let mut i = interp_with(stack());
+    assert_eq!(run(&mut i, "set itemDelimiter to :\nput item 2 of \"a:b:c\" && the itemDelimiter"), "b :");
+}
+
+/// Parse every script of one or more stacks (separated by |) and list the
+/// ones that don't parse: RANDOMCARD_STACK="a.rcstack|b.rcstack" cargo test
+/// --release parse_stack_scripts -- --ignored --nocapture
+#[test]
+#[ignore]
+fn parse_stack_scripts() {
+    for path in std::env::var("RANDOMCARD_STACK").unwrap().split('|') {
+        let s = crate::import::load_any(std::path::Path::new(path), None).unwrap();
+        let mut all: Vec<(String, String)> = vec![("stack".into(), s.script.clone())];
+        for b in &s.backgrounds {
+            all.push((format!("bg {}", b.id), b.script.clone()));
+            for p in &b.parts {
+                all.push((format!("bg {} part {}", b.id, p.id), p.script.clone()));
+            }
+        }
+        for c in &s.cards {
+            all.push((format!("card {}", c.id), c.script.clone()));
+            for p in &c.parts {
+                all.push((format!("card {} part {}", c.id, p.id), p.script.clone()));
+            }
+        }
+        let bad: Vec<String> = all.iter().filter_map(|(d, sc)| crate::hypertalk::parser::parse_script(sc).err().map(|e| format!("  {d}: {e:?}"))).collect();
+        println!("{path}: {} scripts, {} don't parse", all.len(), bad.len());
+        for b in bad {
+            println!("{b}");
+        }
+    }
+}
+
+
+#[test]
+fn go_to_a_card_id_left_out() {
+    // Shattered Stone leaves exits to nowhere as `go to cd id --`: HyperCard
+    // compiles it, and says "No such card." only when it runs.
+    let mut i = interp_with(stack());
+    assert_eq!(run(&mut i, "if 1 = 2 then\ngo to cd id\nend if\nput 44"), "44");
+    assert!(run(&mut i, "go to cd id -- nowhere yet\nput 55").contains("No such card."));
+    // A card that isn't there: the result says so, as before.
+    assert_eq!(run(&mut i, "go to card id 99999\nput the result"), "No such card.");
 }

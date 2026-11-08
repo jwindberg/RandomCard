@@ -6,6 +6,8 @@ use std::time::{Duration, Instant};
 
 use crate::model::Sound;
 
+pub mod song;
+
 /// HyperCard's default tempo, in quarter notes per minute.
 pub const DEFAULT_TEMPO: f32 = 120.0;
 
@@ -254,69 +256,193 @@ pub fn beep_tone() -> Vec<f32> {
         .collect()
 }
 
-/// Plays sounds one after another, and knows what is playing for `the sound`.
-/// Audio output is opened on first use; without a device, sounds are timed
-/// but silent, so scripts that wait for them still work.
-pub struct Player {
-    enabled: bool,
-    device: Option<(rodio::MixerDeviceSink, rodio::Player)>,
-    tried: bool,
+/// The sound channels HyperCard 2.4 had (`the soundChannel`, 1 to 8).
+pub const CHANNELS: usize = 8;
+
+/// One sound channel: sounds play on it one after another.
+#[derive(Default)]
+struct Channel {
+    player: Option<rodio::Player>,
     /// Names of queued sounds with the times they finish.
     queue: Vec<(String, Instant)>,
+}
+
+impl Channel {
+    fn playing(&mut self, now: Instant) -> Option<&str> {
+        self.queue.retain(|(_, end)| *end > now);
+        self.queue.first().map(|(n, _)| n.as_str())
+    }
+
+    fn stop(&mut self) {
+        self.queue.clear();
+        if let Some(p) = &self.player {
+            // clear() also pauses the player; resume it for the next sound.
+            p.clear();
+            p.play();
+        }
+    }
+}
+
+/// Plays sounds on eight channels, one after another on each, and knows
+/// what is playing for `the sound`. `play` uses the current channel (`the
+/// soundChannel`), so a script switching channels plays sounds together, as
+/// in HyperCard 2.4. Audio output is opened on first use; without a device,
+/// sounds are timed but silent, so scripts that wait for them still work.
+pub struct Player {
+    enabled: bool,
+    device: Option<rodio::MixerDeviceSink>,
+    channels: Vec<Channel>,
+    /// `the soundChannel`, from 1.
+    channel: usize,
+    /// The song channel, beside sound effects. Songs aren't in `the
+    /// sound`: they loop, and `wait until the sound is done` waits for
+    /// sound effects.
+    music: Option<rodio::Player>,
+    /// The song playing, for `play stop "name"`.
+    song: Option<String>,
+    /// `the soundVolume`, 0 to 7.
+    volume: u8,
+    tried: bool,
 }
 
 impl Player {
     /// A player that never touches the audio device (for tests).
     pub fn silent() -> Player {
-        Player { enabled: false, device: None, tried: false, queue: Vec::new() }
+        Player {
+            enabled: false,
+            device: None,
+            tried: false,
+            channels: (0..CHANNELS).map(|_| Channel::default()).collect(),
+            channel: 1,
+            music: None,
+            song: None,
+            volume: 7,
+        }
     }
 
     pub fn new() -> Player {
         Player { enabled: true, ..Player::silent() }
     }
 
-    fn output(&mut self) -> Option<&rodio::Player> {
+    /// Whether this player makes sound at all (not in tests or the stack
+    /// exerciser).
+    pub fn audible(&self) -> bool {
+        self.enabled
+    }
+
+    fn open(&mut self) {
         if self.enabled && !self.tried {
             self.tried = true;
             if let Ok(mut sink) = rodio::DeviceSinkBuilder::open_default_sink() {
                 sink.log_on_drop(false);
-                let player = rodio::Player::connect_new(sink.mixer());
-                self.device = Some((sink, player));
+                self.device = Some(sink);
             }
         }
-        self.device.as_ref().map(|(_, p)| p)
     }
 
-    /// Queue mono samples after whatever is already playing.
+    /// `the soundChannel`.
+    pub fn channel(&self) -> usize {
+        self.channel
+    }
+
+    pub fn set_channel(&mut self, n: usize) {
+        self.channel = n.clamp(1, CHANNELS);
+    }
+
+    /// Queue mono samples after whatever is already playing on the current
+    /// channel.
     pub fn play(&mut self, name: &str, samples: Vec<f32>, rate: f32) {
         if samples.is_empty() || rate <= 0.0 {
             return;
         }
         let duration = Duration::from_secs_f32(samples.len() as f32 / rate);
         let now = Instant::now();
-        let start = self.queue.last().map(|(_, end)| *end).filter(|end| *end > now).unwrap_or(now);
-        self.queue.retain(|(_, end)| *end > now);
-        self.queue.push((name.to_string(), start + duration));
-        if let (Some(player), Some(rate)) = (self.output(), std::num::NonZero::new(rate.round() as u32)) {
-            let channels = std::num::NonZero::new(1).unwrap();
-            player.append(rodio::buffer::SamplesBuffer::new(channels, rate, samples));
+        self.open();
+        let gain = self.gain();
+        let device = self.device.as_ref();
+        let ch = &mut self.channels[self.channel - 1];
+        let start = ch.queue.last().map(|(_, end)| *end).filter(|end| *end > now).unwrap_or(now);
+        ch.queue.retain(|(_, end)| *end > now);
+        ch.queue.push((name.to_string(), start + duration));
+        if let Some(sink) = device {
+            let player = ch.player.get_or_insert_with(|| {
+                let p = rodio::Player::connect_new(sink.mixer());
+                p.set_volume(gain);
+                p
+            });
+            if let Some(rate) = std::num::NonZero::new(rate.round() as u32) {
+                let mono = std::num::NonZero::new(1).unwrap();
+                player.append(rodio::buffer::SamplesBuffer::new(mono, rate, samples));
+            }
         }
     }
 
+    /// Play a song on its own channel, looping, in place of any other.
+    pub fn play_song(&mut self, name: &str, data: &[u8]) -> Result<(), String> {
+        self.end_song();
+        self.song = Some(name.to_string());
+        self.open();
+        let Some(sink) = &self.device else { return Ok(()) };
+        let source = song::SongSource::new(data, 44_100)?;
+        let player = rodio::Player::connect_new(sink.mixer());
+        player.set_volume(self.gain());
+        player.append(source);
+        self.music = Some(player);
+        Ok(())
+    }
+
+    /// `play stop "name"`: stop that song, if it's the one playing.
+    pub fn stop_song(&mut self, name: &str) {
+        if self.song.as_deref().is_some_and(|s| s.eq_ignore_ascii_case(name.trim())) {
+            self.end_song();
+        }
+    }
+
+    fn end_song(&mut self) {
+        if let Some(p) = self.music.take() {
+            p.stop();
+        }
+        self.song = None;
+    }
+
+    /// `the soundVolume`, 0 (silent) to 7 (full), as the Mac's sound
+    /// levels went: RandomCard's own, never the computer's.
+    pub fn volume(&self) -> u8 {
+        self.volume
+    }
+
+    pub fn set_volume(&mut self, level: u8) {
+        self.volume = level.min(7);
+        let gain = self.gain();
+        for p in self.channels.iter().filter_map(|c| c.player.as_ref()).chain(self.music.as_ref()) {
+            p.set_volume(gain);
+        }
+    }
+
+    fn gain(&self) -> f32 {
+        self.volume as f32 / 7.0
+    }
+
+    /// `play stop`: the current channel's sounds; a song plays on (`play
+    /// stop "name"` stops it).
     pub fn stop(&mut self) {
-        self.queue.clear();
-        if let Some((_, p)) = &self.device {
-            // clear() also pauses the player; resume it for the next sound.
-            p.clear();
-            p.play();
+        self.channels[self.channel - 1].stop();
+    }
+
+    /// `stop sound`: every channel's sounds.
+    pub fn stop_all(&mut self) {
+        for c in &mut self.channels {
+            c.stop();
         }
     }
 
-    /// `the sound`: the name of the sound playing now, or "done".
+    /// `the sound`: the name of the sound playing now on the current
+    /// channel, or "done". (Shattered Stone's channelDone switches channels
+    /// to ask after each one.)
     pub fn current(&mut self) -> String {
         let now = Instant::now();
-        self.queue.retain(|(_, end)| *end > now);
-        self.queue.first().map(|(n, _)| n.clone()).unwrap_or_else(|| "done".into())
+        let ch = &mut self.channels[self.channel - 1];
+        ch.playing(now).map(str::to_string).unwrap_or_else(|| "done".into())
     }
 }
 
@@ -359,5 +485,27 @@ mod tests {
         p.stop();
         assert_eq!(p.current(), "done");
         assert_eq!(dial_tones("1-2").len(), 2 * (2646 + 1323));
+    }
+
+    #[test]
+    fn channels() {
+        // Apple's chord: one note on each of three channels, together.
+        let mut p = Player::silent();
+        assert_eq!(p.channel(), 1);
+        for (ch, name) in [(1, "c"), (2, "e"), (3, "g")] {
+            p.set_channel(ch);
+            p.play(name, vec![0.0; 22050], 22050.0);
+        }
+        assert_eq!(p.current(), "g");
+        // play stop: the current channel only.
+        p.stop();
+        assert_eq!(p.current(), "done");
+        p.set_channel(1);
+        assert_eq!(p.current(), "c");
+        // stop sound: all of them.
+        p.stop_all();
+        assert_eq!(p.current(), "done");
+        p.set_channel(12);
+        assert_eq!(p.channel(), CHANNELS);
     }
 }

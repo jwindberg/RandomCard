@@ -367,6 +367,8 @@ pub enum Cmd {
     /// rewritten. `path` is the `__json` call naming the container and
     /// its steps.
     SetJson { path: Expr, value: Expr },
+    /// `flush keys`: keys typed so far are dropped, not sent as messages.
+    FlushKeys,
     /// `import paint from file "Frogs.png"`: a picture file pasted in as
     /// the paint selection.
     ImportPaint(Expr),
@@ -392,7 +394,10 @@ pub enum Cmd {
     Convert { value: Expr, to: String },
     /// `play "harpsichord" tempo 200 "c4 e g"`
     Play { sound: Expr, tempo: Option<Expr>, notes: Vec<Expr> },
-    PlayStop,
+    /// `play stop` stops sound effects; `play stop "title music"` a song.
+    PlayStop(Option<Expr>),
+    /// `stop sound`: every sound channel.
+    StopSound,
     Speak(Expr),
     Dial(Expr),
     SaveStack(Option<Expr>),

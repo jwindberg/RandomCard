@@ -124,6 +124,8 @@ pub struct Interp {
     /// For posting events back to this thread, as a web request made `with
     /// message` does when its reply comes.
     pub event_tx: Option<std::sync::mpsc::Sender<super::world::Event>>,
+    /// When `flush keys` last ran: keys typed before then are dropped.
+    pub keys_flushed: Option<Instant>,
     pub item_delimiter: String,
     pub number_format: String,
     pub lock_messages: bool,
@@ -134,7 +136,6 @@ pub struct Interp {
     /// Cards `push card` saved, with the stack each is in (its path, or
     /// its name if it has none), as HyperCard saved the full ID and path.
     pub pushed_cards: Vec<(Id, String)>,
-    msgbox_vars: HashMap<String, String>,
     /// For tests: canned dialog answers.
     pub canned_answers: Vec<DialogReply>,
     pub audio: crate::sound::Player,
@@ -180,6 +181,7 @@ impl Interp {
             response_time: 0.0,
             json_cache: None,
             event_tx: None,
+            keys_flushed: None,
             item_delimiter: ",".into(),
             number_format: "0.######".into(),
             lock_messages: false,
@@ -188,7 +190,6 @@ impl Interp {
             started: Instant::now(),
             clipboard_card: None,
             pushed_cards: Vec::new(),
-            msgbox_vars: HashMap::new(),
             canned_answers: Vec::new(),
             audio: crate::sound::Player::silent(),
             handler_names: None,
@@ -293,7 +294,9 @@ impl Interp {
                     None => self.dispatch_top(card, "doMenu", vec![item]),
                 }
             }
-            Event::Key { target, message, args, default } => self.key_message(target, &message, args, default),
+            // Typed before the last `flush keys`: dropped.
+            Event::Key { at, .. } if self.keys_flushed.is_some_and(|f| at < f) => Ok(()),
+            Event::Key { target, message, args, default, .. } => self.key_message(target, &message, args, default),
             Event::CloseWindow(name) => self.close_script_window(&name, true),
             Event::PaletteButton(name, n) => {
                 let card = ObjRef::Card(self.w().card_id);
@@ -437,7 +440,6 @@ impl Interp {
         let stmts = parse_statements(text).or_else(err)?;
         let card = self.current_card_ref();
         let mut frame = Frame::new(card, card, "", vec![]);
-        frame.vars = std::mem::take(&mut self.msgbox_vars);
         frame.msgbox = true;
         self.frames.push(frame);
         let mut r = Ok(());
@@ -455,9 +457,7 @@ impl Interp {
                 break;
             }
         }
-        if let Some(f) = self.frames.pop() {
-            self.msgbox_vars = f.vars;
-        }
+        self.frames.pop();
         match r {
             Err(Ctl::Return(_) | Ctl::Exit | Ctl::ExitToHyperCard | Ctl::Pass) => Ok(()),
             other => other.map(|_| ()),
@@ -748,6 +748,10 @@ impl Interp {
     pub fn get_var(&self, name: &str) -> Option<String> {
         let name = name.to_lowercase();
         let f = self.frame();
+        // Variables used in the message box are globals, as in HyperCard.
+        if f.msgbox {
+            return self.globals.get(&name).cloned();
+        }
         if f.globals.contains(&name) {
             return Some(self.globals.get(&name).cloned().unwrap_or_default());
         }
@@ -756,7 +760,7 @@ impl Interp {
 
     pub fn set_var(&mut self, name: &str, value: String) {
         let name = name.to_lowercase();
-        if self.frame().globals.contains(&name) {
+        if self.frame().msgbox || self.frame().globals.contains(&name) {
             self.globals.insert(name, value);
         } else {
             self.frame_mut().vars.insert(name, value);
@@ -1031,6 +1035,7 @@ impl Interp {
             Expr::Unary(UnOp::Not, a) => Ok(bool_str(!self.eval_bool(a)?)),
             Expr::Binary(op, a, b) => self.binary(*op, a, b),
             Expr::Call(name, _) if name == "__menu" => Ok(String::new()),
+            Expr::Call(name, args) if name == "__selectedbutton" => self.selected_button(args),
             Expr::Call(name, args) if name == "__propof" => {
                 let prop = self.eval(&args[0])?;
                 let length = match self.eval(&args[1])?.as_str() {
@@ -1107,6 +1112,30 @@ impl Interp {
             Expr::Menu(r) => self.menu_value(r),
             Expr::MenuExists(r) => self.menu_exists(r),
         }
+    }
+
+    /// `the selectedButton of [card | bkgnd] family N [of card …]`: the
+    /// family's highlighted button, as `card button 3`, or empty.
+    fn selected_button(&mut self, args: &[Expr]) -> R<String> {
+        let bg = matches!(&args[0], Expr::Lit(l) if l == "bkgnd");
+        let family = to_int(&self.eval(&args[1])?)?;
+        let card = match &args[2] {
+            Expr::Lit(l) if l.is_empty() => self.w().card_id,
+            Expr::Object(spec) => match self.resolve(spec)? {
+                ObjRef::Card(id) => id,
+                _ => return err("Expected a card here"),
+            },
+            other => {
+                let v = self.eval(other)?;
+                return err(format!("Expected a card here, not \"{v}\""));
+            }
+        };
+        let layer = if bg { Layer::Background } else { Layer::Card };
+        let w = self.w();
+        let buttons: Vec<&crate::model::Part> =
+            w.stack.parts(card, layer).iter().filter(|p| p.kind == crate::model::PartKind::Button).collect();
+        let found = buttons.iter().position(|p| p.family as i64 == family && w.stack.hilite(card, layer, p.id));
+        Ok(found.map_or(String::new(), |n| format!("{} button {}", if bg { "bkgnd" } else { "card" }, n + 1)))
     }
 
     pub fn value_of(&mut self, src: &str) -> R<String> {
@@ -1262,12 +1291,38 @@ impl Interp {
         }
     }
 
+    /// A value that names a chunk of a field, as `the foundChunk` and `the
+    /// selectedChunk` do ("char 6 to 15 of card field 1"): that chunk, so
+    /// scripts can put into it or set its text properties, as in HyperCard.
+    /// None for containers and for values that aren't chunks.
+    pub(super) fn chunk_named_by(&mut self, e: &Expr) -> R<Option<Expr>> {
+        if matches!(e, Expr::Var(_) | Expr::Object(_) | Expr::Selection | Expr::Menu(_) | Expr::Chunk(..)) {
+            return Ok(None);
+        }
+        let text = self.eval(e)?;
+        Ok(Self::chunk_in_text(&text))
+    }
+
+    /// Text that names a chunk ("char 6 to 15 of card field 1"), parsed.
+    pub(super) fn chunk_in_text(text: &str) -> Option<Expr> {
+        let t = text.trim().to_ascii_lowercase();
+        if !["char ", "character ", "word ", "line ", "item "].iter().any(|w| t.starts_with(w)) {
+            return None;
+        }
+        parse_expression(text.trim()).ok().filter(|c| matches!(c, Expr::Chunk(..)))
+    }
+
     pub fn put_into(&mut self, dest: &Expr, prep: Prep, value: &str) -> R<()> {
         if matches!(dest, Expr::Call(n, _) if n == "__menu") {
             // Menus aren't scriptable; putting into one does nothing.
             return Ok(());
         }
         let (chunks, base) = Self::container_parts(dest);
+        if chunks.is_empty()
+            && let Some(chunk) = self.chunk_named_by(base)?
+        {
+            return self.put_into(&chunk, prep, value);
+        }
         if chunks.is_empty() && prep == Prep::Into {
             return self.write_container(base, value.to_string());
         }

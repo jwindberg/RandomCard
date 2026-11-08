@@ -97,7 +97,9 @@ properties` (lists of what's available) are also missing.
 
 - **What 2.4 and 2.4.1 added** (New Features manual): QuickTime movies driven
   from HyperTalk, linking to URLs, opening many files, the enhanced script
-  editor, the improved Picture command, new syntax.
+  editor, the improved Picture command, new syntax. Done so far: `the
+  soundChannel` (eight channels, `play stop` for the current one, `stop
+  sound` for all), checked in 2.4.1 with Shattered Stone.
 - **The application** (HyperCard Reference): menus, tools, dialogs, the color
   tools, and everything else that isn't the language.
 - The 93 keywords, chunks, ordinals, tools and other terms.

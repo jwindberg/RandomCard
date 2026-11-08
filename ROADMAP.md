@@ -7,7 +7,7 @@ exists today, what's missing, and where the work would go. The suggested
 order at the end is shaped by what RandomCard's users ask for.
 
 The drive to make every stack on Apple's Developer CDs work ended at 1,029
-working (WORKING_STACKS.md). Those stacks are now a regression suite: a
+working (WORKING_STACKS.md; 1,057 at the 2026-11-08 regression run). Those stacks are now a regression suite: a
 failing one matters only when it shows a missing HyperCard feature. Stacks
 that assume the old Mac OS (colon paths, old system calls) are updated by
 fix steps on our copies (FIX_STEPS.tsv), not by compatibility code.
@@ -156,7 +156,8 @@ text, multi-level undo and redo, and script-driven painting with `drag`,
   (unlike Undo, which takes back only the last change). RandomCard saves
   paint changes as they're made, so it has neither yet.
 - **Paint menu:** Pickup and Scale; `the grid`, `centered` and
-  `multiple` options. (Shift-constrained drawing is done: straight
+  `multiple` options (`the multiSpace` is kept, but nothing is drawn
+  multiple yet). (Shift-constrained drawing is done: straight
   strokes, lines and polygon sides at multiples of 15°, squares and
   circles, straight moves of a selection, and `drag … with shiftKey`.)
 
@@ -528,7 +529,21 @@ first three are favorites.
   rows.
 - **Unicode and system fonts.** Text beyond MacRoman, emoji, and real
   fonts chosen from the system, for new stacks that don't need to look
-  like 1990.
+  like 1990. Imported Japanese stacks (MacJapanese) are done; stacks from
+  the Mac's other scripts (Chinese, Korean, Arabic, Hebrew, Cyrillic…)
+  would be imported the same way, by their fonts' ids.
+- **Markdown fields.** A field that holds Markdown and shows it
+  formatted: `set the markdown of field "Notes" to true`, a true-or-false
+  property like `lockText` and `dontWrap`, also set in the field's Info
+  window. The field's text stays the Markdown source, so `put`, chunks,
+  `find` and scripts work on plain text as always. A locked field shows the
+  preview (headings, emphasis, lists, links, code, tables), and an unlocked
+  one shows the preview until it's clicked into, then the source for
+  editing, then the preview again. Links clicked in the preview send a
+  message (`linkClicked`) the way click functions work in locked fields,
+  rather than opening anything themselves. Follow CommonMark, with the
+  GitHub tables and task lists people expect. Style runs don't apply to a
+  Markdown field; its formatting comes from the Markdown.
 - **Internationalization.** RandomCard's own text (menus, dialogs, Info
   windows, the Tour) translated, with American English as the source
   language; dates, times and numbers in the user's locale where scripts
@@ -550,7 +565,9 @@ first three are favorites.
 - **Resizable cards.** Cards that grow with the window, beyond HyperCard's
   fixed card sizes.
 - **Media.** Video playback in a card region, recording sound
-  (`record sound`), and playing common audio files.
+  (`record sound`), and playing common audio files. QuickTime music
+  tracks too (note data for a General MIDI synthesizer, as Lost and Found
+  plays its theme songs).
 - **Slider and scrollbar parts.** HyperCard had only buttons and fields,
   so authors built sliders from a track, a thumb button and a `mouseDown`
   loop following `the mouseH`; later xTalks such as LiveCode added

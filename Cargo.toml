@@ -35,6 +35,9 @@ rfd = "0.17.2"
 rodio = { version = "0.23.0", default-features = false, features = ["playback"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order", "arbitrary_precision"] }
+xmrs = "0.15.2"
+xmrsplayer = "0.15.0"
+encoding_rs = "0.8.44"
 
 # HTTP for scripts (`put url …`). Linux uses Rustls; Windows and macOS use
 # the system's own TLS and certificates, which also keeps the C code of
