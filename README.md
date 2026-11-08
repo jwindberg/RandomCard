@@ -53,9 +53,9 @@ an address book on its own background. Its buttons' scripts are worth
 reading with the Button tool. It's built fresh each time it opens, so it
 always matches this version of RandomCard.
 
-**Importing HyperCard stacks.** File ▸ Import HyperCard Stack… (or
-Open Stack…, or a path on the command line) reads original HyperCard 1.x
-and 2.x stack files. MacBinary-wrapped files work too. The import brings in:
+**Opening HyperCard stacks.** File ▸ Open Stack… (or a path on the command
+line) opens original HyperCard 1.x and 2.x stack files as well as
+RandomCard's own, converting them as they open. MacBinary-wrapped files work too. The import brings in:
 
 - cards in stack order, backgrounds, card and background names, marked
   cards, and the cantDelete, dontSearch and showPict flags;
@@ -144,7 +144,9 @@ Edit ▸ Background (Ctrl+B) switches to the background layer.
 checkBox, radioButton, standard, default, oval and popup, with families,
 autoHilite and enabled. A popup's lines are its menu: clicking it shows the
 menu, choosing an item sends `mouseUp`, and `the selectedText of button 1`
-reports the choice. Field styles: transparent, opaque, rectangle, shadow and scrolling,
+reports the choice. A slider, which HyperCard never had, is a button too:
+its contents is its value, from `the min` to `the max` in steps of `the
+step`, and dragging it sends `sliderMoved`, then `sliderChanged`. Field styles: transparent, opaque, rectangle, shadow and scrolling,
 with lockText, dontWrap, showLines, wideMargins, text font, size, style and
 alignment. Locked fields with autoSelect are list fields: a click selects
 the whole line, and with multipleLines Shift-click extends the selection.

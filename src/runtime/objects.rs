@@ -582,6 +582,10 @@ impl Interp {
                     "sharedhilite" => bool_str(p.shared_hilite),
                     "icon" => p.icon.to_string(),
                     "titlewidth" => p.title_width.to_string(),
+                    // A slider's range, as HTML's range input names it.
+                    "min" => crate::model::number_text(p.min),
+                    "max" => crate::model::number_text(p.max),
+                    "step" => crate::model::number_text(p.step),
                     // A popup's chosen item, as HyperCard 2.2 reports it.
                     "selectedtext" | "selectedline" | "selectedchunk" if p.kind == PartKind::Button => {
                         let n = p.selected_line as usize;
@@ -812,7 +816,13 @@ impl Interp {
                     "script" => p.script = v.to_string(),
                     "visible" => p.visible = to_bool(v)?,
                     "style" => match PartStyle::parse(v) {
-                        Some(st) => p.style = st,
+                        Some(PartStyle::Slider) if p.kind == PartKind::Field => {
+                            return err("Fields can't be sliders; buttons can");
+                        }
+                        Some(st) => {
+                            p.style = st;
+                            p.resnap_slider();
+                        }
                         None => return bad("a style"),
                     },
                     "textfont" => p.text_font = v.to_string(),
@@ -850,6 +860,22 @@ impl Interp {
                     "family" => p.family = if v.trim().is_empty() { 0 } else { to_int(v)?.clamp(0, 15) as u32 },
                     "sharedhilite" => p.shared_hilite = to_bool(v)?,
                     "titlewidth" => p.title_width = to_int(v)?.max(0) as u32,
+                    "min" => {
+                        p.min = super::interp::to_number(v)?;
+                        p.resnap_slider();
+                    }
+                    "max" => {
+                        p.max = super::interp::to_number(v)?;
+                        p.resnap_slider();
+                    }
+                    "step" => {
+                        let step = super::interp::to_number(v)?;
+                        if step <= 0.0 {
+                            return err("A slider's step must be more than 0");
+                        }
+                        p.step = step;
+                        p.resnap_slider();
+                    }
                     "locktext" => p.lock_text = to_bool(v)?,
                     "dontwrap" => p.dont_wrap = to_bool(v)?,
                     "autotab" => p.auto_tab = to_bool(v)?,

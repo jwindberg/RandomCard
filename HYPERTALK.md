@@ -424,10 +424,11 @@ on several kinds of object; `get`, `put` and `set` read and change them.
 `top`, `right`, `bottom`, `width`, `height`, `topLeft`, `bottomRight`,
 `visible`, `style` (`transparent`, `opaque`, `rectangle`, `roundRect`,
 `shadow`, `checkBox`, `radioButton`, `standard`, `default`, `oval`,
-`popup`), `hilite`, `autoHilite`, `sharedHilite`, `family`, `showName`,
+`popup`, `slider`), `hilite`, `autoHilite`, `sharedHilite`, `family`, `showName`,
 `enabled`, `icon`, `titleWidth`, `textFont`, `textSize`, `textStyle`,
-`textAlign`, `textHeight`, `script`, `contents` (a popup's items), and
-color: `foreColor`, `backColor`, `borderColor`.
+`textAlign`, `textHeight`, `script`, `contents` (a popup's items, a
+slider's value), a slider's `min`, `max` and `step`, and color:
+`foreColor`, `backColor`, `borderColor`.
 
 **Fields:** the button properties that apply, and `lockText`, `dontWrap`,
 `autoTab`, `wideMargins`, `showLines`, `sharedText`, `dontSearch`,
@@ -468,6 +469,7 @@ RandomCard sends these as HyperCard did:
 | Making and removing | `newCard`, `deleteCard`, `newBackground`, `deleteBackground`, `newButton`, `deleteButton`, `newField`, `deleteField`, `newStack`, `deleteStack` |
 | RandomCard itself | `startUp`, `resume`, `suspend`, `quit`, `idle`, `help` |
 | Menus and palettes | `doMenu`, `openPalette`, `closePalette` |
+| Sliders (RandomCard's own) | `sliderMoved`, `sliderChanged` |
 
 Built-in commands go through the message path too (`on go`, `on doMenu`,
 `on find`), so a script can change or stop any of them.
@@ -588,13 +590,45 @@ end gotData
   builds and changes JSON in a variable or field.
 - **Encoding:** `urlEncode`, `urlDecode`, `formEncode`, `formDecode`.
 
-The `examples/` folder has two stacks built on these: ICNDB (a REST client
-for one service) and PostCard (a small Postman).
+The `examples/` folder has three stacks built on these: ICNDB (a REST
+client for one service), PostCard (a small Postman), and Swatches (colors
+looked up, converted and explained with The Color API, and a tour of
+RandomCard's color features and sliders).
 
-### Fields
+### Modern controls
+
+HyperCard had only buttons and fields; RandomCard adds the controls a
+modern system has, as parts.
+
+- **Sliders:** a button whose style is `slider`. Its contents is its
+  value, kept within `the min` and `the max` (0 and 100 unless set) and on
+  `the step` (1 unless set), as HTML's range input does. Dragging it sends
+  `sliderMoved` each time the value changes, then `sliderChanged` when
+  it's let go, if the value changed. A slider taller than it is wide runs
+  up and down. Its name shows at the left in its `titleWidth`, as a
+  popup's does; its `backColor` colors the filled part of the track.
+
+```hypertalk
+on mouseUp
+  set the style of button "Red" to slider
+  set the max of button "Red" to 255
+  put 128 into button "Red"
+end mouseUp
+
+on sliderMoved
+  put me into field "Red Value"
+end sliderMoved
+
+on sliderChanged
+  answer "Red is now" && me & "."
+end sliderChanged
+```
 
 - **Combo boxes:** a field's `choices` (one a line) put a ▼ in it; picking
   one fills the field, which can still be typed into.
+
+### Fields
+
 - **Don't Save:** `set the dontSave of field "Results" to true`: the field
   works as usual, but opens empty.
 - **Colors:** `foreColor`, `backColor` and `borderColor` of buttons and

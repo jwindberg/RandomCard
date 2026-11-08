@@ -90,6 +90,9 @@ pub struct App {
     hover: Option<ObjRef>,
     pressed: Option<ObjRef>,
     pressed_inside: bool,
+    /// A slider being dragged: its value when pressed, and the last value
+    /// sent with sliderMoved.
+    slider: Option<SliderDrag>,
     /// Each scrolling field's `scroll`, as last given to or read from its
     /// scroll area, to tell script changes from the user's scrolling.
     synced_scroll: std::collections::HashMap<ObjRef, i32>,
@@ -238,6 +241,7 @@ impl App {
             hover: None,
             pressed: None,
             pressed_inside: false,
+            slider: None,
             synced_scroll: Default::default(),
             scroll_bar_zones: Vec::new(),
             last_repeat_msg: Instant::now(),
@@ -500,20 +504,15 @@ impl App {
         for r in requests {
             match r {
                 UiRequest::OpenStack => {
+                    // RandomCard's stacks or HyperCard's, which usually have
+                    // no extension, so every file shows unless narrowed.
                     if let Some(path) = self
                         .stack_dialog()
-                        .add_filter("RandomCard stack", &[STACK_EXT])
                         .add_filter("All files", &["*"])
+                        .add_filter("RandomCard stacks", &[STACK_EXT])
                         .set_title("Open Stack")
                         .pick_file()
                     {
-                        self.remember_stack_folder(&path);
-                        self.open_stack_path(&path);
-                    }
-                }
-                UiRequest::ImportStack => {
-                    // HyperCard stacks usually have no extension, so offer every file.
-                    if let Some(path) = self.stack_dialog().set_title("Import HyperCard Stack").pick_file() {
                         self.remember_stack_folder(&path);
                         self.open_stack_path(&path);
                     }
@@ -1354,6 +1353,17 @@ impl App {
             self.pressed = Some(t);
             self.pressed_inside = true;
             self.send(Event::Send { target: t, message: "mouseDown".into(), args: vec![] });
+            // A slider: the thumb jumps to the click, then follows the mouse.
+            if let Some(pv) = target.filter(|pv| pv.part.style == PartStyle::Slider && pv.part.kind == PartKind::Button)
+                && pv.part.enabled
+            {
+                let start = pv.part.slider_value();
+                self.slider = Some(SliderDrag { obj: t, start, sent: start });
+                self.drag_slider(scene, card_pos);
+            }
+        }
+        if self.slider.is_some() && self.pressed.is_some() && !primary_released {
+            self.drag_slider(scene, card_pos);
         }
         if let Some(t) = self.pressed {
             self.pressed_inside = match t {
@@ -1366,7 +1376,14 @@ impl App {
             }
             if primary_released {
                 self.pressed = None;
-                if self.pressed_inside {
+                // A slider let go: sliderChanged if its value changed, then
+                // mouseUp wherever the mouse is, as it was dragged.
+                if let Some(drag) = self.slider.take() {
+                    if drag.sent != drag.start {
+                        self.send(Event::Send { target: t, message: "sliderChanged".into(), args: vec![] });
+                    }
+                    self.send(Event::Send { target: t, message: "mouseUp".into(), args: vec![] });
+                } else if self.pressed_inside {
                     self.toggle_auto_hilite(t, scene);
                     self.send(Event::Send { target: t, message: "mouseUp".into(), args: vec![] });
                     if resp.double_clicked() {
@@ -1375,6 +1392,29 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Move a slider's thumb to the mouse: its contents become the value
+    /// there, and sliderMoved goes to it when that changes.
+    fn drag_slider(&mut self, scene: &Scene, card_pos: Option<(i32, i32)>) {
+        let (Some(drag), Some((x, y))) = (self.slider.as_ref(), card_pos) else { return };
+        let obj = drag.obj;
+        let Some(pv) = scene.parts.iter().find(|p| p.obj == obj) else { return };
+        let value = pv.part.slider_value_at(if pv.part.slider_vertical() { y } else { x });
+        if value == drag.sent {
+            return;
+        }
+        if let ObjRef::Part { layer, id, card } = obj {
+            let mut w = self.world();
+            if let Some(p) = w.stack.part_mut(card, layer, id) {
+                p.contents = crate::model::number_text(value);
+                w.dirty = true;
+            }
+        }
+        if let Some(d) = self.slider.as_mut() {
+            d.sent = value;
+        }
+        self.send(Event::Send { target: obj, message: "sliderMoved".into(), args: vec![] });
     }
 
     fn toggle_auto_hilite(&self, t: ObjRef, scene: &Scene) {
@@ -2272,4 +2312,13 @@ fn key_name(key: Key) -> Option<String> {
         }
     };
     Some(name.into())
+}
+
+/// A slider being dragged with the Browse tool.
+struct SliderDrag {
+    obj: ObjRef,
+    /// Its value when it was pressed.
+    start: f64,
+    /// The last value it was given, and sliderMoved sent for.
+    sent: f64,
 }

@@ -714,6 +714,10 @@ fn draw_button(painter: &Painter, tex: &Textures, pv: &PartView, rect: Rect, pre
             draw_popup(&painter, p, rect, fg, bg);
             return;
         }
+        PartStyle::Slider => {
+            draw_slider(&painter, p, rect, pressed);
+            return;
+        }
         PartStyle::Default => {
             painter.rect_stroke(rect, 10.0, Stroke::new(3.0, frame_color(p)), StrokeKind::Inside);
             let inner = rect.shrink(4.0);
@@ -787,6 +791,42 @@ fn draw_popup(painter: &Painter, p: &Part, rect: Rect, fg: Color32, bg: Color32)
     );
     let inside = painter.with_clip_rect(text_rect.intersect(painter.clip_rect()));
     draw_label(&inside, p, Pos2::new(text_rect.left(), boxr.center().y), Align2::LEFT_CENTER, p.selected_text(), fg);
+}
+
+/// A slider: a thin rounded track, filled from the min to the thumb in the
+/// button's backColor (black if it has none), and a round white thumb with
+/// a soft shadow, darkened while it's held. Its name, if shown, sits in its
+/// titleWidth at the left, as a popup's does.
+fn draw_slider(painter: &Painter, p: &Part, rect: Rect, pressed: bool) {
+    let at = |x: i32, y: i32| rect.min + Vec2::new((x - p.rect.left) as f32, (y - p.rect.top) as f32);
+    let (a, b) = p.slider_track();
+    let along = a as f32 + (b - a) as f32 * p.slider_fraction() as f32;
+    let vertical = p.slider_vertical();
+    let fill = if p.enabled { p.back_color.map_or(BLACK, rgb) } else { GRAY };
+    let empty = Color32::from_gray(205);
+    let thickness = 4.0;
+    let (start, end, thumb) = if vertical {
+        let x = rect.center().x;
+        (Pos2::new(x, at(0, a).y), Pos2::new(x, at(0, b).y), Pos2::new(x, rect.min.y + (along - p.rect.top as f32)))
+    } else {
+        let y = rect.center().y;
+        (Pos2::new(at(a, 0).x, y), Pos2::new(at(b, 0).x, y), Pos2::new(rect.min.x + (along - p.rect.left as f32), y))
+    };
+    let bar = |from: Pos2, to: Pos2, color: Color32| {
+        let r = Rect::from_two_pos(from, to).expand(thickness / 2.0);
+        painter.rect_filled(r, thickness / 2.0, color);
+    };
+    bar(start, end, empty);
+    bar(start, thumb, fill);
+    let radius = p.slider_thumb_radius() as f32;
+    painter.circle_filled(thumb + Vec2::new(0.0, 1.0), radius, Color32::from_black_alpha(60));
+    painter.circle_filled(thumb, radius, if pressed { Color32::from_gray(225) } else { WHITE });
+    painter.circle_stroke(thumb, radius, Stroke::new(1.0, if p.enabled { frame_color(p) } else { GRAY }));
+    if !vertical && p.show_name && p.title_width > 0 && !p.name.is_empty() {
+        let title = painter.with_clip_rect(Rect::from_min_max(rect.min, Pos2::new(rect.left() + p.title_width as f32, rect.max.y)));
+        let label_fg = if p.enabled { text_color(p) } else { GRAY };
+        draw_label(&title, p, Pos2::new(rect.left() + 2.0, rect.center().y), Align2::LEFT_CENTER, &p.name, label_fg);
+    }
 }
 
 pub const ICON_SIZE: f32 = 32.0;

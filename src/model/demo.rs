@@ -881,7 +881,7 @@ end showState
     let about = b.label(
         "About",
         Rect::new(20, 42, 492, 108),
-        "HyperCard 2.4 played sounds on eight channels at once: Play Both puts the tune on channel 1 and a bass line on channel 2. Songs are soundtracker modules, as games played them with the PlayMOD external, looping beside everything else.",
+        "HyperCard 2.4 played sounds on eight channels at once: Play Both puts the tune on channel 1 and a bass line on channel 2. Songs are soundtracker modules, as games played them with the PlayMOD external, looping beside everything else. The Volume slider is RandomCard's own.",
         12,
     );
     b.card_part(c, about);
@@ -894,21 +894,31 @@ end showState
         ("Stop All", "on mouseUp\n  stop sound\nend mouseUp"),
         ("Play Song", "on mouseUp\n  play \"Tour Song\"\nend mouseUp"),
         ("Stop Song", "on mouseUp\n  play stop \"Tour Song\"\nend mouseUp"),
-        ("Quieter", "on mouseUp\n  set the soundVolume to max(0, the soundVolume - 1)\n  showVolume\nend mouseUp"),
-        ("Louder", "on mouseUp\n  set the soundVolume to min(7, the soundVolume + 1)\n  showVolume\nend mouseUp"),
     ];
     for (i, (name, script)) in channel_buttons.iter().enumerate() {
         let (x, y) = match i {
             0..=2 => (36 + i as i32 * 150, 116),
-            3 | 4 => (36 + (i as i32 - 3) * 150, 156),
-            _ => (36 + (i as i32 - 5) * 150, 196),
+            _ => (36 + (i as i32 - 3) * 150, 156),
         };
         let p = b.button(name, Rect::new(x, y, x + 140, y + 28), script);
         b.card_part(c, p);
     }
-    let volume = b.label("Volume", Rect::new(336, 200, 492, 220), "", 12);
+    // A slider, which HyperCard never had: its contents is its value, and
+    // sliderMoved comes as it's dragged.
+    let mut slider = b.button(
+        "Volume",
+        Rect::new(36, 204, 326, 228),
+        "on sliderMoved\n  set the soundVolume to me\n  showVolume\nend sliderMoved\n\non sliderChanged\n  play \"boing\"\nend sliderChanged",
+    );
+    slider.style = PartStyle::Slider;
+    slider.max = 7.0;
+    slider.contents = "7".into();
+    slider.title_width = 70;
+    slider.text_align = TextAlign::Left;
+    b.card_part(c, slider);
+    let volume = b.label("Volume", Rect::new(336, 206, 492, 226), "", 12);
     b.card_part(c, volume);
-    b.stack.cards[c].script = "on openCard\n  showVolume\n  pass openCard\nend openCard\n\non showVolume\n  put \"the soundVolume:\" && the soundVolume && \"of 7\" into field \"Volume\"\nend showVolume".into();
+    b.stack.cards[c].script = "on openCard\n  put the soundVolume into button \"Volume\"\n  showVolume\n  pass openCard\nend openCard\n\non showVolume\n  put \"the soundVolume:\" && the soundVolume && \"of 7\" into field \"Volume\"\nend showVolume".into();
     b.stack.songs.insert(1, Song { name: "Tour Song".into(), data: tour_song() });
 
     // ----- Keys -----

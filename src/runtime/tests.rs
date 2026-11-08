@@ -423,12 +423,14 @@ fn demo_stack_runs() {
     assert_eq!(run(&mut i, "put the number of lines of the choices of card field \"Method\""), "2");
     // Channels: two at once, the soundVolume, the Tour's own song.
     run(&mut i, "go to card \"Channels\"");
-    for name in ["Play Both", "Stop Bass", "Stop All", "Play Song", "Stop Song", "Louder"] {
+    for name in ["Play Both", "Stop Bass", "Stop All", "Play Song", "Stop Song"] {
         assert_eq!(click(&mut i, "Channels", name), None, "{name}");
     }
     assert_eq!(run(&mut i, "put the soundChannel"), "1");
-    assert_eq!(click(&mut i, "Channels", "Quieter"), None);
-    assert!(run(&mut i, "put field \"Volume\"").starts_with("the soundVolume:"));
+    // The Volume slider: dragged to 3, it sets the soundVolume.
+    run(&mut i, "put 3 into button \"Volume\"\nsend \"sliderMoved\" to button \"Volume\"");
+    assert_eq!(run(&mut i, "put the soundVolume && the style of button \"Volume\" && the max of button \"Volume\""), "3 slider 7");
+    assert_eq!(run(&mut i, "put field \"Volume\""), "the soundVolume: 3 of 7");
     // More Text: the list's selection, textWidth, the selectedButton.
     run(&mut i, "go to card \"More Text\"");
     assert_eq!(run(&mut i, "put the textFont of field \"Pixel\""), "Tour Pixel");
@@ -3378,6 +3380,228 @@ fn a_bare_colon() {
     // HyperCard takes `set itemDelimiter to :` as the colon (checked in 2.4.1).
     let mut i = interp_with(stack());
     assert_eq!(run(&mut i, "set itemDelimiter to :\nput item 2 of \"a:b:c\" && the itemDelimiter"), "b :");
+}
+
+#[test]
+fn home_from_before_loses_import_button() {
+    // A Home saved when it had Import a HyperCard Stack… third of five.
+    let mut home = Stack::home();
+    let card = &mut home.cards[0];
+    let new_stack = card.parts.iter().position(|p| p.name == "New Stack…").unwrap();
+    let r = card.parts[new_stack].rect;
+    let mut import = card.parts[new_stack].clone();
+    import.name = "Import a HyperCard Stack…".into();
+    import.script = "on mouseUp\n  doMenu \"Import HyperCard Stack…\"\nend mouseUp".into();
+    for p in card.parts.iter_mut().filter(|p| p.rect.top >= r.top && p.kind == crate::model::PartKind::Button) {
+        p.rect = crate::model::Rect::new(p.rect.left, p.rect.top + 38, p.rect.right, p.rect.bottom + 38);
+    }
+    card.parts.push(import);
+    assert!(crate::model::home::update(&mut home));
+    let card = &home.cards[0];
+    assert!(!card.parts.iter().any(|p| p.name.starts_with("Import")));
+    assert_eq!(card.parts.iter().find(|p| p.name == "New Stack…").unwrap().rect, r);
+    // Up to date now: nothing more to change.
+    assert!(!crate::model::home::update(&mut home));
+}
+
+#[test]
+fn sliders() {
+    // A slider is a button style; its contents is its value, kept in its
+    // range and on its steps, as HTML's range input does.
+    let mut i = interp_with(stack());
+    run(&mut i, "set the style of button 1 to slider");
+    assert_eq!(run(&mut i, "put the style of button 1 && button 1"), "slider 0");
+    assert_eq!(run(&mut i, "put the min of button 1 && the max of button 1 && the step of button 1"), "0 100 1");
+    run(&mut i, "set the max of button 1 to 255");
+    assert_eq!(run(&mut i, "put 300 into button 1\nput button 1"), "255");
+    assert_eq!(run(&mut i, "put -5 into button 1\nput button 1"), "0");
+    assert_eq!(run(&mut i, "put 12.4 into button 1\nput button 1"), "12");
+    assert_eq!(run(&mut i, "put \"loud\" into button 1\nput button 1"), "0");
+    run(&mut i, "set the step of button 1 to 0.5\nput 12.4 into button 1");
+    assert_eq!(run(&mut i, "put button 1"), "12.5");
+    // A narrower range moves the value into it.
+    run(&mut i, "set the max of button 1 to 10");
+    assert_eq!(run(&mut i, "put button 1"), "10");
+    assert!(run(&mut i, "set the step of button 1 to 0").contains("more than 0"));
+    // `the max of` anything but a button is still the function.
+    assert_eq!(run(&mut i, "put the max of \"3,7,5\" && max(2, 9)"), "7 9");
+    run(&mut i, "put \"4,8,1\" into field 1");
+    assert_eq!(run(&mut i, "put the max of field 1"), "8");
+    // Fields can't be sliders.
+    assert!(run(&mut i, "set the style of field 1 to slider").contains("can't be sliders"));
+}
+
+#[test]
+fn slider_geometry() {
+    use crate::model::{Part, PartStyle, Rect};
+    let mut p = Part::new_button(1, "Red", Rect::new(10, 10, 210, 30));
+    p.style = PartStyle::Slider;
+    p.max = 255.0;
+    let (a, b) = p.slider_track();
+    assert!(a > 10 && b < 210 && a < b);
+    assert_eq!(p.slider_value_at(a), 0.0);
+    assert_eq!(p.slider_value_at(b), 255.0);
+    assert_eq!(p.slider_value_at(b + 50), 255.0);
+    assert_eq!(p.slider_value_at((a + b) / 2), 128.0);
+    // A title takes room at the left.
+    p.title_width = 50;
+    assert!(p.slider_track().0 >= 60);
+    // Taller than wide: vertical, the min at the bottom.
+    p.rect = Rect::new(10, 10, 30, 210);
+    assert!(p.slider_vertical());
+    let (bottom, top) = p.slider_track();
+    assert!(bottom > top);
+    assert_eq!(p.slider_value_at(bottom), 0.0);
+    assert_eq!(p.slider_value_at(top), 255.0);
+    // Steps that don't divide the range: the last whole step.
+    p.max = 10.0;
+    p.step = 3.0;
+    assert_eq!(p.slider_snap(10.0), 9.0);
+    assert_eq!(p.slider_snap(0.1 + 0.2), 0.0);
+}
+
+#[test]
+fn the_swatches_stack() {
+    // A stand-in for The Color API: colors by hex or rgb, Cobalt the one
+    // exact name, everything else nearest to Test Gray.
+    let base = crate::web::http::test_server::start(|_, path, _, _| {
+        let query = path.split_once('?').map(|(_, q)| q.to_string()).unwrap_or_default();
+        let param = |name: &str| query.split('&').find_map(|kv| kv.strip_prefix(&format!("{name}="))).map(String::from);
+        if path.starts_with("/scheme") {
+            let colors: Vec<String> = (1..=5).map(|i| format!(r##"{{"hex":{{"value":"#{i}{i}{i}{i}{i}{i}"}}}}"##)).collect();
+            let mode = param("mode").unwrap_or_default();
+            return (200, "application/json", format!(r#"{{"mode":"{mode}","count":"5","colors":[{}]}}"#, colors.join(",")));
+        }
+        let (r, g, b) = if let Some(h) = param("hex") {
+            let v = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).unwrap_or(0);
+            (v(0), v(2), v(4))
+        } else if let Some(rgb) = param("rgb") {
+            let n: Vec<u8> = rgb.split(',').map(|x| x.parse().unwrap_or(0)).collect();
+            (n[0], n[1], n[2])
+        } else {
+            (0, 71, 171)
+        };
+        let hex = format!("#{r:02X}{g:02X}{b:02X}");
+        let exact = hex == "#0047AB";
+        let name = if exact { "Cobalt" } else { "Test Gray" };
+        let near = if exact { "#0047AB" } else { "#808080" };
+        let body = format!(
+            r##"{{"hex":{{"value":"{hex}"}},"rgb":{{"r":{r},"g":{g},"b":{b},"value":"rgb({r}, {g}, {b})"}},"hsl":{{"value":"hsl(1, 2%, 3%)"}},"hsv":{{"value":"hsv(4, 5%, 6%)"}},"cmyk":{{"value":"cmyk(7, 8, 9, 10)"}},"name":{{"value":"{name}","closest_named_hex":"{near}","exact_match_name":{exact}}},"contrast":{{"value":"#ffffff"}}}}"##
+        );
+        (200, "application/json", body)
+    });
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/Swatches.rcstack");
+    let mut i = interp_with(Stack::load(&path).unwrap());
+    let (tx, rx) = std::sync::mpsc::channel();
+    i.event_tx = Some(tx);
+    run(&mut i, &format!("put \"{base}\" into card field \"Base URL\" of card \"About\""));
+    i.handle_event(Event::Startup);
+    // Replies to requests that don't wait, as they arrive.
+    let replies = |i: &mut Interp, n: usize| {
+        for _ in 0..n {
+            let reply = rx.recv_timeout(std::time::Duration::from_secs(5)).expect("a reply");
+            i.handle_event(reply);
+        }
+    };
+    let no_errors = |i: &mut Interp| {
+        let errors: Vec<String> = lock(&i.world)
+            .requests
+            .drain(..)
+            .filter_map(|r| match r {
+                UiRequest::ScriptError { msg, line, .. } => Some(format!("{msg} (line {line:?})")),
+                _ => None,
+            })
+            .collect();
+        assert!(errors.is_empty(), "{errors:?}");
+    };
+
+    // The color math in the stack script.
+    assert_eq!(run(&mut i, "put rgbToHex(\"0,71,171\") && hexToRGB(\"#0047ab\") && hexToRGB(\"#04A\")"), "#0047AB 0,71,171 0,68,170");
+    assert_eq!(run(&mut i, "put rgbToHSV(\"0,71,171\") && hsvToRGB(215, 100, 67) && hsvToRGB(-60, 100, 100)"), "215,100,67 0,71,171 255,0,255");
+    assert_eq!(run(&mut i, "put round(contrastRatio(\"0,0,0\", \"255,255,255\")) && textColorFor(\"253,216,53\")"), "21 0,0,0");
+    assert_eq!(run(&mut i, "put colorQuery(\" rgb(0, 71, 171) \")"), "rgb=0,71,171");
+    assert_eq!(run(&mut i, "put colorQuery(\"#04A\") && colorQuery(\"cmyk(100, 58, 0, 33)\")"), "hex=04A cmyk=100,58,0,33");
+    assert_eq!(run(&mut i, "put colorQuery(\"hsl(215, 100%, 34%)\")"), "hsl=215%2C100%25%2C34%25");
+    assert_eq!(run(&mut i, "put colorQuery(\"rgb(300, 0, 0)\") & colorQuery(\"zzz\") & colorQuery(\"#12345\")"), "");
+    assert_eq!(run(&mut i, "put wheelAt(\"350,265\", 200, 265, 150) && wheelAt(\"200,115\", 200, 265, 150) && wheelAt(\"0,0\", 200, 265, 150)"), "0,100 90,100 ");
+
+    // Convert: an exact name, then a nearest one, and Recent.
+    run(&mut i, "go to card \"Convert\"\nput \"#0047AB\" into card field \"Color\"\nlookUp");
+    replies(&mut i, 1);
+    assert_eq!(run(&mut i, "put card field \"Hex Value\" && card field \"Name Value\""), "#0047AB Cobalt (an exact match)");
+    assert_eq!(run(&mut i, "put the backColor of card field \"Swatch\" && the foreColor of card field \"Swatch\""), "0,71,171 255,255,255");
+    assert_eq!(run(&mut i, "put the visible of card field \"Nearest\" && line 1 of card field \"Recent\""), "false #0047AB Cobalt");
+    run(&mut i, "put \"rgb(128, 129, 130)\" into card field \"Color\"\nlookUp");
+    replies(&mut i, 1);
+    assert_eq!(run(&mut i, "put card field \"Name Value\" && card field \"Nearest\""), "nearest named: Test Gray Test Gray #808080");
+    assert_eq!(run(&mut i, "put the visible of card field \"Nearest\" && the number of lines of card field \"Recent\""), "true 2");
+    assert_eq!(click(&mut i, "Convert", "Copy Hex"), None);
+    assert_eq!(run(&mut i, "put bkgnd field \"Status\""), "Copied #808182.");
+    assert_eq!(click(&mut i, "Convert", "Random"), None);
+    replies(&mut i, 1);
+    assert_eq!(run(&mut i, "put the number of lines of card field \"Recent\""), "3");
+    i.canned_answers.push(DialogReply::Button("OK".into()));
+    run(&mut i, "put \"not a color\" into card field \"Color\"\nlookUp");
+    no_errors(&mut i);
+
+    // Mixing Light: the sliders follow the color, and a lesson mixes one.
+    run(&mut i, "go to card \"Mixing Light\"");
+    replies(&mut i, 1);
+    assert_eq!(click(&mut i, "Mixing Light", "Red + Green"), None);
+    replies(&mut i, 1);
+    assert_eq!(run(&mut i, "put line 1 of card field \"Swatch\" && card button \"Green\" && card field \"Green Value\""), "#FFFF00 255 255");
+    assert_eq!(run(&mut i, "put card field \"Name\""), "The nearest named color is Test Gray (#808080).");
+    run(&mut i, "put 300 into card field \"Blue Value\"\napplyValue \"Blue Value\"");
+    replies(&mut i, 1);
+    assert_eq!(run(&mut i, "put card field \"Blue Value\" && line 1 of card field \"Swatch\""), "255 #FFFFFF");
+    no_errors(&mut i);
+
+    // Color Wheel: painted by the stack, then picked from.
+    run(&mut i, "go to card \"Color Wheel\"");
+    replies(&mut i, 1);
+    assert_eq!(run(&mut i, "put there is a cd picture"), "true");
+    run(&mut i, "put 100 into card button \"Value\"\nsend \"sliderMoved\" to card button \"Value\"\npickAt \"350,265\"");
+    assert_eq!(run(&mut i, "put line 1 of card field \"Readout\" && line 3 of card field \"Readout\""), "hsv(0, 100%, 100%) #FF0000");
+    assert_eq!(run(&mut i, "put the loc of card button \"Marker\""), "350,265");
+    run(&mut i, "put 50 into card button \"Value\"\nsend \"sliderMoved\" to card button \"Value\"");
+    assert_eq!(run(&mut i, "put line 3 of card field \"Readout\""), "#800000");
+    no_errors(&mut i);
+
+    // Harmony: three swatches for a triad, named by the API; four for a square.
+    run(&mut i, "go to card \"Harmony\"");
+    replies(&mut i, 3);
+    assert_eq!(run(&mut i, "put line 1 of card field \"Swatch 1\" && line 1 of card field \"Swatch 2\" && line 2 of card field \"Swatch 3\""), "#800000 #008000 Test Gray");
+    assert_eq!(run(&mut i, "put the visible of card field \"Swatch 4\""), "false");
+    run(&mut i, "put \"Square\" into card field \"Scheme\"\nsend \"closeField\" to card field \"Scheme\"");
+    replies(&mut i, 4);
+    assert_eq!(run(&mut i, "put the visible of card field \"Swatch 4\" && (card field \"Rule\" contains \"90°\")"), "true true");
+    assert_eq!(click(&mut i, "Harmony", "The API's Own"), None);
+    replies(&mut i, 1);
+    assert_eq!(run(&mut i, "put line 1 of card field \"API 1\" && the visible of card field \"API 5\""), "#111111 true");
+    no_errors(&mut i);
+
+    // Contrast: WCAG 2's ratio, never rounded up.
+    run(&mut i, "go to card \"Contrast\"\nput \"#777777\" into card field \"Text Color\"\nput \"#FFFFFF\" into card field \"Background\"\ncheckContrast");
+    assert_eq!(run(&mut i, "put card field \"Ratio\" && line 1 of card field \"Grades\""), "4.47:1 ✗ Fails AA, normal text (needs 4.5:1)");
+    assert_eq!(run(&mut i, "put line 2 of card field \"Grades\""), "✓ Passes AA, large text (needs 3:1)");
+    assert_eq!(click(&mut i, "Contrast", "Best Text"), None);
+    assert_eq!(run(&mut i, "put card field \"Text Color\" && card field \"Ratio\""), "#000000 21:1");
+    assert_eq!(click(&mut i, "Contrast", "Swap"), None);
+    assert_eq!(run(&mut i, "put the backColor of card field \"Sample\""), "0,0,0");
+    assert_eq!(click(&mut i, "Contrast", "Ask the API"), None);
+    replies(&mut i, 1);
+    assert!(run(&mut i, "put bkgnd field \"Status\"").starts_with("The Color API suggests #ffffff"));
+    no_errors(&mut i);
+
+    // The wheel painting itself, on a card with no picture yet.
+    run(&mut i, "go to card \"About\"");
+    assert_eq!(run(&mut i, "put there is a cd picture"), "false");
+    run(&mut i, "paintWheel 300, 300, 40");
+    assert_eq!(run(&mut i, "put there is a cd picture && the tool"), "true browse tool");
+    no_errors(&mut i);
+    // About: Test Connection, which waits for its answer.
+    i.canned_answers.push(DialogReply::Button("OK".into()));
+    assert_eq!(click(&mut i, "About", "Test Connection"), None);
 }
 
 /// Every example in HYPERTALK.md, the language reference, parses.

@@ -1036,6 +1036,18 @@ impl Interp {
             Expr::Binary(op, a, b) => self.binary(*op, a, b),
             Expr::Call(name, _) if name == "__menu" => Ok(String::new()),
             Expr::Call(name, args) if name == "__selectedbutton" => self.selected_button(args),
+            Expr::Call(name, args) if name == "__minmaxof" => {
+                let Expr::Lit(which) = &args[0] else { return err("min or max") };
+                let Expr::Object(spec) = &args[1] else { return err("Expected an object") };
+                match self.resolve(spec)? {
+                    o @ ObjRef::Part { layer, id, card }
+                        if self.w().stack.part(card, layer, id).is_some_and(|p| p.kind == crate::model::PartKind::Button) =>
+                    {
+                        self.get_property(o, which, NameLength::Default)
+                    }
+                    _ => self.eval(&Expr::Builtin(which.clone(), NameLength::Default, vec![args[1].clone()])),
+                }
+            }
             Expr::Call(name, args) if name == "__propof" => {
                 let prop = self.eval(&args[0])?;
                 let length = match self.eval(&args[1])?.as_str() {

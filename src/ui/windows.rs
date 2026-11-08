@@ -379,8 +379,9 @@ impl App {
                             changed |= ui.add(egui::DragValue::new(&mut p.family).range(0..=15)).changed();
                         });
                         ui.end_row();
-                        if p.style == PartStyle::Popup {
-                            // A popup has a title where other buttons have an icon.
+                        if matches!(p.style, PartStyle::Popup | PartStyle::Slider) {
+                            // Popups and sliders have a title where other
+                            // buttons have an icon.
                             ui.label("Title Width:");
                             let width = (p.rect.right - p.rect.left).max(0) as u32;
                             changed |= ui.add(egui::DragValue::new(&mut p.title_width).range(0..=width)).changed();
@@ -406,6 +407,21 @@ impl App {
                             });
                         }
                         ui.end_row();
+                        if p.style == PartStyle::Slider {
+                            // A slider's range, as `the min`, `the max` and `the step`.
+                            ui.label("Range:");
+                            ui.horizontal(|ui| {
+                                ui.label("Min");
+                                changed |= ui.add(egui::DragValue::new(&mut p.min).speed(1.0)).changed();
+                                ui.label("Max");
+                                changed |= ui.add(egui::DragValue::new(&mut p.max).speed(1.0)).changed();
+                                ui.label("Step");
+                                changed |= ui
+                                    .add(egui::DragValue::new(&mut p.step).speed(0.1).range(0.000001..=f64::MAX))
+                                    .changed();
+                            });
+                            ui.end_row();
+                        }
                         ui.label(format!("Hilite: {hilite}"));
                     } else {
                         changed |= ui.checkbox(&mut p.lock_text, "Lock Text").changed();
@@ -434,7 +450,21 @@ impl App {
                     ui.label("Choices, one a line (a ▼ offers them):");
                     changed |= ui.add(egui::TextEdit::multiline(&mut p.choices).desired_rows(2)).changed();
                 }
-                if p.kind == PartKind::Button {
+                if p.kind == PartKind::Button && p.style == PartStyle::Slider {
+                    // A slider's contents is its value.
+                    let mut value = p.slider_value();
+                    ui.horizontal(|ui| {
+                        ui.label("Value:");
+                        let step = if p.step > 0.0 { p.step } else { 1.0 };
+                        if ui.add(egui::DragValue::new(&mut value).speed(step).range(p.min..=p.max.max(p.min))).changed() {
+                            p.contents = crate::model::number_text(value);
+                            changed = true;
+                        }
+                    });
+                    if changed {
+                        p.resnap_slider();
+                    }
+                } else if p.kind == PartKind::Button {
                     let popup = p.style == PartStyle::Popup;
                     ui.label(if popup { "Menu items, one per line:" } else { "Contents:" });
                     let rows = if popup { 5 } else { 2 };

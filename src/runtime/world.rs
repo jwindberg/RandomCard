@@ -432,7 +432,6 @@ pub enum UiRequest {
     /// Put text on the system clipboard (a script's Copy Text or Cut Text).
     CopyText(String),
     OpenStack,
-    ImportStack,
     NewStack,
     SaveStackAs(Option<String>),
     Quit,
@@ -869,7 +868,7 @@ impl World {
             return;
         }
         if let Ok(mut home) = Stack::load(&path) {
-            if crate::model::home::add_preference_cards(&mut home) {
+            if crate::model::home::update(&mut home) {
                 let _ = home.save(&path);
             }
             crate::model::home::show_level(&mut home, self.user_level);

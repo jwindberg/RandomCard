@@ -50,8 +50,8 @@ pub fn open_home() -> Stack {
     if path.exists() {
         return match Stack::load(&path) {
             Ok(mut home) => {
-                // A Home from before RandomCard had HyperCard's own cards.
-                if crate::model::home::add_preference_cards(&mut home) {
+                // A Home from an earlier RandomCard.
+                if crate::model::home::update(&mut home) {
                     let _ = home.save(&path);
                 }
                 home

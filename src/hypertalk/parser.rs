@@ -2257,7 +2257,13 @@ impl Parser {
         if self.is("of") || self.is("in") {
             if ONE_ARG_FUNCS.contains(&name.as_str()) {
                 self.advance();
-                return Ok(Expr::Builtin(name, length, vec![self.term()?]));
+                let arg = self.term()?;
+                // `the max of button "Red"`: a slider's max, or the max
+                // function of anything else's text, decided as it runs.
+                if matches!(name.as_str(), "min" | "max") && matches!(arg, Expr::Object(_)) {
+                    return Ok(Expr::Call("__minmaxof".into(), vec![Expr::Lit(name), arg]));
+                }
+                return Ok(Expr::Builtin(name, length, vec![arg]));
             }
             self.advance();
             if self.is("the") && self.is_at(1, "target") {

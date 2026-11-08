@@ -52,7 +52,6 @@ pub fn build() -> Stack {
     let buttons = [
         ("Take the Tour", "on mouseUp\n  visual effect dissolve\n  go to stack \"Tour\"\nend mouseUp"),
         ("Open a Stack…", "on mouseUp\n  doMenu \"Open Stack…\"\nend mouseUp"),
-        ("Import a HyperCard Stack…", "on mouseUp\n  doMenu \"Import HyperCard Stack…\"\nend mouseUp"),
         ("New Stack…", "on mouseUp\n  doMenu \"New Stack…\"\nend mouseUp"),
         ("User Preferences", "on mouseUp\n  visual effect dissolve\n  go to card \"User Preferences\"\nend mouseUp"),
     ];
@@ -77,6 +76,31 @@ const SEARCH_PATHS: [(&str, &str); 3] = [
     ("Applications", "Folders to look in for applications, one per line."),
     ("Documents", "Folders to look in for documents, one per line."),
 ];
+
+/// Bring a Home stack saved by an earlier RandomCard up to date: HyperCard's
+/// own cards (`add_preference_cards`), and no Import button now that Open
+/// Stack opens HyperCard stacks too. Answers whether it changed anything.
+pub fn update(s: &mut Stack) -> bool {
+    let added = add_preference_cards(s);
+    added | drop_import_button(s)
+}
+
+/// Remove the Import a HyperCard Stack… button RandomCard once put on
+/// Home's first card, if the user left it as it was, and move the buttons
+/// below it up into its place.
+fn drop_import_button(s: &mut Stack) -> bool {
+    let Some(card) = s.cards.first_mut() else { return false };
+    let old = "on mouseUp\n  doMenu \"Import HyperCard Stack…\"\nend mouseUp";
+    let Some(i) = card.parts.iter().position(|p| p.name == "Import a HyperCard Stack…" && p.script == old) else {
+        return false;
+    };
+    let gone = card.parts.remove(i);
+    let step = 38;
+    for p in card.parts.iter_mut().filter(|p| p.kind == PartKind::Button && p.rect.top > gone.rect.top) {
+        p.rect = Rect::new(p.rect.left, p.rect.top - step, p.rect.right, p.rect.bottom - step);
+    }
+    true
+}
 
 /// Give a Home stack HyperCard's own cards if it lacks them: "User
 /// Preferences", and "Stacks", "Applications" and "Documents" with their

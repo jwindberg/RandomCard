@@ -2199,7 +2199,6 @@ impl Interp {
                 Ok(())
             }
             "open stack" | "open" => self.request(UiRequest::OpenStack),
-            "import hypercard stack" | "import stack" => self.request(UiRequest::ImportStack),
             "import paint" => self.paint_file_menu(true),
             "export paint" => self.paint_file_menu(false),
             "new stack" => self.request(UiRequest::NewStack),

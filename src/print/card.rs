@@ -296,6 +296,10 @@ fn draw_button(c: &mut Canvas, stack: &Stack, card: Id, layer: Layer, p: &Part) 
             draw_popup(c, p, fg, bg);
             return;
         }
+        PartStyle::Slider => {
+            draw_slider(c, p);
+            return;
+        }
         PartStyle::Default => {
             c.op(format!("{BLACK} G 3 w"));
             c.round_path(r, 10.0, 1.5);
@@ -389,6 +393,29 @@ fn draw_button(c: &mut Canvas, stack: &Stack, card: Id, layer: Layer, p: &Part) 
 
 /// A popup, as on screen: the title at the left, then the shadowed menu box
 /// with the chosen item and a downward triangle.
+/// A slider: its track in gray, filled in black up to the thumb, and a
+/// round white thumb with a black frame.
+fn draw_slider(c: &mut Canvas, p: &Part) {
+    let (a, b) = p.slider_track();
+    let at = a + ((b - a) as f64 * p.slider_fraction()).round() as i32;
+    let t = 2;
+    let (track, filled) = if p.slider_vertical() {
+        let x = (p.rect.left + p.rect.right) / 2;
+        (Rect::new(x - t, a.min(b) - t, x + t, a.max(b) + t), Rect::new(x - t, at - t, x + t, a + t))
+    } else {
+        let y = (p.rect.top + p.rect.bottom) / 2;
+        (Rect::new(a - t, y - t, b + t, y + t), Rect::new(a - t, y - t, at + t, y + t))
+    };
+    c.fill_rect(track, GRAY);
+    c.fill_rect(filled, BLACK);
+    let r = p.slider_thumb_radius();
+    let (cx, cy) = if p.slider_vertical() { ((p.rect.left + p.rect.right) / 2, at) } else { (at, (p.rect.top + p.rect.bottom) / 2) };
+    c.fill_color(WHITE);
+    c.op(format!("{BLACK} G 1 w"));
+    c.round_path(Rect::new(cx - r, cy - r, cx + r, cy + r), r as f32, 0.5);
+    c.op("B");
+}
+
 fn draw_popup(c: &mut Canvas, p: &Part, fg: f32, bg: f32) {
     let b = p.popup_box();
     c.fill_rect(Rect::new(b.left + 1, b.top + 1, b.right + 1, b.bottom + 1), BLACK);

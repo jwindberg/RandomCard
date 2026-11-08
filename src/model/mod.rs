@@ -111,6 +111,9 @@ pub enum PartStyle {
     /// A popup menu: the button's lines are its items.
     Popup,
     Scrolling,
+    /// A slider, which HyperCard never had: its contents is its value,
+    /// from its min to its max in steps of its step, as HTML's range input.
+    Slider,
 }
 
 impl PartStyle {
@@ -126,6 +129,7 @@ impl PartStyle {
         PartStyle::Default,
         PartStyle::Oval,
         PartStyle::Popup,
+        PartStyle::Slider,
     ];
     pub const FIELD_STYLES: &'static [PartStyle] = &[
         PartStyle::Transparent,
@@ -149,6 +153,7 @@ impl PartStyle {
             PartStyle::Oval => "oval",
             PartStyle::Popup => "popup",
             PartStyle::Scrolling => "scrolling",
+            PartStyle::Slider => "slider",
         }
     }
 
@@ -166,6 +171,7 @@ impl PartStyle {
             "popup" => PartStyle::Popup,
             "oval" => PartStyle::Oval,
             "scrolling" => PartStyle::Scrolling,
+            "slider" => PartStyle::Slider,
             _ => return None,
         })
     }
@@ -198,6 +204,25 @@ impl TextAlign {
 
 /// How wide a field's choices ▼ is.
 pub const CHOICE_ARROW: i32 = 18;
+
+/// A number as a slider shows it: whole numbers without a decimal point,
+/// others to at most six places.
+pub fn number_text(v: f64) -> String {
+    let v = (v * 1e6).round() / 1e6;
+    if v.fract() == 0.0 { format!("{}", v as i64) } else { format!("{v}") }
+}
+
+fn is_zero(n: &f64) -> bool {
+    *n == 0.0
+}
+
+fn is_hundred(n: &f64) -> bool {
+    *n == 100.0
+}
+
+fn is_one(n: &f64) -> bool {
+    *n == 1.0
+}
 
 fn is_false(b: &bool) -> bool {
     !*b
@@ -236,6 +261,14 @@ pub struct Part {
     pub title_width: u32,
     /// For popups: the chosen line, from 1, or 0 for none.
     pub selected_line: u32,
+    /// For sliders: the range of values, and the step between them (`the
+    /// min`, `the max`, `the step`, as HTML's range input names them).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub min: f64,
+    #[serde(skip_serializing_if = "is_hundred")]
+    pub max: f64,
+    #[serde(skip_serializing_if = "is_one")]
+    pub step: f64,
 
     // Fields
     pub lock_text: bool,
@@ -300,6 +333,9 @@ impl Default for Part {
             icon: 0,
             title_width: 0,
             selected_line: 0,
+            min: 0.0,
+            max: 100.0,
+            step: 1.0,
             lock_text: false,
             dont_wrap: false,
             auto_tab: false,
@@ -325,6 +361,73 @@ impl Part {
     /// The height of a line of this field's text (`the textHeight`).
     pub fn line_height(&self) -> u32 {
         if self.text_height > 0 { self.text_height } else { metrics::default_text_height(self.text_size) }
+    }
+
+    /// The nearest value a slider can take to `v`: a whole number of steps
+    /// from its min, and within its range, as HTML's range input does.
+    pub fn slider_snap(&self, v: f64) -> f64 {
+        let (min, max) = (self.min, self.max.max(self.min));
+        let step = if self.step > 0.0 { self.step } else { 1.0 };
+        let v = if v.is_finite() { v.clamp(min, max) } else { min };
+        let snapped = min + ((v - min) / step).round() * step;
+        // The last step that fits, if a step would overshoot the max.
+        let snapped = if snapped > max { min + ((max - min) / step).floor() * step } else { snapped };
+        // Undo floating point dust: 0.1 + 0.2 shows as 0.3.
+        (snapped * 1e9).round() / 1e9
+    }
+
+    /// Keep a slider's contents a value in its range, after its range or
+    /// style changes.
+    pub fn resnap_slider(&mut self) {
+        if self.style == PartStyle::Slider && self.kind == PartKind::Button {
+            self.contents = number_text(self.slider_value());
+        }
+    }
+
+    /// A slider's value: its contents, snapped into its range (its min when
+    /// empty or not a number).
+    pub fn slider_value(&self) -> f64 {
+        self.slider_snap(self.contents.trim().parse().unwrap_or(self.min))
+    }
+
+    /// Where a slider's value sits in its range, from 0 to 1.
+    pub fn slider_fraction(&self) -> f64 {
+        let span = self.max - self.min;
+        if span <= 0.0 { 0.0 } else { ((self.slider_value() - self.min) / span).clamp(0.0, 1.0) }
+    }
+
+    /// Whether a slider runs up and down: when it's taller than it is wide.
+    pub fn slider_vertical(&self) -> bool {
+        self.rect.height() > self.rect.width()
+    }
+
+    /// The radius of a slider's thumb, in card pixels.
+    pub fn slider_thumb_radius(&self) -> i32 {
+        let across = if self.slider_vertical() { self.rect.width() } else { self.rect.height() };
+        (across / 2 - 1).clamp(3, 8)
+    }
+
+    /// The ends of a slider's track along its length, as card coordinates
+    /// (x across, or y down for a vertical one): where the thumb's center
+    /// is at the min and at the max. A vertical slider's min is at the
+    /// bottom. A named one shows its name in its titleWidth, as popups do.
+    pub fn slider_track(&self) -> (i32, i32) {
+        let r = self.slider_thumb_radius() + 1;
+        if self.slider_vertical() {
+            (self.rect.bottom - r, self.rect.top + r)
+        } else {
+            let title = if self.show_name && !self.name.is_empty() { self.title_width as i32 } else { 0 };
+            let left = (self.rect.left + title + r).min(self.rect.right - r);
+            (left, self.rect.right - r)
+        }
+    }
+
+    /// The value at a point along a slider's length (x, or y when
+    /// vertical), snapped to its steps.
+    pub fn slider_value_at(&self, along: i32) -> f64 {
+        let (a, b) = self.slider_track();
+        let f = if a == b { 0.0 } else { ((along - a) as f64 / (b - a) as f64).clamp(0.0, 1.0) };
+        self.slider_snap(self.min + f * (self.max - self.min))
     }
 
     /// A popup's chosen item: its selected line, or empty if none is chosen.
@@ -757,8 +860,12 @@ impl Stack {
 
     /// Set a field's text and style runs together.
     pub fn set_field_content(&mut self, card: Id, layer: Layer, id: Id, text: String, runs: Vec<StyleRun>) {
-        let shared = match self.part(card, layer, id) {
-            Some(p) => p.kind == PartKind::Button || p.shared_text,
+        let (shared, text) = match self.part(card, layer, id) {
+            // A slider's contents is its value, kept in its range.
+            Some(p) if p.style == PartStyle::Slider && p.kind == PartKind::Button => {
+                (true, number_text(p.slider_snap(text.trim().parse().unwrap_or(p.min))))
+            }
+            Some(p) => (p.kind == PartKind::Button || p.shared_text, text),
             None => return,
         };
         if layer == Layer::Background && !shared {

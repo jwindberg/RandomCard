@@ -94,7 +94,6 @@ pub fn standard_menus() -> Vec<Menu> {
             &[
                 "New Stack…",
                 "Open Stack…",
-                "Import HyperCard Stack…",
                 "Close Stack",
                 "Save Stack",
                 "Save a Copy…",
@@ -197,7 +196,7 @@ mod tests {
         let edit = menu_index(&menus, "edit").unwrap();
         assert_eq!(menus[edit].item_index("new card"), Some(8));
         assert_eq!(menus[edit].item_index("1"), Some(0));
-        assert_eq!(menus[0].item_index("protect stack"), Some(8));
+        assert_eq!(menus[0].item_index("protect stack"), Some(7));
         assert_eq!(menu_index(&menus, "2"), Some(1));
         assert!(find_item(&menus, "Bold").is_some());
         assert!(find_item(&menus, "-").is_none());

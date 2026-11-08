@@ -38,6 +38,14 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
   Color below). Black-and-white stacks keep looking exactly as they did:
   1-bit pictures and patterns become a special case of color, not a
   separate world.
+- **Modern controls, as Apple would make HyperCard today.** Where a
+  modern system has a standard control HyperCard lacked, RandomCard has it
+  as a part, never a scripted imitation of one. Modern desktop and web
+  design are both fair inspiration; the names follow HyperCard's patterns
+  first, then official standards such as HTML's. Done: combo boxes (a
+  field's `choices`) and sliders (the `slider` button style). Candidates:
+  progress bars, steppers, toggle switches, segmented controls, date
+  pickers, color wells and tabs.
 - **A stack runs the way its author set it up.** Using a stack and authoring
   one are different activities. Opening a stack should behave as it would
   have in HyperCard, including its user level and protection.
@@ -466,6 +474,11 @@ language's side is `src/runtime/web.rs`.
    and the combo box narrows its choices as you type. Next: filling cards
    from data, one card per record.
 
+   Swatches (`examples/Swatches.rcstack`, made by `tools/make_swatches.py`)
+   uses all of it with The Color API (www.thecolorapi.com): a converter
+   for designers and programmers, RGB and HSV taught with sliders and a
+   color wheel the stack paints itself, color schemes, and WCAG contrast.
+
 ## Testing
 
 - The importer is tested against HyperCardPreview's sample stacks when
@@ -568,13 +581,14 @@ first three are favorites.
   (`record sound`), and playing common audio files. QuickTime music
   tracks too (note data for a General MIDI synthesizer, as Lost and Found
   plays its theme songs).
-- **Slider and scrollbar parts.** HyperCard had only buttons and fields,
-  so authors built sliders from a track, a thumb button and a `mouseDown`
-  loop following `the mouseH`; later xTalks such as LiveCode added
-  scrollbar parts. A slider part with `the thumbPosition`, a range
-  (`startValue`, `endValue`), and a message as it moves, saved with the
-  stack and set in its Info window. The Tour's Animation card would use
-  one for the ball's speed.
+- **More modern controls** (see the design principles). Sliders are done:
+  `set the style of button "Red" to slider`, its contents its value, `the
+  min`, `the max` and `the step` as HTML's range input names them, and
+  sliderMoved and sliderChanged; in Button Info and the Tour's Channels
+  card. Still for sliders: the arrow keys when one has the focus, and
+  tick marks. Next candidates: progress bars, steppers, toggle switches,
+  segmented controls, date pickers, color wells and tabs, each a part
+  style with HyperTalk names.
 - **Plugins.** A safe stand-in for XCMDs: externals written as
   WebAssembly modules, sandboxed and cross-platform, called like
   commands and functions.
