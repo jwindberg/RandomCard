@@ -321,13 +321,13 @@ fn startup_comes_before_open_stack_once() {
 fn demo_stack_runs() {
     let mut i = interp_with(Stack::demo());
     i.handle_event(Event::Startup);
-    assert_eq!(run(&mut i, "put field \"Page\""), "Card 1 of 17");
+    assert_eq!(run(&mut i, "put field \"Page\""), "Card 1 of 19");
     let current = |i: &Interp| {
         let w = lock(&i.world);
         w.stack.card(w.card_id).unwrap().name.clone()
     };
     // The stack's own Tour menu.
-    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "16");
+    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "18");
     i.handle_event(Event::DoMenu("Dice".into()));
     assert_eq!(current(&i), "Dice");
     i.handle_event(Event::DoMenu("First".into()));
@@ -421,6 +421,30 @@ fn demo_stack_runs() {
     assert_eq!(run(&mut i, "put line 5 of the choices of card field \"Method\""), "QUERY");
     run(&mut i, "set the choices of card field \"Method\" to \"GET\" & return & \"HEAD\"");
     assert_eq!(run(&mut i, "put the number of lines of the choices of card field \"Method\""), "2");
+    // Channels: two at once, the soundVolume, the Tour's own song.
+    run(&mut i, "go to card \"Channels\"");
+    for name in ["Play Both", "Stop Bass", "Stop All", "Play Song", "Stop Song", "Louder"] {
+        assert_eq!(click(&mut i, "Channels", name), None, "{name}");
+    }
+    assert_eq!(run(&mut i, "put the soundChannel"), "1");
+    assert_eq!(click(&mut i, "Channels", "Quieter"), None);
+    assert!(run(&mut i, "put field \"Volume\"").starts_with("the soundVolume:"));
+    // More Text: the list's selection, textWidth, the selectedButton.
+    run(&mut i, "go to card \"More Text\"");
+    assert_eq!(run(&mut i, "put the textFont of field \"Pixel\""), "Tour Pixel");
+    i.canned_answers.push(DialogReply::Button("OK".into()));
+    assert_eq!(click(&mut i, "More Text", "Which Color?"), None);
+    run(&mut i, "select line 5 of field \"Colors\"");
+    assert_eq!(run(&mut i, "put the selectedText of field \"Colors\" && the selectedLine of field \"Colors\""), "Blue line 5 of card field 4");
+    for name in ["Which Color?", "Measure", "Which Size?"] {
+        i.canned_answers.push(DialogReply::Button("OK".into()));
+        assert_eq!(click(&mut i, "More Text", name), None, "{name}");
+    }
+    assert_eq!(run(&mut i, "put the selectedButton of card family 1"), "card button 5");
+    // Keys: the card shows the keysDown when idle.
+    run(&mut i, "go to card \"Keys\"");
+    run(&mut i, "send \"idle\" to this card");
+    assert_eq!(run(&mut i, "put field \"Keys Down\""), "Hold some keys down.");
     // Japanese: a character each, and charToNum gives Unicode.
     assert_eq!(click(&mut i, "Contents", "Japanese"), None);
     assert_eq!(current(&i), "Japanese");
@@ -584,7 +608,7 @@ fn demo_stack_runs() {
     assert_eq!(run(&mut i, "put the number of cards of this background"), "4");
     i.canned_answers.push(DialogReply::Button("Delete".into()));
     assert_eq!(click(&mut i, "", "Delete"), None);
-    assert_eq!(run(&mut i, "put the number of cards"), "17");
+    assert_eq!(run(&mut i, "put the number of cards"), "19");
     assert_eq!(click(&mut i, "Grace Hopper", "Contents"), None);
     assert_eq!(current(&i), "Contents");
     assert_eq!(run(&mut i, "put the userLevel"), "5");
@@ -3354,6 +3378,21 @@ fn a_bare_colon() {
     // HyperCard takes `set itemDelimiter to :` as the colon (checked in 2.4.1).
     let mut i = interp_with(stack());
     assert_eq!(run(&mut i, "set itemDelimiter to :\nput item 2 of \"a:b:c\" && the itemDelimiter"), "b :");
+}
+
+/// Every example in HYPERTALK.md, the language reference, parses.
+#[test]
+fn hypertalk_reference_examples_parse() {
+    let doc = include_str!("../../HYPERTALK.md");
+    let mut blocks = 0;
+    for (n, block) in doc.split("```hypertalk\n").skip(1).enumerate() {
+        let src = block.split("```").next().unwrap_or_default();
+        if let Err(e) = crate::hypertalk::parser::parse_script(src) {
+            panic!("HYPERTALK.md example {}: {e}\n{src}", n + 1);
+        }
+        blocks += 1;
+    }
+    assert!(blocks >= 10, "only {blocks} examples found");
 }
 
 /// Parse every script of one or more stacks (separated by |) and list the

@@ -332,6 +332,32 @@ stack colored with its Color Tools calls them.
 | RxMidi | XFCN | 1 stack, called in 0 | Receives MIDI data (not called). | Built in | As InitMidi | Planned |
 | TxMidi | XCMD | 1 stack, called in 0 | Sends MIDI data (not called). | Built in | As InitMidi | Planned |
 
+### Games (2026-11)
+
+Found in the games played to test RandomCard: Blah Blob (whose author
+published its sources, its own externals' C code among them), the
+Prisim games (Shattered Stone, Lost and Found, Get Rich Quick), Carrot
+Patch and HyperGames. Blah Blob is in `examples/` with its stack updated
+to the built-ins; the others are local test copies, updated by
+`examples/games/convert_games.py` (not in the repo).
+
+| Name | Kind | Found in | What it did | Decision | RandomCard | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| PlayMOD | XFCN | Blah Blob | Played soundtracker modules (Kevin Harris). | Built in | Songs: a stack's modules play with `play "name"`, looping, beside sound effects | Done |
+| MusicBox | XCMD | Blah Blob | Played sounds over each other (Alex Metcalf). | Built in | As `play` on HyperCard 2.4's sound channels | Done |
+| GetKeys, KeyCodeToName, GetAnyKey | XFCN | Blah Blob | The keys held down, by name. | Built in | As `the keysDown` | Done |
+| FlushEvents | XCMD | Blah Blob | Dropped keys and clicks not yet handled. | Built in | As `flush keys` | Done |
+| SoundVolume | XFCN | Blah Blob | The Mac's sound volume. | Built in | As `the soundVolume` | Done |
+| SndVolume | XFCN | Prisim games | The sound volume, 0 to 7. | Built in | As `the soundVolume` | Done |
+| ScreenBounds | XFCN | Blah Blob | The screen's size. | Built in | As `the screenRect` | Done |
+| StrWidth | XFCN | Blah Blob | The width of text in pixels (Frédéric Rinaldi). | Built in | As `textWidth` | Done |
+| Inkey | XFCN | Carrot Patch | The key held down, as a Mac character code. | Built in | As `the keysDown`, by name | Done |
+| MenuHandler | XCMD | Prisim games | Deleted or hid menus. | Built in | As `delete menu` | Done |
+| DeskCover | XCMD | Prisim games | Blacked out the Finder's desktop behind the card. | Not needed | The card window is all there is | Done |
+| QuitTheFinder, Shutdown | XCMD | Blah Blob | Quit the Finder, shut the Mac down (for kiosks). | Not needed | Taken out of Blah Blob's stack | Done |
+| Movie | XCMD | Lost and Found | Played QuickTime movies, here the theme songs as QuickTime music tracks. | Built in, later | With QuickTime music tracks (see Media in the roadmap's Future) | Planned |
+| InitializeProg | XFCN | Carrot Patch | Its shareware registration (Kagi). | Not needed | Off in our local copy; the service is long gone | Done |
+
 ### Serial ports
 
 | Name | Kind | Found in | What it did | Decision | RandomCard | Status |

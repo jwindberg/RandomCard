@@ -27,6 +27,10 @@ cargo test                          # language, runtime and demo-stack tests
 
 ## What's there
 
+The language is described in [HYPERTALK.md](HYPERTALK.md), the HyperTalk
+reference: HyperCard 2.4.1's language as RandomCard runs it, the old
+externals now built in, and RandomCard's additions.
+
 **Stacks.** A stack holds backgrounds and cards. Each card belongs to a
 background, and both layers have a picture plus buttons and fields. Background
 fields keep separate text on each card unless `sharedText` is set. Background
@@ -337,7 +341,9 @@ src/
 ## Not (yet) implemented
 
 The main gaps are multiple open stacks and XCMDs. [ROADMAP.md](ROADMAP.md) lists the remaining work by area, with
-notes on how to approach each piece and a suggested order.
+notes on how to approach each piece and a suggested order. [COMPLIANCE.md](COMPLIANCE.md)
+audits RandomCard against HyperCard 2.4.1, item by item, and
+[XCMDS.md](XCMDS.md) lists the old externals and what became of each.
 
 ## References
 

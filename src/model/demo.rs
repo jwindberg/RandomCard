@@ -67,6 +67,190 @@ impl Builder {
     }
 }
 
+/// The Tour's song: a small four-channel soundtracker module (MOD), made
+/// here so the Tour carries nothing it didn't make. Arpeggios over a bass
+/// line, a square wave and a sawtooth, looping.
+fn tour_song() -> Vec<u8> {
+    let mut d = Vec::new();
+    let name = |s: &str, len: usize| {
+        let mut v = s.as_bytes().to_vec();
+        v.resize(len, 0);
+        v
+    };
+    d.extend(name("Tour Song", 20));
+    // 31 sample headers: name, length in words, finetune, volume, loop.
+    let samples: [(&str, Vec<i8>); 2] = [
+        ("square", (0..32).map(|i| if i < 16 { 40 } else { -40 }).collect()),
+        ("saw", (0..32).map(|i| (i * 8 - 128) as i8 / 2).collect()),
+    ];
+    for i in 0..31 {
+        match samples.get(i) {
+            Some((n, data)) => {
+                d.extend(name(n, 22));
+                let words = (data.len() / 2) as u16;
+                d.extend(words.to_be_bytes());
+                d.extend([0, 48]);
+                d.extend(0u16.to_be_bytes());
+                d.extend(words.to_be_bytes());
+            }
+            None => {
+                d.extend([0; 28]);
+                d.extend(1u16.to_be_bytes());
+            }
+        }
+    }
+    d.extend([1, 127]);
+    d.extend([0; 128]);
+    d.extend(b"M.K.");
+    // Amiga periods: C, D, E, F, G, A, B in octaves 1 to 3.
+    let period = |note: &str| -> u16 {
+        let names = ["C1", "D1", "E1", "F1", "G1", "A1", "B1", "C2", "D2", "E2", "F2", "G2", "A2", "B2", "C3", "D3", "E3", "F3", "G3", "A3", "B3"];
+        let periods = [856, 762, 678, 640, 570, 508, 453, 428, 381, 339, 320, 285, 254, 226, 214, 190, 170, 160, 143, 127, 113];
+        periods[names.iter().position(|n| *n == note).unwrap()]
+    };
+    let cell = |sample: u8, note: &str| -> [u8; 4] {
+        let p = period(note);
+        [(sample & 0xf0) | (p >> 8) as u8, p as u8, (sample & 0x0f) << 4, 0]
+    };
+    let melody = ["E2", "G2", "C3", "G2", "A2", "C3", "E3", "C3", "F2", "A2", "C3", "A2", "G2", "B2", "D3", "B2"];
+    let bass = ["C1", "C1", "A1", "A1", "F1", "F1", "G1", "G1"];
+    for row in 0..64 {
+        let mut cells = [[0u8; 4]; 4];
+        if row % 4 == 0 {
+            cells[0] = cell(1, melody[row / 4]);
+        }
+        if row % 8 == 0 {
+            cells[1] = cell(2, bass[row / 8]);
+        }
+        for c in cells {
+            d.extend(c);
+        }
+    }
+    for (_, data) in &samples {
+        d.extend(data.iter().map(|s| *s as u8));
+    }
+    d
+}
+
+/// The Tour's bitmap font, Tour Pixel: capitals, digits and a little
+/// punctuation, 5 × 7 pixels, as a classic Mac `FONT` resource (lowercase
+/// letters are drawn as capitals). Each row of a glyph is 5 bits.
+fn tour_pixel_font() -> Vec<u8> {
+    let letters: [[u8; 7]; 26] = [
+        [0x0e, 0x11, 0x11, 0x1f, 0x11, 0x11, 0x11],
+        [0x1e, 0x11, 0x11, 0x1e, 0x11, 0x11, 0x1e],
+        [0x0e, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0e],
+        [0x1e, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1e],
+        [0x1f, 0x10, 0x10, 0x1e, 0x10, 0x10, 0x1f],
+        [0x1f, 0x10, 0x10, 0x1e, 0x10, 0x10, 0x10],
+        [0x0e, 0x11, 0x10, 0x17, 0x11, 0x11, 0x0f],
+        [0x11, 0x11, 0x11, 0x1f, 0x11, 0x11, 0x11],
+        [0x0e, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0e],
+        [0x07, 0x02, 0x02, 0x02, 0x02, 0x12, 0x0c],
+        [0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11],
+        [0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1f],
+        [0x11, 0x1b, 0x15, 0x15, 0x11, 0x11, 0x11],
+        [0x11, 0x11, 0x19, 0x15, 0x13, 0x11, 0x11],
+        [0x0e, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0e],
+        [0x1e, 0x11, 0x11, 0x1e, 0x10, 0x10, 0x10],
+        [0x0e, 0x11, 0x11, 0x11, 0x15, 0x12, 0x0d],
+        [0x1e, 0x11, 0x11, 0x1e, 0x14, 0x12, 0x11],
+        [0x0f, 0x10, 0x10, 0x0e, 0x01, 0x01, 0x1e],
+        [0x1f, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04],
+        [0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0e],
+        [0x11, 0x11, 0x11, 0x11, 0x11, 0x0a, 0x04],
+        [0x11, 0x11, 0x11, 0x15, 0x15, 0x15, 0x0a],
+        [0x11, 0x11, 0x0a, 0x04, 0x0a, 0x11, 0x11],
+        [0x11, 0x11, 0x11, 0x0a, 0x04, 0x04, 0x04],
+        [0x1f, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1f],
+    ];
+    let digits: [[u8; 7]; 10] = [
+        [0x0e, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0e],
+        [0x04, 0x0c, 0x04, 0x04, 0x04, 0x04, 0x0e],
+        [0x0e, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1f],
+        [0x1f, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0e],
+        [0x02, 0x06, 0x0a, 0x12, 0x1f, 0x02, 0x02],
+        [0x1f, 0x10, 0x1e, 0x01, 0x01, 0x11, 0x0e],
+        [0x06, 0x08, 0x10, 0x1e, 0x11, 0x11, 0x0e],
+        [0x1f, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08],
+        [0x0e, 0x11, 0x11, 0x0e, 0x11, 0x11, 0x0e],
+        [0x0e, 0x11, 0x11, 0x0f, 0x01, 0x02, 0x0c],
+    ];
+    let glyph = |c: u8| -> Option<[u8; 7]> {
+        Some(match c {
+            b'A'..=b'Z' => letters[(c - b'A') as usize],
+            b'a'..=b'z' => letters[(c - b'a') as usize],
+            b'0'..=b'9' => digits[(c - b'0') as usize],
+            b'!' => [0x04, 0x04, 0x04, 0x04, 0x04, 0x00, 0x04],
+            b'.' => [0, 0, 0, 0, 0, 0x0c, 0x0c],
+            b',' => [0, 0, 0, 0, 0x0c, 0x04, 0x08],
+            b'-' => [0, 0, 0, 0x1f, 0, 0, 0],
+            b'\'' => [0x04, 0x04, 0x08, 0, 0, 0, 0],
+            b'?' => [0x0e, 0x11, 0x01, 0x02, 0x04, 0x00, 0x04],
+            _ => return None,
+        })
+    };
+    let (first, last) = (32u8, 122u8);
+    // Each character in order, then the missing-character box.
+    let mut images: Vec<Option<[u8; 7]>> = (first..=last).map(|c| if c == b' ' { Some([0; 7]) } else { glyph(c) }).collect();
+    images.push(Some([0x1f, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1f]));
+    let width_of = |i: usize, img: &Option<[u8; 7]>| match img {
+        Some(_) if i == 0 => 0,
+        Some(_) => 5,
+        None => 0,
+    };
+    let total: usize = images.iter().enumerate().map(|(i, g)| width_of(i, g)).sum();
+    let row_words = total.div_ceil(16);
+    let (height, ascent, descent) = (8usize, 7i16, 1i16);
+    let mut bits = vec![0u8; row_words * 2 * height];
+    let mut locs = Vec::new();
+    let mut x = 0;
+    for (i, img) in images.iter().enumerate() {
+        locs.push(x as i16);
+        if let Some(rows) = img
+            && width_of(i, img) > 0
+        {
+            for (y, row) in rows.iter().enumerate() {
+                for col in 0..5 {
+                    if row & (0x10 >> col) != 0 {
+                        let px = x + col;
+                        bits[y * row_words * 2 + px / 8] |= 0x80 >> (px % 8);
+                    }
+                }
+            }
+        }
+        x += width_of(i, img);
+    }
+    locs.push(x as i16);
+    let count = images.len() + 1;
+    let ow_table = 26 + bits.len() + count * 2;
+    let header: [i16; 13] = [
+        0x9000u16 as i16,
+        first as i16,
+        last as i16,
+        6,
+        0,
+        -descent,
+        5,
+        height as i16,
+        ((ow_table - 16) / 2) as i16,
+        ascent,
+        descent,
+        1,
+        row_words as i16,
+    ];
+    let mut d: Vec<u8> = header.iter().flat_map(|v| v.to_be_bytes()).collect();
+    d.extend(&bits);
+    d.extend(locs.iter().flat_map(|v| v.to_be_bytes()));
+    // Offset and advance of each, -1 where there's none.
+    for (i, img) in images.iter().enumerate() {
+        let advance: i16 = if i == 0 { 4 } else { 6 };
+        d.extend(if img.is_some() { advance } else { -1 }.to_be_bytes());
+    }
+    d.extend((-1i16).to_be_bytes());
+    d
+}
+
 /// Give the first `needle` in a field's text a style.
 fn style_text(field: &mut Part, needle: &str, style: &TextStyle) {
     let Some(at) = field.contents.find(needle) else { return };
@@ -149,14 +333,14 @@ fn house(p: &mut Picture) {
 const STACK_SCRIPT: &str = r#"-- A menu of the stack's own. Its items arrive as doMenu messages.
 on openStack
   if there is no menu "Tour" then create menu "Tour"
-  put "Contents,Basics,Dice,Drawing,Animation,Sound,Keys,Fields,Print & Find,Icons,Debugging,Palettes,The Web,Japanese,-,Address Book" into menu "Tour"
+  put "Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,The Web,Japanese,-,Address Book" into menu "Tour"
 end openStack
 
 on doMenu what
   if what is "Address Book" then
     visual effect zoom open
     go to first card of background "Address"
-  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation,Sound,Keys,Fields,Print & Find,Icons,Debugging,Palettes,The Web,Japanese," then
+  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,The Web,Japanese," then
     visual effect dissolve
     go to card what
   else
@@ -689,6 +873,44 @@ end showState
     );
     b.card_part(c, guide);
 
+    // ----- Sound channels and songs: HyperCard 2.4's eight channels, the
+    // soundVolume, and a song (a soundtracker module, as PlayMOD played).
+    let c = b.card(main, "Channels");
+    let t = b.label("Heading", Rect::new(20, 10, 492, 36), "Sound channels and songs", 20);
+    b.card_part(c, t);
+    let about = b.label(
+        "About",
+        Rect::new(20, 42, 492, 108),
+        "HyperCard 2.4 played sounds on eight channels at once: Play Both puts the tune on channel 1 and a bass line on channel 2. Songs are soundtracker modules, as games played them with the PlayMOD external, looping beside everything else.",
+        12,
+    );
+    b.card_part(c, about);
+    let channel_buttons = [
+        (
+            "Play Both",
+            "on mouseUp\n  set the soundChannel to 1\n  play \"harpsichord\" tempo 200 \"c4q c g g a a g h f f e e d d c h\"\n  set the soundChannel to 2\n  play \"flute\" tempo 200 \"c3h e3h f3h c3h f3h c3h g2h c3h\"\n  set the soundChannel to 1\nend mouseUp",
+        ),
+        ("Stop Bass", "on mouseUp\n  set the soundChannel to 2\n  play stop\n  set the soundChannel to 1\nend mouseUp"),
+        ("Stop All", "on mouseUp\n  stop sound\nend mouseUp"),
+        ("Play Song", "on mouseUp\n  play \"Tour Song\"\nend mouseUp"),
+        ("Stop Song", "on mouseUp\n  play stop \"Tour Song\"\nend mouseUp"),
+        ("Quieter", "on mouseUp\n  set the soundVolume to max(0, the soundVolume - 1)\n  showVolume\nend mouseUp"),
+        ("Louder", "on mouseUp\n  set the soundVolume to min(7, the soundVolume + 1)\n  showVolume\nend mouseUp"),
+    ];
+    for (i, (name, script)) in channel_buttons.iter().enumerate() {
+        let (x, y) = match i {
+            0..=2 => (36 + i as i32 * 150, 116),
+            3 | 4 => (36 + (i as i32 - 3) * 150, 156),
+            _ => (36 + (i as i32 - 5) * 150, 196),
+        };
+        let p = b.button(name, Rect::new(x, y, x + 140, y + 28), script);
+        b.card_part(c, p);
+    }
+    let volume = b.label("Volume", Rect::new(336, 200, 492, 220), "", 12);
+    b.card_part(c, volume);
+    b.stack.cards[c].script = "on openCard\n  showVolume\n  pass openCard\nend openCard\n\non showVolume\n  put \"the soundVolume:\" && the soundVolume && \"of 7\" into field \"Volume\"\nend showVolume".into();
+    b.stack.songs.insert(1, Song { name: "Tour Song".into(), data: tour_song() });
+
     // ----- Keys -----
     let c = b.card(main, "Keys");
     let t = b.label("Heading", Rect::new(20, 10, 492, 36), "Keyboard messages", 20);
@@ -703,6 +925,10 @@ end showState
     let mut last = b.label("Last Key", Rect::new(20, 100, 492, 140), "Press a key.", 24);
     last.text_align = TextAlign::Center;
     b.card_part(c, last);
+    // The keysDown: every key held now, by name.
+    let mut down = b.label("Keys Down", Rect::new(20, 160, 492, 184), "Hold some keys down.", 14);
+    down.text_align = TextAlign::Center;
+    b.card_part(c, down);
     b.stack.cards[c].script = r#"on keyDown which
   put "keyDown" && quote & which & quote into field "Last Key"
   if CapsLock() then put " (Caps Lock is on)" after field "Last Key"
@@ -723,6 +949,14 @@ end returnKey
 on tabKey
   put "tabKey" into field "Last Key"
 end tabKey
+
+-- The keys held down now, by name, whenever they change.
+on idle
+  get the keysDown
+  if it is empty then put "Hold some keys down." into it
+  else put "the keysDown:" && it into it
+  if field "Keys Down" is not it then put it into field "Keys Down"
+end idle
 "#
     .into();
 
@@ -842,6 +1076,58 @@ end mouseUp"#,
     );
     colors.style = PartStyle::RoundRect;
     b.card_part(c, colors);
+
+    // ----- More text: a bitmap font the stack carries, a list field's
+    // selection, textWidth, and a family of radio buttons.
+    let c = b.card(main, "More Text");
+    let t = b.label("Heading", Rect::new(20, 10, 492, 36), "More text and choices", 20);
+    b.card_part(c, t);
+    let mut pixel = b.label("Pixel", Rect::new(20, 42, 492, 64), "HELLO FROM A BITMAP FONT!", 16);
+    pixel.text_font = "Tour Pixel".into();
+    b.card_part(c, pixel);
+    let about = b.label(
+        "About",
+        Rect::new(20, 68, 492, 106),
+        "That's Tour Pixel, a bitmap font this stack carries, drawn pixel for pixel as HyperCard stacks shipped theirs. Choose a color and a size, then ask.",
+        12,
+    );
+    b.card_part(c, about);
+    let mut colors = Part::new_field(b.id(), "Colors", Rect::new(20, 114, 160, 220));
+    colors.contents = "Red\nOrange\nYellow\nGreen\nBlue\nPurple".into();
+    colors.lock_text = true;
+    colors.auto_select = true;
+    colors.dont_wrap = true;
+    b.card_part(c, colors);
+    let text_buttons = [
+        (
+            "Which Color?",
+            Rect::new(172, 114, 312, 142),
+            "on mouseUp\n  if the selectedLine of field \"Colors\" is empty then\n    answer \"Click a color in the list first.\"\n  else\n    answer \"the selectedText:\" && the selectedText of field \"Colors\" & return & \"the selectedLine:\" && the selectedLine of field \"Colors\" & return & \"the selectedChunk:\" && the selectedChunk of field \"Colors\"\n  end if\nend mouseUp",
+        ),
+        (
+            "Measure",
+            Rect::new(172, 152, 312, 180),
+            "on mouseUp\n  answer quote & \"RandomCard\" & quote && \"is\" && textWidth(\"RandomCard\") && \"pixels wide in Geneva 12, and\" && textWidth(\"RandomCard\", \"Times\", 24, \"bold\") && \"in Times 24 bold.\" & return & \"Purple, in the list, is\" && the textWidth of line 6 of field \"Colors\" && \"pixels wide.\"\nend mouseUp",
+        ),
+        (
+            "Which Size?",
+            Rect::new(332, 192, 472, 220),
+            "on mouseUp\n  put the selectedButton of card family 1 into chosen\n  answer \"the selectedButton of card family 1:\" && chosen && \"(\" & the short name of card button (word 3 of chosen) & \")\"\nend mouseUp",
+        ),
+    ];
+    for (name, rect, script) in text_buttons {
+        let p = b.button(name, rect, script);
+        b.card_part(c, p);
+    }
+    for (i, size) in ["Small", "Medium", "Large"].iter().enumerate() {
+        let y = 114 + i as i32 * 24;
+        let mut radio = b.button(size, Rect::new(332, y, 472, y + 20), "");
+        radio.style = PartStyle::Radio;
+        radio.family = 1;
+        radio.hilite = *size == "Medium";
+        b.card_part(c, radio);
+    }
+    b.stack.fonts.push(StackFont { family: "Tour Pixel".into(), size: 8, data: tour_pixel_font() });
 
     // ----- Printing and finding -----
     let c = b.card(main, "Print & Find");
@@ -1250,6 +1536,21 @@ end mouseUp"#,
 #[cfg(test)]
 mod tests {
     use crate::hypertalk::parser::parse_script;
+
+    #[test]
+    fn tour_song_and_font() {
+        assert_eq!(crate::sound::song::check(&super::tour_song()), Ok(()));
+        let font = crate::model::bitmap_font::BitmapFont::parse("Tour Pixel", 8, &super::tour_pixel_font()).unwrap();
+        assert_eq!((font.ascent, font.descent, font.height), (7, 1, 8));
+        let a = font.glyph('A').unwrap();
+        assert_eq!((a.advance, a.width), (6, 5));
+        // Row 1 of A: .###.
+        assert_eq!(&a.pixels[..5], &[false, true, true, true, false]);
+        assert_eq!(font.glyph('a'), font.glyph('A'));
+        assert_eq!(font.glyph(' ').unwrap().advance, 4);
+        // A character it lacks: the box.
+        assert_eq!(&font.glyph('~').unwrap().pixels[..5], &[true; 5]);
+    }
 
     #[test]
     fn demo_scripts_parse() {

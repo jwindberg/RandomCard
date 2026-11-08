@@ -77,7 +77,7 @@ dialog), and `lock recent` / `unlock recent`.
 
 **Scripting environment properties.** `the scriptEditor`, `scriptTextFont`,
 `scriptTextSize`, `the debugger`, `the environment` (development or player),
-`the address`, `the stackSpace`, `the multiSpace`, `the longWindowTitles`, and
+`the address`, `the stackSpace`, `the longWindowTitles`, and
 the message watcher's `hideIdle` and `hideUnused`. `the commands` and `the
 properties` (lists of what's available) are also missing.
 
