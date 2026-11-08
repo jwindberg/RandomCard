@@ -3607,7 +3607,8 @@ fn the_swatches_stack() {
 /// Every example in HYPERTALK.md, the language reference, parses.
 #[test]
 fn hypertalk_reference_examples_parse() {
-    let doc = include_str!("../../HYPERTALK.md");
+    // Windows checks text files out with CRLF line endings.
+    let doc = include_str!("../../HYPERTALK.md").replace("\r\n", "\n");
     let mut blocks = 0;
     for (n, block) in doc.split("```hypertalk\n").skip(1).enumerate() {
         let src = block.split("```").next().unwrap_or_default();
