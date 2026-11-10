@@ -19,7 +19,6 @@ fn main() -> eframe::Result {
     let open = std::env::args().nth(1).map(std::path::PathBuf::from);
     // Otherwise RandomCard opens Home, as HyperCard did.
     let stack = if open.is_some() { Stack::new("Untitled") } else { runtime::settings::open_home() };
-    #[allow(unused_mut)]
     let mut options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("RandomCard")
@@ -28,6 +27,17 @@ fn main() -> eframe::Result {
             .with_icon(eframe::egui::IconData { rgba: icon::rgba(128), width: 128, height: 128 }),
         ..Default::default()
     };
+    // Ask the GPU only for limits it has. egui's defaults want 16 inter-stage
+    // shader variables, the Raspberry Pi 5's GPU offers 15, and the window
+    // never opens.
+    if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut options.wgpu_options.wgpu_setup {
+        let egui_descriptor = setup.device_descriptor.clone();
+        setup.device_descriptor = std::sync::Arc::new(move |adapter| {
+            let mut descriptor = egui_descriptor(adapter);
+            descriptor.required_limits = descriptor.required_limits.or_worse_values_from(&adapter.limits());
+            descriptor
+        });
+    }
     // On a Mac, RandomCard installs its own native menus.
     #[cfg(target_os = "macos")]
     {
