@@ -4,5 +4,5 @@ Name=RandomCard
 Comment=Apple's HyperCard, re-created
 Exec=randomcard %f
 Icon=randomcard
-Categories=Development;Education;
+Categories=Development;
 Terminal=false
