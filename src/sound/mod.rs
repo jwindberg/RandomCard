@@ -288,6 +288,11 @@ impl Channel {
 /// soundChannel`), so a script switching channels plays sounds together, as
 /// in HyperCard 2.4. Audio output is opened on first use; without a device,
 /// sounds are timed but silent, so scripts that wait for them still work.
+///
+/// The output can come and go, as a Bluetooth speaker does: when opening it
+/// fails, the next sound tries again (at most every `RETRY`), and after
+/// `IDLE` of quiet the output is opened afresh, so a sound after a
+/// reconnect reaches the device that is there now.
 pub struct Player {
     enabled: bool,
     device: Option<rodio::MixerDeviceSink>,
@@ -302,8 +307,18 @@ pub struct Player {
     song: Option<String>,
     /// `the soundVolume`, 0 to 7.
     volume: u8,
-    tried: bool,
+    /// When the last sound queued finishes, for reopening after a quiet spell.
+    quiet_from: Option<Instant>,
+    /// After a failed open, when to try again.
+    retry_at: Option<Instant>,
+    /// Whether the missing output has been reported, so it's said once.
+    warned: bool,
 }
+
+/// How long the output must be quiet before the next sound reopens it.
+const IDLE: Duration = Duration::from_secs(5);
+/// How often to try opening an output that isn't there.
+const RETRY: Duration = Duration::from_secs(2);
 
 impl Player {
     /// A player that never touches the audio device (for tests).
@@ -311,7 +326,9 @@ impl Player {
         Player {
             enabled: false,
             device: None,
-            tried: false,
+            quiet_from: None,
+            retry_at: None,
+            warned: false,
             channels: (0..CHANNELS).map(|_| Channel::default()).collect(),
             channel: 1,
             music: None,
@@ -331,13 +348,46 @@ impl Player {
     }
 
     fn open(&mut self) {
-        if self.enabled && !self.tried {
-            self.tried = true;
-            if let Ok(mut sink) = rodio::DeviceSinkBuilder::open_default_sink() {
+        if !self.enabled {
+            return;
+        }
+        let now = Instant::now();
+        // Quiet for a while, with no song: let go of the output, so this
+        // sound opens whatever device is there now.
+        let quiet = self.music.is_none() && self.quiet_from.is_none_or(|t| now >= t + IDLE);
+        if self.device.is_some() && quiet {
+            self.close();
+        }
+        if self.device.is_some() || self.retry_at.is_some_and(|t| now < t) {
+            return;
+        }
+        match rodio::DeviceSinkBuilder::open_default_sink() {
+            Ok(mut sink) => {
                 sink.log_on_drop(false);
                 self.device = Some(sink);
+                self.retry_at = None;
+                if self.warned {
+                    eprintln!("RandomCard: sound output is back");
+                    self.warned = false;
+                }
+            }
+            Err(e) => {
+                self.retry_at = Some(now + RETRY);
+                if !self.warned {
+                    eprintln!("RandomCard: no sound output ({e}); sounds are silent until one is there");
+                    self.warned = true;
+                }
             }
         }
+    }
+
+    /// Let go of the output and everything playing on it.
+    fn close(&mut self) {
+        for c in &mut self.channels {
+            c.player = None;
+        }
+        self.end_song();
+        self.device = None;
     }
 
     /// `the soundChannel`.
@@ -364,6 +414,7 @@ impl Player {
         let start = ch.queue.last().map(|(_, end)| *end).filter(|end| *end > now).unwrap_or(now);
         ch.queue.retain(|(_, end)| *end > now);
         ch.queue.push((name.to_string(), start + duration));
+        self.quiet_from = self.quiet_from.max(Some(start + duration));
         if let Some(sink) = device {
             let player = ch.player.get_or_insert_with(|| {
                 let p = rodio::Player::connect_new(sink.mixer());
