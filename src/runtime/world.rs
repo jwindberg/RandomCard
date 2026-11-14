@@ -432,6 +432,8 @@ pub enum UiRequest {
     /// Put text on the system clipboard (a script's Copy Text or Cut Text).
     CopyText(String),
     OpenStack,
+    /// File ▸ Open Stack in New Window…
+    OpenStackInNewWindow,
     NewStack,
     SaveStackAs(Option<String>),
     Quit,
@@ -504,6 +506,12 @@ pub enum Event {
     /// Open a stack file (RandomCard or HyperCard), asking for its password
     /// if it needs one.
     OpenFile(std::path::PathBuf),
+    /// Open a stack file in a new card window.
+    OpenFileInWindow(std::path::PathBuf),
+    /// The user clicked a card window behind the current one.
+    FrontWindow(u32),
+    /// The user closed a stack's card window.
+    CloseStackWindow(u32),
     /// The user closed a script's text window: the card is sent
     /// TEXWindowClosing name, changed, while the window can still be read,
     /// and then it closes.
@@ -607,6 +615,12 @@ pub struct World {
     /// left that have no file to come back to.
     pub others: Vec<LoadedStack>,
     pub next_stack_key: u32,
+    /// Stacks open in card windows behind the current one, the most
+    /// recently in front first. The current stack's window is `window_key`.
+    pub windows: Vec<StackWindow>,
+    /// The current card window: 0 for the first, which RandomCard opens
+    /// with; others take their stack's key.
+    pub window_key: u32,
     /// Stacks in use (`start using`), by name, in message-path order.
     pub in_use: Vec<String>,
     /// Where the Home stack lives.
@@ -696,6 +710,50 @@ pub struct LoadedStack {
     pub stack: Stack,
 }
 
+/// A stack open in a card window behind the current one, with what its
+/// window keeps while it's there: the card it shows, its history and its
+/// undo. Bringing it forward swaps these with the World's own.
+pub struct StackWindow {
+    pub key: u32,
+    pub stack: Stack,
+    pub card_id: Id,
+    pub edit_bg: bool,
+    pub history: Vec<Id>,
+    pub history_pos: usize,
+    pub recent: Vec<Id>,
+    pub undo: Vec<super::undo::UndoEntry>,
+    pub redo: Vec<super::undo::UndoEntry>,
+    pub dirty: bool,
+    pub window_origin: (i32, i32),
+    pub card_scroll: String,
+    pub window_title: Option<(u64, String)>,
+    pub unlocked: bool,
+}
+
+impl StackWindow {
+    /// A new window for a stack, showing its first card.
+    pub fn new(key: u32, stack: Stack, window_origin: (i32, i32)) -> StackWindow {
+        let card_id = stack.cards[0].id;
+        let dirty = stack.imported_from.is_some() && stack.path.is_none();
+        StackWindow {
+            key,
+            stack,
+            card_id,
+            edit_bg: false,
+            history: vec![card_id],
+            history_pos: 0,
+            recent: vec![card_id],
+            undo: Vec::new(),
+            redo: Vec::new(),
+            dirty,
+            window_origin,
+            card_scroll: "0,0".into(),
+            window_title: None,
+            unlocked: false,
+        }
+    }
+}
+
 impl World {
     pub fn new(stack: Stack) -> World {
         let card_id = stack.cards[0].id;
@@ -759,6 +817,8 @@ impl World {
             unlocked: false,
             others: Vec::new(),
             next_stack_key: 1,
+            windows: Vec::new(),
+            window_key: 0,
             in_use: Vec::new(),
             home_path: None,
             stack_serial: 0,
@@ -788,6 +848,8 @@ impl World {
         fresh.user_level = self.user_level;
         fresh.others = std::mem::take(&mut self.others);
         fresh.next_stack_key = self.next_stack_key;
+        fresh.windows = std::mem::take(&mut self.windows);
+        fresh.window_key = self.window_key;
         fresh.in_use = std::mem::take(&mut self.in_use);
         fresh.home_path = self.home_path.take();
         fresh.stack_serial = self.stack_serial + 1;
@@ -807,6 +869,90 @@ impl World {
             self.add_other(old);
         }
         self.load_home();
+    }
+
+    /// Swap the current window's stack and what goes with it for a window's.
+    fn swap_window(&mut self, sw: &mut StackWindow) {
+        use std::mem::swap;
+        swap(&mut self.window_key, &mut sw.key);
+        swap(&mut self.stack, &mut sw.stack);
+        swap(&mut self.card_id, &mut sw.card_id);
+        swap(&mut self.edit_bg, &mut sw.edit_bg);
+        swap(&mut self.history, &mut sw.history);
+        swap(&mut self.history_pos, &mut sw.history_pos);
+        swap(&mut self.recent, &mut sw.recent);
+        swap(&mut self.undo, &mut sw.undo);
+        swap(&mut self.redo, &mut sw.redo);
+        swap(&mut self.dirty, &mut sw.dirty);
+        swap(&mut self.window_origin, &mut sw.window_origin);
+        swap(&mut self.card_scroll, &mut sw.card_scroll);
+        swap(&mut self.window_title, &mut sw.window_title);
+        swap(&mut self.unlocked, &mut sw.unlocked);
+        // What was selected or found belongs to the window left behind.
+        self.found = None;
+        self.selection = None;
+        self.click = None;
+        self.focus = None;
+        self.text_point = None;
+        self.size_box = false;
+        self.transition = None;
+        self.stack_serial += 1;
+        self.picture_rev = rand::random();
+    }
+
+    /// Open a stack in a new card window, in front.
+    pub fn open_window(&mut self, stack: Stack) {
+        let key = self.next_stack_key;
+        self.next_stack_key += 1;
+        let (x, y) = self.window_origin;
+        let mut sw = StackWindow::new(key, stack, (x + 24, y + 24));
+        self.swap_window(&mut sw);
+        self.windows.insert(0, sw);
+    }
+
+    /// Bring a card window forward; false if there's none by that key.
+    pub fn front_window(&mut self, key: u32) -> bool {
+        let Some(i) = self.windows.iter().position(|sw| sw.key == key) else { return false };
+        let mut sw = self.windows.remove(i);
+        self.swap_window(&mut sw);
+        self.windows.insert(0, sw);
+        true
+    }
+
+    /// Close the current card window, bringing the one behind it forward.
+    /// Its stack is saved, and stays loaded if it's Home, in use, or has
+    /// changes with nowhere to go. False if it's the only window.
+    pub fn close_front_window(&mut self) -> bool {
+        if self.windows.is_empty() {
+            return false;
+        }
+        let mut sw = self.windows.remove(0);
+        self.swap_window(&mut sw);
+        let dirty = sw.dirty && !sw.stack.cant_modify;
+        let old = sw.stack;
+        let unsaved = match &old.path {
+            Some(p) => dirty && old.save(p).is_err(),
+            None => dirty,
+        };
+        if unsaved || self.is_home(&old) || self.is_in_use(&old.name) {
+            self.add_other(old);
+        }
+        true
+    }
+
+    /// The card window showing a stack, by name or path: the current one's
+    /// key or one behind it.
+    pub fn window_of(&self, name: &str, path: Option<&std::path::Path>) -> Option<u32> {
+        let shows = |s: &Stack| names_stack(s, name) || path.is_some() && same_path(stack_file(s), path);
+        if shows(&self.stack) {
+            return Some(self.window_key);
+        }
+        self.windows.iter().find(|sw| shows(&sw.stack)).map(|sw| sw.key)
+    }
+
+    /// Every open stack, the current one first, then the windows behind.
+    pub fn open_stacks(&self) -> impl Iterator<Item = &Stack> {
+        std::iter::once(&self.stack).chain(self.windows.iter().map(|sw| &sw.stack))
     }
 
     /// Remember a card for the Recent dialog, which holds 42 as HyperCard's did.
@@ -834,20 +980,24 @@ impl World {
         key
     }
 
+    /// A loaded stack by key: one kept loaded, or one in a window behind.
     pub fn other(&self, key: u32) -> Option<&Stack> {
-        self.others.iter().find(|o| o.key == key).map(|o| &o.stack)
+        let open = self.windows.iter().find(|sw| sw.key == key).map(|sw| &sw.stack);
+        open.or_else(|| self.others.iter().find(|o| o.key == key).map(|o| &o.stack))
     }
 
     pub fn other_mut(&mut self, key: u32) -> Option<&mut Stack> {
+        if let Some(sw) = self.windows.iter_mut().find(|sw| sw.key == key) {
+            return Some(&mut sw.stack);
+        }
         self.others.iter_mut().find(|o| o.key == key).map(|o| &mut o.stack)
     }
 
     /// A loaded stack by name, or by file path.
     pub fn find_other(&self, name: &str, path: Option<&std::path::Path>) -> Option<u32> {
-        self.others
-            .iter()
-            .find(|o| names_stack(&o.stack, name) || path.is_some() && same_path(o.stack.path.as_deref(), path))
-            .map(|o| o.key)
+        let shows = |s: &Stack| names_stack(s, name) || path.is_some() && same_path(stack_file(s), path);
+        let open = self.windows.iter().find(|sw| shows(&sw.stack)).map(|sw| sw.key);
+        open.or_else(|| self.others.iter().find(|o| shows(&o.stack)).map(|o| o.key))
     }
 
     /// Take a stack out of the loaded ones, to show it.
@@ -858,7 +1008,8 @@ impl World {
 
     /// The loaded Home stack, unless it's the current stack.
     pub fn home_key(&self) -> Option<u32> {
-        self.others.iter().find(|o| self.is_home(&o.stack)).map(|o| o.key)
+        let open = self.windows.iter().find(|sw| self.is_home(&sw.stack)).map(|sw| sw.key);
+        open.or_else(|| self.others.iter().find(|o| self.is_home(&o.stack)).map(|o| o.key))
     }
 
     /// Make sure Home is loaded, for the message path.
@@ -1034,10 +1185,16 @@ pub fn same_path(a: Option<&std::path::Path>, b: Option<&std::path::Path>) -> bo
 }
 
 /// Whether a name refers to a stack: its name, its file's name, or its path.
+/// The file a stack came from: its own, or the HyperCard stack it was
+/// converted from, until it's saved.
+pub fn stack_file(s: &Stack) -> Option<&std::path::Path> {
+    s.path.as_deref().or(s.imported_from.as_deref())
+}
+
 pub fn names_stack(s: &Stack, name: &str) -> bool {
     let name = name.trim();
     s.name.eq_ignore_ascii_case(name)
-        || s.path.as_ref().is_some_and(|p| {
+        || stack_file(s).is_some_and(|p| {
             p.to_string_lossy().eq_ignore_ascii_case(name)
                 || p.file_stem().is_some_and(|f| f.to_string_lossy().eq_ignore_ascii_case(name))
         })

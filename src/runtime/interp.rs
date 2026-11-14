@@ -279,6 +279,23 @@ impl Interp {
                     Err(e) => Err(e),
                 },
             },
+            Event::OpenFileInWindow(path) => {
+                let current = crate::runtime::world::same_path(crate::runtime::world::stack_file(&self.w().stack), Some(&path));
+                match { self.w().find_other("", Some(&path)) } {
+                    _ if current => Ok(()),
+                    Some(key) => self.open_in_window(key),
+                    None => match self.load_stack_file(&path) {
+                        Ok(Some(stack)) => {
+                            let key = self.w().add_other(stack);
+                            self.open_in_window(key)
+                        }
+                        Ok(None) => Ok(()),
+                        Err(e) => Err(e),
+                    },
+                }
+            }
+            Event::FrontWindow(key) => self.bring_forward(key),
+            Event::CloseStackWindow(key) => self.close_stack_window(key),
             Event::Send { target, message, args } => self.dispatch_top(target, &message, args),
             Event::WebReply { target, message, url, reply, millis } => {
                 let body = self.take_reply(reply, millis);

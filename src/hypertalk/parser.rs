@@ -914,9 +914,12 @@ impl Parser {
                 }
                 self.quote_bare_name(true);
                 let dest = self.go_dest()?;
-                // Options that only matter with multiple windows.
-                while let Some(_w) = self.accept_any(&["in", "a", "new", "window", "without", "dialog"]) {}
-                Cmd::Go(dest)
+                // `in a new window`; `without dialog` changes nothing here.
+                let mut new_window = false;
+                while let Some(w) = self.accept_any(&["in", "a", "new", "window", "without", "dialog"]) {
+                    new_window |= w == "window";
+                }
+                Cmd::Go(dest, new_window)
             }
             "wait" => {
                 if self.accept("until") {
@@ -2807,9 +2810,9 @@ mod tests {
         let StmtKind::Cmd { cmd: Cmd::Play { notes, .. }, .. } = stmt("play \"boing\" \"c d e\"") else { panic!() };
         assert!(matches!(&notes[..], [Expr::Lit(n)] if n == "c d e"));
         // Names of several bare words.
-        let StmtKind::Cmd { cmd: Cmd::Go(GoDest::Expr(Expr::Lit(n))), .. } = stmt("go to Help Index") else { panic!() };
+        let StmtKind::Cmd { cmd: Cmd::Go(GoDest::Expr(Expr::Lit(n)), _), .. } = stmt("go to Help Index") else { panic!() };
         assert_eq!(n, "Help Index");
-        let StmtKind::Cmd { cmd: Cmd::Go(GoDest::Card(CardSpec::OfStack(_, stack))), .. } =
+        let StmtKind::Cmd { cmd: Cmd::Go(GoDest::Card(CardSpec::OfStack(_, stack)), _), .. } =
             stmt("go to card id 3963 of Help Intro")
         else {
             panic!()

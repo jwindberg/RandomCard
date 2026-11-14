@@ -518,6 +518,17 @@ fn demo_stack_runs() {
     run(&mut i, "go to card \"Palettes\"");
     assert_eq!(click(&mut i, "Palettes", "Close Palette"), None);
     assert_eq!(run(&mut i, "put field \"Said\" of card \"Palettes\""), "closePalette Tour Palette");
+    // Home opens in a window of its own, beside the Tour.
+    let home_dir = std::env::temp_dir().join(format!("randomcard-tourhome-{}", std::process::id()));
+    std::fs::create_dir_all(&home_dir).unwrap();
+    Stack::home().save(&home_dir.join("Home.rcstack")).unwrap();
+    lock(&i.world).home_path = Some(home_dir.join("Home.rcstack"));
+    assert_eq!(click(&mut i, "Palettes", "Home in a Window"), None);
+    assert_eq!(run(&mut i, "put the short name of this stack && the number of lines of the stacks"), "Home 2");
+    run(&mut i, "close window \"Home\"");
+    assert_eq!(current(&i), "Palettes");
+    lock(&i.world).home_path = None;
+    std::fs::remove_dir_all(&home_dir).ok();
     assert_eq!(click(&mut i, "Contents", "Dice & Effects"), None);
     assert_eq!(click(&mut i, "Dice", "Roll"), None);
     assert!(run(&mut i, "put field \"Result\" of card \"Dice\"").starts_with("You rolled"));
@@ -1073,6 +1084,93 @@ fn home_has_hypercards_own_cards() {
 }
 
 #[test]
+fn stack_windows() {
+    let dir = std::env::temp_dir().join(format!("randomcard-windows-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let home_path = dir.join("Home.rcstack");
+    Stack::home().save(&home_path).unwrap();
+    // Each stack logs the window messages it gets.
+    let logger = |name: &str| {
+        ["openStack", "closeStack", "suspendStack", "resumeStack"]
+            .map(|m| format!("on {m}\n  global log\n  put \"{name} {m},\" after log\nend {m}"))
+            .join("\n")
+    };
+    let mut lib = stack();
+    lib.name = "Lib".into();
+    lib.script = logger("Lib");
+    let lib_path = dir.join("Lib.rcstack");
+    lib.path = Some(lib_path.clone());
+    lib.save(&lib_path).unwrap();
+    let mut main = stack();
+    main.name = "Main".into();
+    main.script = logger("Main");
+    let main_path = dir.join("Main.rcstack");
+    main.path = Some(main_path.clone());
+    main.save(&main_path).unwrap();
+
+    let mut i = interp_with(main);
+    {
+        let mut w = lock(&i.world);
+        w.home_path = Some(home_path.clone());
+        w.load_home();
+    }
+    let log = |i: &mut Interp| run(i, "global log\nput log\nput empty into log");
+    let here = |i: &mut Interp| run(i, "put the short name of this stack && the short name of this card");
+
+    // A stack in a new window comes in front; the one behind is suspended.
+    run(&mut i, "go to stack \"Lib\" in a new window");
+    assert_eq!(here(&mut i), "Lib One");
+    assert_eq!(log(&mut i), "Main suspendStack,Lib openStack,");
+    assert_eq!(run(&mut i, "put the number of lines of the stacks"), "2");
+    assert!(run(&mut i, "put line 1 of the stacks").ends_with("Lib.rcstack"));
+    assert!(run(&mut i, "put line 2 of the stacks").ends_with("Main.rcstack"));
+    assert!(run(&mut i, "put the windows").starts_with("Lib\nMain\n"));
+    // Each window keeps its own card.
+    run(&mut i, "go to card \"Two\"");
+    run(&mut i, "go to stack \"Main\"");
+    assert_eq!(here(&mut i), "Main One");
+    assert_eq!(log(&mut i), "Lib suspendStack,Main resumeStack,");
+    assert_eq!(run(&mut i, "put the number of lines of the stacks"), "2");
+    // A stack behind is still there to ask about, and Home still answers.
+    assert_eq!(run(&mut i, "put the short name of stack \"Lib\""), "Lib");
+    assert_eq!(run(&mut i, "put homeVersion()"), "Home 1.0");
+    // Opening it again in a new window brings its window forward.
+    run(&mut i, "go to stack \"Lib\" in a new window");
+    assert_eq!(here(&mut i), "Lib Two");
+    assert_eq!(run(&mut i, "put the number of lines of the stacks"), "2");
+    log(&mut i);
+
+    // Closing a window saves its stack and brings the next one forward.
+    run(&mut i, "put \"changed\" into field \"Name\"\nclose window \"Lib\"");
+    assert_eq!(here(&mut i), "Main One");
+    assert_eq!(log(&mut i), "Lib closeStack,Main resumeStack,");
+    assert_eq!(run(&mut i, "put the number of lines of the stacks"), "1");
+    let saved = Stack::load(&lib_path).unwrap();
+    assert_eq!(saved.field_text(20, Layer::Background, 10), "changed");
+    // Closing a window behind leaves the current stack in front, unsuspended.
+    run(&mut i, "go to stack \"Lib\" in a new window\ngo to stack \"Main\"");
+    log(&mut i);
+    run(&mut i, "close window \"Lib\"");
+    assert_eq!(here(&mut i), "Main One");
+    assert_eq!(log(&mut i), "Lib closeStack,");
+    // The first window stays.
+    assert_eq!(run(&mut i, "close window \"Main\"\nput the result"), "The first card window stays open.");
+    assert_eq!(here(&mut i), "Main One");
+    // A stack converted from HyperCard, named by its file, is the one open,
+    // not another copy (OASIS Stack goes back to itself this way).
+    {
+        let mut w = lock(&i.world);
+        w.stack.path = None;
+        w.stack.imported_from = Some(main_path.clone());
+    }
+    run(&mut i, "go to stack \"Lib\" in a new window");
+    run(&mut i, &format!("go to stack \"{}\" in a new window", main_path.display()));
+    assert_eq!(here(&mut i), "Main One");
+    assert_eq!(run(&mut i, "put the number of lines of the stacks"), "2");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn stacks_home_and_libraries() {
     let dir = std::env::temp_dir().join(format!("randomcard-stacks-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -1444,6 +1542,10 @@ fn exercise_one(path: &std::path::Path, print: bool) -> Exercised {
                 if print {
                     println!("  ({what} went to stack \"{}\"; going back)", w.stack.name);
                 }
+                // Stacks it opened in new windows close, as a user would
+                // close them; then the stack starts again from the original.
+                w.windows.clear();
+                w.window_key = 0;
                 w.replace_stack(original.clone());
                 // The changed copy it left behind stays loaded (it can't be
                 // saved to the read-only disc); a user going back would get

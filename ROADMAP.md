@@ -7,7 +7,7 @@ exists today, what's missing, and where the work would go. The suggested
 order at the end is shaped by what RandomCard's users ask for.
 
 The drive to make every stack on Apple's Developer CDs work ended at 1,029
-working (WORKING_STACKS.md; 1,057 at the 2026-11-08 regression run). Those stacks are now a regression suite: a
+working (WORKING_STACKS.md; 1,059 at the 2026-11-14 regression run). Those stacks are now a regression suite: a
 failing one matters only when it shows a missing HyperCard feature. Stacks
 that assume the old Mac OS (colon paths, old system calls) are updated by
 fix steps on our copies (FIX_STEPS.tsv), not by compatibility code.
@@ -254,11 +254,19 @@ stacks in use → Home, `start using`/`stop using` with `libraryStack` and
 `releaseStack`, `the stacksInUse`, `go to stack "X"` and
 `go to card 3 of stack "X"`, `send … to stack "X"`, and the name and script
 of other stacks. Leaving a stack saves it; a stack without a file stays
-loaded to come back to.
+loaded to come back to. Stacks open in windows of their own (`go to stack
+… in a new window`, File ▸ Open Stack in New Window…), each keeping its
+card, history and undo; the front one is current, with `suspendStack` and
+`resumeStack` as windows change places, `the stacks` lists them, and Close
+Stack (⌘W) or `close window` closes one.
 
 **Missing:**
-- **Multiple stack windows:** `go to stack … in a new window` opens it in
-  the same window, and `the stacks` lists only the current stack.
+- **Stack windows, what's left:** the first window, which holds the tools
+  and message box, can't be closed (Close Stack there goes Home); dialogs
+  such as `answer` appear in it whichever stack asked; a window behind
+  shows its card as it last looked, so a script changing that stack shows
+  only when it comes forward; and a window's place on screen isn't kept
+  with its stack or reported to scripts.
 - **Objects in other stacks:** `field 1 of card 2 of stack "X"` and
   counting other stacks' cards need object references that name a stack;
   today only going there works.
@@ -527,12 +535,13 @@ their feedback. For now:
    new script editor, and its menus and tools.
 5. **The card window:** global rect and loc, scrolling (hBarLoc, vBarLoc),
    zoom, `moveWindow` and `sizeWindow`, and card size changes.
-6. **Multiple windows.** `go to stack … in a new window`, and
-   `the stacks`. Start with the tool windows: script editors, the Variable
-   and Message Watchers, and Info windows are drawn inside the main window
-   today, so stepping through a script covers the card being debugged.
-   Each should be a real OS window (an egui viewport). Small alerts and
-   dialogs stay in the main window, as in HyperCard.
+6. **Multiple windows.** Stack windows are done (`go to stack … in a new
+   window`, `the stacks`, suspendStack and resumeStack). Next, the tool
+   windows: script editors, the Variable and Message Watchers, and Info
+   windows are drawn inside the main window today, so stepping through a
+   script covers the card being debugged. Each should be a real OS window
+   (an egui viewport), as the stack windows are. Small alerts and dialogs
+   stay in the main window, as in HyperCard.
 7. **FatBits, an icon editor and the rest of painting:** the Options and
    Patterns menus, editing patterns, Pickup, Scale, and Keep and Revert.
 8. **Objects in other stacks,** and history across stacks.

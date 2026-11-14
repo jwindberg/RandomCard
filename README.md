@@ -180,6 +180,12 @@ stack. Messages travel the HyperCard message path (part → card → background
 `start using stack "Library"` puts a stack's script in the path (it gets a
 `libraryStack` message), `stop using` takes it out (`releaseStack`), and
 `the stacksInUse` lists them. Handlers in Home's script work in every stack.
+`go to stack "Addresses" in a new window` (or File ▸ Open Stack in New
+Window…) opens a stack in a window of its own. The stack in the front
+window is the current one, and the menus, tools and message box act on it;
+clicking another window's card brings it forward, sending `suspendStack`
+and `resumeStack` as HyperCard did. `the stacks` lists the open stacks, and
+Close Stack or `close window` closes one.
 
 Paths are each system's own, except on macOS, where scripts see colon paths
 as in HyperCard (`Disk:Folder:Stack`) and file commands take them back.

@@ -1350,7 +1350,7 @@ end mouseUp"#,
 
     // ----- Palettes -----
     let c = b.card(main, "Palettes");
-    let t = b.label("Heading", Rect::new(20, 10, 492, 36), "Palettes", 20);
+    let t = b.label("Heading", Rect::new(20, 10, 492, 36), "Palettes and windows", 20);
     b.card_part(c, t);
     let about = b.label(
         "About",
@@ -1373,6 +1373,20 @@ end mouseUp"#,
     said.text_style = "italic".into();
     b.card_part(c, said);
     b.stack.cards[c].script = "on openPalette name, id\n  put \"openPalette\" && name && id into field \"Said\"\nend openPalette\n\non closePalette name\n  put \"closePalette\" && name into field \"Said\"\nend closePalette".into();
+    // Stacks in windows of their own.
+    let windows = b.label(
+        "Windows",
+        Rect::new(20, 228, 492, 262),
+        "A stack can open in a window of its own. Open Home beside the Tour, then click either one to bring it forward; Close Stack closes the one in front.",
+        12,
+    );
+    b.card_part(c, windows);
+    let open = b.button(
+        "Home in a Window",
+        Rect::new(36, 268, 196, 296),
+        "on mouseUp\n  go to stack \"Home\" in a new window\n  if the result is not empty then answer the result\nend mouseUp",
+    );
+    b.card_part(c, open);
 
     // ----- The web: JSON on the card itself, and requests to an address
     // the user types. Nothing here calls a service of its own accord: the

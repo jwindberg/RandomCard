@@ -165,6 +165,7 @@ pub fn builtin_key(item: &str) -> Option<&'static str> {
         "home" if !cfg!(target_os = "macos") => "h",
         "background" => "b",
         "open stack" => "o",
+        "close stack" => "w",
         "print card" => "p",
         "find" => "f",
         "recent" => "r",

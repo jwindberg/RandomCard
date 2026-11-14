@@ -298,7 +298,7 @@ A field's text is its value: `put field "Name" into n`, `put n into field
 | beep | `beep`, `beep 3` |
 | choose | `choose brush tool`, `choose browse tool` |
 | click | `click at 100,200`, `click at the loc of button 1 with shiftKey` |
-| close | `close file "Notes.txt"`, `close printing`, `close window "Prompt"` |
+| close | `close file "Notes.txt"`, `close printing`, `close window "Prompt"`, `close window "Addresses"` (a stack's card window) |
 | convert | `convert the date to seconds`, `convert x to dateItems` |
 | create | `create menu "Tools"`, `create stack "New" with background "Main"` |
 | debug | `debug checkpoint` (stops in the debugger at the next line) |
@@ -312,7 +312,7 @@ A field's text is its value: `put field "Name" into n`, `put n into field
 | export paint | `export paint to file "Card.png"` |
 | find | `find "Atkinson"`, `find whole "Bill Atkinson" in field "Name"`, `find chars "ink"`, `find word "card"`, `find string "per C"` |
 | get | `get the name of this card` (into `it`) |
-| go | `go to card "Index"`, `go next`, `go back`, `go home`, `go to stack "Addresses"` |
+| go | `go to card "Index"`, `go next`, `go back`, `go home`, `go to stack "Addresses"`, `go to stack "Addresses" in a new window` |
 | hide, show | `hide button "Secret"`, `show field 2 at 10,10`, `hide menuBar`, `show 5 cards` |
 | import paint | `import paint from file "Frog.png"` |
 | lock, unlock | `lock screen`, `unlock screen with dissolve`, `lock messages`, `unlock messages` |

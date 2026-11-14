@@ -84,6 +84,11 @@ pub struct App {
     rt: Runtime,
     tex: Textures,
     last_scene: Option<Scene>,
+    /// The card window in front (0 is this, the first).
+    front_key: u32,
+    /// Card windows behind the front one: how each looked last, and its
+    /// textures, drawn until it's clicked and comes forward.
+    behind: std::collections::HashMap<u32, (Scene, Textures)>,
     frozen: Option<Scene>,
     anim: Option<Anim>,
     seen_transition: u64,
@@ -237,6 +242,8 @@ impl App {
             password_prompt: None,
             tex: Textures::default(),
             last_scene: None,
+            front_key: 0,
+            behind: std::collections::HashMap::new(),
             frozen: None,
             anim: None,
             seen_transition: 0,
@@ -520,6 +527,18 @@ impl App {
                         self.open_stack_path(&path);
                     }
                 }
+                UiRequest::OpenStackInNewWindow => {
+                    if let Some(path) = self
+                        .stack_dialog()
+                        .add_filter("All files", &["*"])
+                        .add_filter("RandomCard stacks", &[STACK_EXT])
+                        .set_title("Open Stack in New Window")
+                        .pick_file()
+                    {
+                        self.remember_stack_folder(&path);
+                        self.send(Event::OpenFileInWindow(path));
+                    }
+                }
                 UiRequest::NewStack => {
                     if let Some(path) = self
                         .stack_dialog()
@@ -671,6 +690,10 @@ impl App {
     fn fit_window(&self, ctx: &egui::Context) {
         let (w, h) = {
             let w = self.world();
+            // Only for this window's own stack; others have their own windows.
+            if w.window_key != 0 {
+                return;
+            }
             (w.stack.width as f32 + 220.0, w.stack.height as f32 + 150.0)
         };
         let (inner, monitor) = ctx.input(|i| (i.viewport().inner_rect, i.viewport().monitor_size));
@@ -681,6 +704,105 @@ impl App {
         }
         if want.x > inner.width() + 0.5 || want.y > inner.height() + 0.5 {
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(want));
+        }
+    }
+
+    /// When another card window comes forward: the one going behind keeps
+    /// its last look and textures, and the one coming forward gets its own
+    /// back (stacks number their pictures alike, so each needs its own).
+    fn track_front_window(&mut self) {
+        let (key, open): (u32, Vec<u32>) = {
+            let w = self.world();
+            (w.window_key, w.windows.iter().map(|sw| sw.key).collect())
+        };
+        if key != self.front_key {
+            let tex = std::mem::take(&mut self.tex);
+            if let Some(scene) = self.last_scene.take() {
+                self.behind.insert(self.front_key, (scene, tex));
+            }
+            self.tex = self.behind.remove(&key).map(|(_, t)| t).unwrap_or_default();
+            self.front_key = key;
+            self.frozen = None;
+            self.anim = None;
+        }
+        self.behind.retain(|k, _| open.contains(k));
+    }
+
+    /// A card window behind the front one: its card as it was last seen,
+    /// with a gray frame. Pressing it brings it forward; the press does
+    /// nothing else, as clicking an inactive window didn't in HyperCard.
+    fn behind_canvas(&mut self, ui: &mut egui::Ui, key: u32) {
+        let size = match self.behind.get(&key) {
+            Some((s, _)) => Vec2::new(s.width as f32, s.height as f32),
+            None => {
+                let w = self.world();
+                let s = w.windows.iter().find(|sw| sw.key == key).map(|sw| (sw.stack.width, sw.stack.height));
+                let (x, y) = s.unwrap_or((512, 342));
+                Vec2::new(x as f32, y as f32)
+            }
+        };
+        let avail = ui.available_size();
+        let pad = Vec2::new(((avail.x - size.x) / 2.0).max(8.0).round(), ((avail.y - size.y) / 2.0).max(8.0).round());
+        ui.add_space(pad.y);
+        let (resp, painter) = ui
+            .horizontal(|ui| {
+                ui.add_space(pad.x);
+                ui.allocate_painter(size, Sense::click())
+            })
+            .inner;
+        let origin = resp.rect.min.round();
+        let painter = painter.with_clip_rect(resp.rect);
+        ui.painter().rect_stroke(resp.rect.expand(2.0), 0.0, Stroke::new(2.0, Color32::from_gray(130)), StrokeKind::Inside);
+        match self.behind.get(&key) {
+            Some((scene, tex)) => render::draw_scene(&painter, tex, scene, origin, None, false),
+            None => {
+                painter.rect_filled(resp.rect, 0.0, Color32::WHITE);
+            }
+        }
+        if resp.hovered() && ui.input(|i| i.pointer.any_pressed()) {
+            self.send(Event::FrontWindow(key));
+        }
+    }
+
+    /// Each stack open in a card window besides the first gets a window of
+    /// its own, titled with its name and sized to its cards.
+    fn stack_windows(&mut self, ctx: &egui::Context) {
+        let list: Vec<(u32, String, Vec2)> = {
+            let w = self.world();
+            if w.window_key != self.front_key {
+                ctx.request_repaint();
+            }
+            let size = |s: &crate::model::Stack| Vec2::new(s.width as f32, s.height as f32);
+            let front = (w.window_key != 0).then(|| (w.window_key, w.stack.name.clone(), size(&w.stack)));
+            front
+                .into_iter()
+                .chain(w.windows.iter().filter(|sw| sw.key != 0).map(|sw| (sw.key, sw.stack.name.clone(), size(&sw.stack))))
+                .collect()
+        };
+        for (key, name, size) in list {
+            let builder = egui::ViewportBuilder::default()
+                .with_title(name)
+                .with_inner_size(size + Vec2::splat(32.0))
+                .with_min_inner_size([200.0, 150.0]);
+            ctx.show_viewport_immediate(egui::ViewportId::from_hash_of(("stack window", key)), builder, |ui, _class| {
+                let vctx = ui.ctx().clone();
+                if vctx.input(|i| i.viewport().close_requested()) {
+                    self.send(Event::CloseStackWindow(key));
+                }
+                let front = key == self.front_key;
+                if front {
+                    self.publish_keys_down(&vctx);
+                    self.shortcuts(&vctx);
+                    self.keyboard(&vctx);
+                }
+                egui::CentralPanel::default().frame(egui::Frame::NONE.fill(Color32::from_gray(200))).show(ui, |ui| {
+                    if front {
+                        self.canvas(ui);
+                    } else {
+                        self.behind_canvas(ui, key);
+                    }
+                });
+            });
         }
     }
 
@@ -719,6 +841,27 @@ impl App {
 
     /// HyperCard saves changes automatically; so do we, once a stack has a file.
     fn autosave(&mut self) {
+        // Stacks in windows behind the current one, left with changes.
+        let behind: Vec<(std::path::PathBuf, Result<String, String>)> = {
+            let mut w = self.world();
+            w.windows
+                .iter_mut()
+                .filter(|sw| sw.dirty && !sw.stack.cant_modify)
+                .filter_map(|sw| {
+                    let path = sw.stack.path.clone()?;
+                    sw.dirty = false;
+                    Some((path, sw.stack.to_json().map_err(|e| e.to_string())))
+                })
+                .collect()
+        };
+        for (path, json) in behind {
+            if let Err(e) = json.and_then(|j| std::fs::write(&path, j).map_err(|e| e.to_string())) {
+                if let Some(sw) = self.world().windows.iter_mut().find(|sw| sw.stack.path.as_ref() == Some(&path)) {
+                    sw.dirty = true;
+                }
+                self.alert(format!("Can't save {}: {e}", path.display()));
+            }
+        }
         let json = {
             let mut w = self.world();
             // Can't Modify stacks keep their changes in memory only.
@@ -816,6 +959,7 @@ impl App {
             (cmd(Key::H), "h", menu("Home"), true),
             (cmd(Key::B), "b", menu("Background"), editing >= 3),
             (cmd(Key::O), "o", menu("Open Stack…"), true),
+            (cmd(Key::W), "w", menu("Close Stack"), true),
             (cmd(Key::P), "p", menu("Print Card"), true),
             (cmd(Key::F), "f", menu("Find…"), true),
             (cmd(Key::R), "r", menu("Recent"), true),
@@ -1776,14 +1920,37 @@ impl App {
 
     fn canvas(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
-        let (live, tool, lock_screen, transition, size) = {
+        let captured = {
             let w = lock(&self.rt.world);
-            let scene = Scene::capture(&w);
-            self.tex.refresh(&ctx, &w, &scene);
-            if let Some(s) = &self.last_scene {
-                self.tex.refresh(&ctx, &w, s);
+            // Another window came forward since this frame began: this one
+            // is drawn as it was, and changes over next frame.
+            if w.window_key != self.front_key {
+                None
+            } else {
+                let scene = Scene::capture(&w);
+                self.tex.refresh(&ctx, &w, &scene);
+                if let Some(s) = &self.last_scene {
+                    self.tex.refresh(&ctx, &w, s);
+                }
+                Some((scene, w.tool, w.lock_screen, w.transition.clone(), Vec2::new(w.stack.width as f32, w.stack.height as f32)))
             }
-            (scene, w.tool, w.lock_screen, w.transition.clone(), Vec2::new(w.stack.width as f32, w.stack.height as f32))
+        };
+        let Some((live, tool, lock_screen, transition, size)) = captured else {
+            if let Some(scene) = self.last_scene.clone() {
+                let size = Vec2::new(scene.width as f32, scene.height as f32);
+                let avail = ui.available_size();
+                let pad = Vec2::new(((avail.x - size.x) / 2.0).max(8.0).round(), ((avail.y - size.y) / 2.0).max(8.0).round());
+                ui.add_space(pad.y);
+                let (resp, painter) = ui
+                    .horizontal(|ui| {
+                        ui.add_space(pad.x);
+                        ui.allocate_painter(size, Sense::hover())
+                    })
+                    .inner;
+                render::draw_scene(&painter.with_clip_rect(resp.rect), &self.tex, &scene, resp.rect.min.round(), None, false);
+            }
+            ctx.request_repaint();
+            return;
         };
         // Lock screen keeps showing what was there; a new transition starts from it.
         if lock_screen && self.frozen.is_none() {
@@ -2220,6 +2387,7 @@ impl eframe::App for App {
         if serial != self.stack_seen {
             self.stack_seen = serial;
             self.forget_stack_view();
+            self.track_front_window();
             self.fit_window(&ctx);
         }
         // The stack's own bitmap fonts, when a different stack opens.
@@ -2239,6 +2407,10 @@ impl eframe::App for App {
             let w = self.world();
             let dirty = if w.dirty && w.stack.path.is_none() { " (unsaved)" } else { "" };
             let title = match &w.window_title {
+                _ if w.window_key != 0 => {
+                    let first = w.windows.iter().find(|sw| sw.key == 0).map(|sw| sw.stack.name.clone()).unwrap_or_default();
+                    format!("RandomCard — {first}")
+                }
                 // WindName's title, until another stack opens.
                 Some((serial, t)) if *serial == w.stack_serial => t.clone(),
                 _ => format!("RandomCard — {}{dirty}", w.stack.name),
@@ -2282,8 +2454,13 @@ impl eframe::App for App {
             egui::Panel::left("palette").resizable(false).exact_size(140.0).show(ui, |ui| self.palette(ui));
         }
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(Color32::from_gray(200))).show(ui, |ui| {
-            self.canvas(ui);
+            if self.front_key == 0 {
+                self.canvas(ui);
+            } else {
+                self.behind_canvas(ui, 0);
+            }
         });
+        self.stack_windows(&ctx);
 
         self.dropped_files(&ctx);
         // Export Paint: nothing over the card until its picture is taken.

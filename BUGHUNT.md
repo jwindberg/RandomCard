@@ -64,7 +64,7 @@ copy of a stack set three others with the typo apart).
 | --- | --- |
 | Open cleanly (levels 1–3) | 1,016 (820 on 2026-11-04, 748 at the first index) |
 | Tested at level 4 | all 748 (320 without compiled externals, then the 428 with them), then 297 more whose scripts parse since #48, then the other 149 (#53) |
-| **Work fully (level 4)** | **1,057** (11 after fix steps, marked *; 52 use stubs, marked †; 3 checked by driven steps, marked ‡) |
+| **Work fully (level 4)** | **1,059** (11 after fix steps, marked *; 52 use stubs, marked †; 3 checked by driven steps, marked ‡) |
 
 On 2026-11-03, after #53 (quoted words), every stack tested so far (1,385) was
 clicked again (FULL2.tsv): no stack that worked stopped working. Again on
@@ -73,6 +73,11 @@ clicked again (FULL2.tsv): no stack that worked stopped working. Again on
 open (FULL5.tsv): one stopped working (Printer Checklist, a chunk's position
 `it + number of chars in w`), fixed and rechecked (RECHECK5.tsv), and 28
 more work, among them Apple's HyperCard J stacks, now read as Japanese.
+And on 2026-11-14 after stack windows (FULL6.tsv): none stopped working, and
+two more work (DIA's Creator:File Type Form and C:F Registration Requests,
+which name a converted stack by its file). The first try ran out of memory:
+the click test, coming back from a stack opened in a new window, left that
+window open, so stacks piled up (OASIS Stack goes back and forth this way).
 (A first try, FULL3.tsv, linked only each stack's own folder; companions in
 the folders beside it went missing, so it doesn't count.)
 

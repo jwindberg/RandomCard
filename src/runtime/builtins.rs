@@ -194,9 +194,12 @@ impl Interp {
                 }
             }
             "menus" => self.w().menus.iter().map(|m| m.name.as_str()).collect::<Vec<_>>().join("\n"),
+            // Every open stack, the current one first.
             "stacks" => {
                 let w = self.w();
-                w.stack.path.as_ref().map(|p| super::paths::shown(p)).unwrap_or_else(|| w.stack.name.clone())
+                let names: Vec<String> =
+                    w.open_stacks().map(|s| s.path.as_ref().map(|p| super::paths::shown(p)).unwrap_or_else(|| s.name.clone())).collect();
+                names.join("\n")
             }
             "stacksinuse" => {
                 let w = self.w();
@@ -217,8 +220,9 @@ impl Interp {
                     .rev()
                     .map(|t| t.name.clone())
                     .collect();
-                // The card window goes by its stack's name, as in HyperCard.
-                list.push(w.stack.name.clone());
+                // Card windows go by their stacks' names, as in HyperCard,
+                // the current one first.
+                list.extend(w.open_stacks().map(|s| s.name.clone()));
                 list.extend(["Message", "Tools", "Patterns", "Scroll"].map(String::from));
                 list.join("\n")
             }

@@ -168,7 +168,7 @@ impl Interp {
                 }
                 Ok(())
             }
-            Cmd::Go(dest) => self.go(dest),
+            Cmd::Go(dest, new_window) => self.go(dest, *new_window),
             Cmd::Wait(e, unit) => {
                 let n = self.eval_number(e)?.max(0.0);
                 let secs = match unit {
@@ -304,7 +304,7 @@ impl Interp {
                     // A card in another stack: go back to that stack.
                     None if place != self.stack_place() => {
                         let card = CardSpec::Which(Which::Id(Box::new(Expr::Lit(id.to_string()))));
-                        self.go_stack(&place, Some(&card))
+                        self.go_stack(&place, Some(&card), false)
                     }
                     None => self.go_card_id(id, true),
                 }
@@ -435,6 +435,15 @@ impl Interp {
             }
             Cmd::CloseWindow(e) => {
                 let name = self.eval(e)?;
+                // A stack's card window goes by the stack's name.
+                let card_window = {
+                    let w = self.w();
+                    let has_script_window = w.script_windows.iter().any(|t| t.name.eq_ignore_ascii_case(name.trim()));
+                    if has_script_window { None } else { w.window_of(name.trim(), None) }
+                };
+                if let Some(key) = card_window {
+                    return self.close_stack_window(key);
+                }
                 self.close_script_window(name.trim(), false)?;
                 let mut w = self.w();
                 if name.trim().eq_ignore_ascii_case("message")
@@ -889,7 +898,7 @@ impl Interp {
         w.stack.cards[(i + 1) % w.stack.cards.len()].id
     }
 
-    fn go(&mut self, dest: &GoDest) -> R<()> {
+    fn go(&mut self, dest: &GoDest, new_window: bool) -> R<()> {
         self.result.clear();
         let target = match dest {
             // `go to cd id` with no id (see the parser): an error when run.
@@ -901,11 +910,11 @@ impl Interp {
             GoDest::Home => return self.go_home(),
             GoDest::Stack(name) => {
                 let name = self.eval(name)?;
-                return self.go_stack(&name, None);
+                return self.go_stack(&name, None, new_window);
             }
             GoDest::Card(CardSpec::OfStack(inner, name)) => {
                 let name = self.eval(name)?;
-                return self.go_stack(&name, Some(inner));
+                return self.go_stack(&name, Some(inner), new_window);
             }
             GoDest::Card(cs) => match self.resolve_card(cs) {
                 Ok(id) => Some(id),
@@ -924,7 +933,7 @@ impl Interp {
                             _ => t,
                         };
                         if self.stack_ref(name)?.is_some() {
-                            return self.go_stack(name, None);
+                            return self.go_stack(name, None, new_window);
                         }
                         None
                     }
@@ -1060,7 +1069,7 @@ impl Interp {
         }
         let path = self.find_stack_file(name);
         if let Some(path) = path {
-            let current = self.w().stack.path.clone();
+            let current = super::world::stack_file(&self.w().stack).map(std::path::Path::to_path_buf);
             if super::world::same_path(current.as_deref(), Some(&path)) {
                 return Ok(Some(ObjRef::Stack));
             }
@@ -1114,8 +1123,9 @@ impl Interp {
     }
 
     /// `go to stack "X"`, optionally to one of its cards.
-    fn go_stack(&mut self, name: &str, card: Option<&CardSpec>) -> R<()> {
+    fn go_stack(&mut self, name: &str, card: Option<&CardSpec>, new_window: bool) -> R<()> {
         match self.stack_ref(name)? {
+            Some(ObjRef::OtherStack(k)) if new_window => self.open_in_window(k)?,
             Some(ObjRef::OtherStack(k)) => self.go_to_stack(k)?,
             Some(_) => {}
             None => {
@@ -1170,8 +1180,12 @@ impl Interp {
         }
     }
 
-    /// Show a loaded stack, sending the close and open messages.
+    /// Show a loaded stack, sending the close and open messages. A stack
+    /// open in another window comes forward instead.
     pub(super) fn go_to_stack(&mut self, key: u32) -> R<()> {
+        if self.w().windows.iter().any(|sw| sw.key == key) {
+            return self.bring_forward(key);
+        }
         let card = self.current_card_ref();
         for m in ["closeCard", "closeBackground", "closeStack"] {
             self.send_system(card, m)?;
@@ -1182,6 +1196,74 @@ impl Interp {
         let card = self.current_card_ref();
         for m in ["openStack", "openBackground", "openCard"] {
             self.send_system(card, m)?;
+        }
+        Ok(())
+    }
+
+    /// Open a loaded stack in a new card window, in front of the current
+    /// one, which is sent suspendStack. One already open comes forward.
+    pub(super) fn open_in_window(&mut self, key: u32) -> R<()> {
+        if self.w().windows.iter().any(|sw| sw.key == key) {
+            return self.bring_forward(key);
+        }
+        let card = self.current_card_ref();
+        self.send_system(card, "suspendStack")?;
+        let Some(stack) = self.w().take_other(key) else { return Ok(()) };
+        self.scripts_changed();
+        {
+            let mut w = self.w();
+            w.open_window(stack);
+            w.load_home();
+        }
+        let card = self.current_card_ref();
+        for m in ["openStack", "openBackground", "openCard"] {
+            self.send_system(card, m)?;
+        }
+        Ok(())
+    }
+
+    /// Bring a card window forward: its stack becomes the current one.
+    /// The stack going behind is sent suspendStack, and the one coming
+    /// forward resumeStack, as in HyperCard.
+    pub fn bring_forward(&mut self, key: u32) -> R<()> {
+        if !self.w().windows.iter().any(|sw| sw.key == key) {
+            return Ok(());
+        }
+        let card = self.current_card_ref();
+        self.send_system(card, "suspendStack")?;
+        self.scripts_changed();
+        self.w().front_window(key);
+        let card = self.current_card_ref();
+        self.send_system(card, "resumeStack")
+    }
+
+    /// Close a stack's card window: its stack gets closeCard,
+    /// closeBackground and closeStack, and the window behind comes forward
+    /// with resumeStack. The first window, which RandomCard opened with,
+    /// stays.
+    pub fn close_stack_window(&mut self, key: u32) -> R<()> {
+        if key == 0 {
+            self.result = "The first card window stays open.".into();
+            return Ok(());
+        }
+        let current = self.w().window_key;
+        if key != current {
+            // Brought forward just to close: no suspend or resume.
+            self.scripts_changed();
+            if !self.w().front_window(key) {
+                return Ok(());
+            }
+        }
+        let card = self.current_card_ref();
+        for m in ["closeCard", "closeBackground", "closeStack"] {
+            // The window closes even if a handler fails.
+            let _ = self.send_system(card, m);
+        }
+        self.scripts_changed();
+        self.w().close_front_window();
+        if key == current {
+            let card = self.current_card_ref();
+            self.send_system(card, "resumeStack")?;
         }
         Ok(())
     }
@@ -2199,6 +2281,7 @@ impl Interp {
                 Ok(())
             }
             "open stack" | "open" => self.request(UiRequest::OpenStack),
+            "open stack in new window" => self.request(UiRequest::OpenStackInNewWindow),
             "import paint" => self.paint_file_menu(true),
             "export paint" => self.paint_file_menu(false),
             "new stack" => self.request(UiRequest::NewStack),
@@ -2265,7 +2348,11 @@ impl Interp {
                 Ok(())
             }
             // With one window, closing a stack goes Home.
-            "close stack" => self.go_home(),
+            // A stack's own window closes; the first window goes Home.
+            "close stack" => {
+                let key = self.w().window_key;
+                if key == 0 { self.go_home() } else { self.close_stack_window(key) }
+            }
             "delete stack" => self.delete_stack(),
             "print field" => match { self.w().focus } {
                 Some((layer, id)) => {

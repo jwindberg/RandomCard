@@ -333,7 +333,8 @@ pub enum Cmd {
     Ask { prompt: Expr, default: Option<Expr>, password: bool },
     AskFile { prompt: Expr, default: Option<Expr> },
     Beep(Option<Expr>),
-    Go(GoDest),
+    /// Where to go, and whether `in a new window`.
+    Go(GoDest, bool),
     Wait(Expr, TimeUnit),
     WaitUntil(Expr),
     WaitWhile(Expr),
