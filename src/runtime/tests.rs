@@ -583,6 +583,20 @@ fn demo_stack_runs() {
     assert!((2101..=2106).contains(&die), "rolled icon {die}");
     assert_eq!(click(&mut i, "Icons", "Juggle"), None);
     assert_eq!(run(&mut i, "put the icon of card button \"Juggle\""), "21574");
+    // Deal shows playing cards: icons of any size, in color.
+    let card_now = |i: &mut Interp| {
+        let id = run(i, "put the icon of card button \"Deal\"").parse::<i32>().unwrap();
+        let w = i.w();
+        let icon = &w.stack.icons[&id];
+        assert!(icon.picture.has_color());
+        (icon.name.clone(), icon.picture.width, icon.picture.height)
+    };
+    assert_eq!(card_now(&mut i), ("King of Hearts".to_string(), 72, 105));
+    assert_eq!(click(&mut i, "Icons", "Deal"), None);
+    assert_eq!(card_now(&mut i).0, "Queen of Clubs");
+    assert_eq!(click(&mut i, "Icons", "Deal"), None);
+    assert_eq!(click(&mut i, "Icons", "Deal"), None);
+    assert_eq!(card_now(&mut i).0, "Ace of Spades");
     // The debugger card's script runs to its answer (tests don't stop at checkpoints).
     run(&mut i, "go to card \"Debugging\"");
     assert_eq!(click(&mut i, "Debugging", "Step Through Me"), None);
@@ -3405,6 +3419,21 @@ fn home_from_before_loses_import_button() {
 }
 
 #[test]
+fn setting_the_part_number() {
+    // A script can bring a part to the front, or move it back.
+    let mut i = interp_with(stack());
+    run(&mut i, "doMenu \"New Button\"\nset the name of last button to \"Two\"\ndoMenu \"New Button\"\nset the name of last button to \"Three\"");
+    let order = |i: &mut Interp| run(i, "put the short name of button 1 & \",\" & the short name of button 2 & \",\" & the short name of button 3");
+    let first = run(&mut i, "put the short name of button 1");
+    assert_eq!(order(&mut i), format!("{first},Two,Three"));
+    run(&mut i, "set the partNumber of button 1 to 99");
+    assert_eq!(order(&mut i), format!("Two,Three,{first}"));
+    assert_eq!(run(&mut i, "put the partNumber of button \"Three\""), "2");
+    run(&mut i, "set the partNumber of button \"Three\" to 1");
+    assert_eq!(order(&mut i), format!("Three,Two,{first}"));
+}
+
+#[test]
 fn sliders() {
     // A slider is a button style; its contents is its value, kept in its
     // range and on its steps, as HTML's range input does.
@@ -3458,6 +3487,90 @@ fn slider_geometry() {
     p.step = 3.0;
     assert_eq!(p.slider_snap(10.0), 9.0);
     assert_eq!(p.slider_snap(0.1 + 0.2), 0.0);
+}
+
+#[test]
+fn the_solitaire_stack() {
+    let stack = crate::import::load_any(std::path::Path::new("examples/Solitaire.rcstack"), None).unwrap();
+    // Every script parses.
+    let mut scripts = vec![("stack".to_string(), stack.script.clone())];
+    for c in &stack.cards {
+        scripts.push((c.name.clone(), c.script.clone()));
+        scripts.extend(c.parts.iter().map(|p| (format!("{} {}", c.name, p.name), p.script.clone())));
+    }
+    for (name, script) in &scripts {
+        if let Err(e) = crate::hypertalk::parser::parse_script(script) {
+            panic!("{name}: {e:?}");
+        }
+    }
+    // Every card has its face as a color icon.
+    assert_eq!(stack.icons.len(), 52);
+    assert!(stack.icons.values().all(|i| i.picture.has_color() && i.picture.width == 80));
+
+    let mut i = interp_with(stack);
+    run(&mut i, "go to card \"FreeCell\"\nnewGame 1");
+    let state = |i: &mut Interp| run(i, "put packState()");
+    // Game 1 is Windows FreeCell's game 1.
+    assert_eq!(
+        state(&mut i),
+        "JD,KD,2S,4C,3S,6D,6S/2D,KC,KS,5C,TD,8S,9C/9H,9S,9D,TS,4S,8D,2H/JC,5S,QD,QH,TH,QS,6H/\
+         5D,AD,JS,4H,8H,6C/7H,QC,AS,AC,2C,3D/7C,KH,AH,4D,JH,8C/5H,3H,3C,7S,7D,TC|///|///"
+    );
+    assert_eq!(run(&mut i, "put field \"Status\""), "Game 1     Moves: 0     Cards left: 52");
+    assert_eq!(run(&mut i, "put maxMove(false) && maxMove(true)"), "5 5");
+    // The 2 of hearts has nowhere better than a free cell.
+    assert_eq!(run(&mut i, "put clickMove(\"2H\", \"col,3,7\")"), "");
+    assert_eq!(run(&mut i, "put line 1 of gCells && whereIs(\"2H\") && gMoves"), "2H cell,1 1");
+    assert_eq!(run(&mut i, "put maxMove(false)"), "4");
+    // Not on a card of the wrong rank, or the same color.
+    assert_eq!(run(&mut i, "put tryMove(\"6S\", \"col,1,7\", \"col,2\")"), "That card doesn't go there.");
+    assert_eq!(run(&mut i, "put tryMove(\"8D\", \"col,3,6\", \"col,2\")"), "");
+    assert_eq!(run(&mut i, "put tryMove(\"8C\", \"col,7,6\", \"col,2\")"), "That card doesn't go there.");
+    // Only a run moves together.
+    assert_eq!(run(&mut i, "put isRun(line 2 of gCols, 7) && isRun(line 2 of gCols, 6)"), "true false");
+    // Undo goes back a move at a time.
+    run(&mut i, "undoMove");
+    assert_eq!(run(&mut i, "put whereIs(\"8D\") && gMoves"), "col,3,6 1");
+    run(&mut i, "undoMove");
+    assert!(state(&mut i).ends_with("|///|///"));
+    assert_eq!(run(&mut i, "undoMove\nput field \"Status\""), "Nothing to undo.");
+
+    // A run moves as one, as far as the free cells and empty columns allow.
+    run(&mut i, "unpackState \"9H,KS/8S,7H,6C/QD//////|///|///\"");
+    assert_eq!(run(&mut i, "put maxMove(false)"), "160");
+    assert_eq!(run(&mut i, "put tryMove(\"8S,7H,6C\", \"col,2,1\", \"col,3\")"), "That card doesn't go there.");
+    run(&mut i, "unpackState \"9H/8S,7H,6C/QD//////|AS/AS/AS/AS|///\"");
+    assert_eq!(run(&mut i, "put maxMove(false)"), "32");
+    run(&mut i, "unpackState \"9H/8S,7H,6C/QD/KC/KC/KC/KC/KC|AS/AS/AS/|///\"");
+    assert_eq!(run(&mut i, "put tryMove(\"8S,7H,6C\", \"col,2,1\", \"col,1\")"), "There's room to move 2 cards at once.");
+    run(&mut i, "unpackState \"9H/8S,7H,6C/QD/KC/KC/KC/KC/KC|AS/AS//|///\"");
+    assert_eq!(run(&mut i, "put tryMove(\"8S,7H,6C\", \"col,2,1\", \"col,1\")"), "");
+    assert_eq!(run(&mut i, "put line 1 of gCols & \"/\" & line 2 of gCols"), "9H,8S,7H,6C/");
+
+    // Kings home: the rest follow on their own, and the game is won.
+    run(&mut i, "unpackState \"KC/KD/KH/KS//////|///|QC/QD/QH/QS\"\nput 7 into gGame\nput 90 into gMoves");
+    assert_eq!(run(&mut i, "put clickMove(\"KC\", \"col,1,1\")"), "");
+    assert_eq!(run(&mut i, "put gHomes"), "KC\nKD\nKH\nKS");
+    run(&mut i, "checkWin");
+    assert_eq!(run(&mut i, "put field \"Status\""), "You won game 7 in 91 moves!");
+    // The game is kept in its fields, to be there next time.
+    assert_eq!(run(&mut i, "put line 1 of field \"State\""), "///////|///|KC/KD/KH/KS");
+    // The win is counted once, and the cards end in a ring around the news.
+    assert_eq!(run(&mut i, "put field \"Record\" of card \"Games\""), "Won 1, lost 0 (100%). Streak 1, best 1.");
+    run(&mut i, "checkWin");
+    assert_eq!(run(&mut i, "put field \"Won\""), "1");
+    assert_eq!(run(&mut i, "put the visible of field \"Banner\" && the loc of card button \"AC\""), "true 400,134");
+    // Leaving a game with moves made, not won, is a loss; a fresh deal isn't.
+    run(&mut i, "abandonGame\nnewGame 2");
+    assert_eq!(run(&mut i, "put the visible of field \"Banner\""), "false");
+    run(&mut i, "abandonGame\nnewGame 3\nget clickMove(last item of line 1 of gCols, \"col,1,\" & the number of items of line 1 of gCols)");
+    assert_eq!(run(&mut i, "put gMoves"), "1");
+    run(&mut i, "abandonGame\nnewGame 4");
+    assert_eq!(run(&mut i, "put field \"Record\" of card \"Games\""), "Won 1, lost 1 (50%). Streak 0, best 1.");
+    // Edit ▸ Undo undoes a move.
+    run(&mut i, "get clickMove(last item of line 1 of gCols, \"col,1,\" & the number of items of line 1 of gCols)");
+    run(&mut i, "doMenu \"Undo\"");
+    assert_eq!(run(&mut i, "put gMoves"), "0");
 }
 
 #[test]

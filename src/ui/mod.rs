@@ -185,6 +185,8 @@ pub struct App {
     /// When the script now running started, to show "Script running" only
     /// for one that takes a while (not each quick idle or mouseUp).
     busy_since: Option<Instant>,
+    /// Whether the user clicked or typed while the running script ran.
+    busy_poked: bool,
     last_autosave: Instant,
     quit_prompt: bool,
     /// Edit ▸ Clear Picture asks first; scripts' `doMenu` doesn't.
@@ -284,6 +286,7 @@ impl App {
             stack_seen: 0,
             flash_until: None,
             busy_since: None,
+            busy_poked: false,
             last_autosave: Instant::now(),
             quit_prompt: false,
             clear_picture_prompt: false,
@@ -659,6 +662,26 @@ impl App {
         self.autosave();
         self.reset_view();
         self.send(Event::OpenFile(path.to_path_buf()));
+    }
+
+    /// Grow the window when a stack's cards don't fit in it, as HyperCard
+    /// sized its window to each stack's cards; never past the screen, and
+    /// never smaller (the extra is room for the tools and message box, as
+    /// at startup).
+    fn fit_window(&self, ctx: &egui::Context) {
+        let (w, h) = {
+            let w = self.world();
+            (w.stack.width as f32 + 220.0, w.stack.height as f32 + 150.0)
+        };
+        let (inner, monitor) = ctx.input(|i| (i.viewport().inner_rect, i.viewport().monitor_size));
+        let Some(inner) = inner else { return };
+        let mut want = inner.size().max(egui::vec2(w, h));
+        if let Some(m) = monitor {
+            want = want.min(m * 0.95);
+        }
+        if want.x > inner.width() + 0.5 || want.y > inner.height() + 0.5 {
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(want));
+        }
     }
 
     fn reset_view(&mut self) {
@@ -2013,7 +2036,10 @@ impl App {
             let locked = if w.stack.cant_modify { " · locked" } else { "" };
             (format!("Card {idx} of {n}{name} · {} tool{layer}{level}{locked}", w.tool.name()), w.busy)
         };
-        let busy = busy && self.busy_since.is_some_and(|t| t.elapsed() > Duration::from_millis(300));
+        // Only once the user has clicked or typed while a script runs: a
+        // script that animates or follows the mouse needs no notice, but
+        // someone whose clicks do nothing should learn how to stop it.
+        let busy = busy && self.busy_poked && self.busy_since.is_some_and(|t| t.elapsed() > Duration::from_millis(300));
         ui.horizontal(|ui| {
             ui.label(RichText::new(text).small());
             if busy {
@@ -2194,6 +2220,7 @@ impl eframe::App for App {
         if serial != self.stack_seen {
             self.stack_seen = serial;
             self.forget_stack_view();
+            self.fit_window(&ctx);
         }
         // The stack's own bitmap fonts, when a different stack opens.
         // Or the system's Japanese font, when Japanese is first drawn.
@@ -2218,6 +2245,12 @@ impl eframe::App for App {
             };
             (title, w.beeps, w.busy, w.menubar_visible, w.msg_visible)
         };
+        // A click or key while a script was already running (not the one
+        // that started it).
+        let poked = ctx.input(|i| {
+            i.pointer.any_pressed() || i.events.iter().any(|e| matches!(e, egui::Event::Key { pressed: true, .. }))
+        });
+        self.busy_poked = busy && (self.busy_poked || (self.busy_since.is_some() && poked));
         self.busy_since = if busy { Some(self.busy_since.unwrap_or_else(Instant::now)) } else { None };
         if title != self.title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));

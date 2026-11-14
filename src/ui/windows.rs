@@ -287,6 +287,7 @@ impl App {
                     .map(|(i, icon)| (*i, icon.name.clone()))
                     .collect();
                 let text = w.stack.field_text(card, layer, id);
+                let mut add_icon = false;
                 let Some(p) = w.stack.part_mut(card, layer, id) else {
                     ui.label("This object no longer exists.");
                     return None;
@@ -392,18 +393,22 @@ impl App {
                                 Some((_, name)) if !name.is_empty() => format!("{id} {name}"),
                                 _ => id.to_string(),
                             };
-                            egui::ComboBox::from_id_salt("icon").selected_text(label(p.icon)).show_ui(ui, |ui| {
-                                changed |= ui.selectable_value(&mut p.icon, 0, "None").changed();
-                                for (i, _) in &icons {
-                                    changed |= ui.selectable_value(&mut p.icon, *i, label(*i)).changed();
-                                }
-                                if !builtin.is_empty() {
-                                    ui.separator();
-                                    ui.label(RichText::new("HyperCard's icons").weak());
-                                    for (i, _) in &builtin {
+                            ui.horizontal(|ui| {
+                                egui::ComboBox::from_id_salt("icon").selected_text(label(p.icon)).show_ui(ui, |ui| {
+                                    changed |= ui.selectable_value(&mut p.icon, 0, "None").changed();
+                                    for (i, _) in &icons {
                                         changed |= ui.selectable_value(&mut p.icon, *i, label(*i)).changed();
                                     }
-                                }
+                                    if !builtin.is_empty() {
+                                        ui.separator();
+                                        ui.label(RichText::new("HyperCard's icons").weak());
+                                        for (i, _) in &builtin {
+                                            changed |= ui.selectable_value(&mut p.icon, *i, label(*i)).changed();
+                                        }
+                                    }
+                                });
+                                // Any picture file, any size, in color.
+                                add_icon = ui.button("Add From File…").clicked();
                             });
                         }
                         ui.end_row();
@@ -483,6 +488,29 @@ impl App {
                     && let Some(i) = crate::import::hypercard_icons().get(&icon)
                 {
                     w.stack.icons.insert(icon, i.clone());
+                }
+                if add_icon
+                    && let Some(path) = rfd::FileDialog::new()
+                        .add_filter("Pictures", &["png", "jpg", "jpeg", "gif", "bmp"])
+                        .set_title("Add Icon")
+                        .pick_file()
+                {
+                    let picture = std::fs::read(&path).map_err(|e| e.to_string()).and_then(|d| crate::paint::image_file::decode(&d));
+                    match picture {
+                        Ok(picture) => {
+                            let name = path.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                            let icon = w.stack.add_icon(name, picture);
+                            if let Some(p) = w.stack.part_mut(card, layer, id) {
+                                p.icon = icon;
+                            }
+                            changed = true;
+                        }
+                        Err(e) => {
+                            drop(w);
+                            self.alert(format!("Couldn't add {} as an icon: {e}", path.display()));
+                            return None;
+                        }
+                    }
                 }
             }
             InfoTarget::Card(id) => {

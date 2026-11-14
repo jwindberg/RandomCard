@@ -744,6 +744,15 @@ impl Stack {
         home::build()
     }
 
+    /// Add an icon, by a new id clear of the stack's icons and HyperCard's
+    /// own, and return the id. A picture file's icon keeps its size and color.
+    pub fn add_icon(&mut self, name: String, picture: Picture) -> i32 {
+        let builtin = crate::import::hypercard_icons().keys().copied().max().unwrap_or(0);
+        let id = self.icons.keys().copied().max().unwrap_or(0).max(builtin) + 1;
+        self.icons.insert(id, Icon { name, picture });
+        id
+    }
+
     /// Find an icon by id, or by name (case-insensitively).
     pub fn find_icon(&self, id_or_name: &str) -> Option<i32> {
         let t = id_or_name.trim();
@@ -837,6 +846,21 @@ impl Stack {
             Layer::Background => &mut self.background_mut(bg)?.parts,
         };
         parts.iter_mut().find(|p| p.id == id)
+    }
+
+    /// Move a part to `number` (1 is the back) among its layer's parts,
+    /// which is the order they're drawn in. Out of range goes to the end.
+    pub fn set_part_number(&mut self, card: Id, layer: Layer, id: Id, number: usize) -> Option<()> {
+        let bg = self.card(card)?.background;
+        let parts = match layer {
+            Layer::Card => &mut self.card_mut(card)?.parts,
+            Layer::Background => &mut self.background_mut(bg)?.parts,
+        };
+        let from = parts.iter().position(|p| p.id == id)?;
+        let part = parts.remove(from);
+        let to = number.saturating_sub(1).min(parts.len());
+        parts.insert(to, part);
+        Some(())
     }
 
     /// Text of a field as seen on a particular card.

@@ -765,6 +765,16 @@ impl Interp {
                 if matches!(name, "contents" | "text") {
                     return self.set_object_value(o, v.to_string());
                 }
+                if name == "partnumber" {
+                    // RandomCard lets a script change the order parts are
+                    // drawn in: 1 is the back, and a number past the last
+                    // brings the part to the front.
+                    let n = to_int(v)?.max(1) as usize;
+                    let mut w = self.w();
+                    w.stack.set_part_number(card, layer, id, n);
+                    w.dirty = true;
+                    return Ok(());
+                }
                 if matches!(name, "textfont" | "textsize" | "textstyle" | "forecolor") {
                     // The whole field takes the new setting, as in HyperCard.
                     self.w().stack.restyle_field(card, layer, id, |s| match name {

@@ -1209,6 +1209,37 @@ end mouseUp"#,
     over.show_name = false;
     over.auto_hilite = true;
     b.card_part(c, over);
+    // RandomCard's icons can be any size and in color: playing cards by
+    // Byron Knoll, which he released into the public domain. Pressed, a
+    // color icon darkens.
+    let cards: [(&str, &[u8]); 4] = [
+        ("Ace of Spades", include_bytes!("tour_cards/ace_of_spades.png")),
+        ("King of Hearts", include_bytes!("tour_cards/king_of_hearts.png")),
+        ("Queen of Clubs", include_bytes!("tour_cards/queen_of_clubs.png")),
+        ("Jack of Diamonds", include_bytes!("tour_cards/jack_of_diamonds.png")),
+    ];
+    for (name, png) in cards {
+        if let Ok(picture) = crate::paint::image_file::decode(png) {
+            b.stack.add_icon(name.into(), picture);
+        }
+    }
+    let mut deal = b.button(
+        "Deal",
+        Rect::new(60, 178, 140, 290),
+        "on mouseUp\n  global tourCard\n  if tourCard is empty then put 2 into tourCard\n  put tourCard mod 4 + 1 into tourCard\n  set the icon of me to item tourCard of \"Ace of Spades,King of Hearts,Queen of Clubs,Jack of Diamonds\"\nend mouseUp",
+    );
+    deal.style = PartStyle::Transparent;
+    deal.show_name = false;
+    deal.auto_hilite = true;
+    deal.icon = b.stack.find_icon("King of Hearts").unwrap_or(0);
+    b.card_part(c, deal);
+    let colors = b.label(
+        "Color Icons",
+        Rect::new(160, 186, 492, 290),
+        "Icons can also be any size and in color, like this playing card (the deck is Byron Knoll's, in the public domain). Click it to deal another; it darkens while pressed. Add your own icon from a picture file with Add From File in Button Info.",
+        12,
+    );
+    b.card_part(c, colors);
 
     // ----- The debugger -----
     let c = b.card(main, "Debugging");

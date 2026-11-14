@@ -593,7 +593,9 @@ end gotData
 The `examples/` folder has three stacks built on these: ICNDB (a REST
 client for one service), PostCard (a small Postman), and Swatches (colors
 looked up, converted and explained with The Color API, and a tour of
-RandomCard's color features and sliders).
+RandomCard's color features and sliders). Solitaire, beside them, plays
+FreeCell with playing cards as color icons, dragged with `the mouse` and
+`the mouseLoc`.
 
 ### Modern controls
 
@@ -626,6 +628,12 @@ end sliderChanged
 
 - **Combo boxes:** a field's `choices` (one a line) put a ▼ in it; picking
   one fills the field, which can still be typed into.
+- **Icons of any size, in color:** HyperCard's icons are 32×32 and black
+  and white; RandomCard's can be any size and in color, and are drawn at
+  their own size. Add one from a PNG, JPEG, GIF or BMP file with Add From
+  File in Button Info; it's named for the file. `set the icon of me to
+  "King of Hearts"` picks it by name, as for any icon. Pressed, a color
+  icon darkens, where a black-and-white one reverses.
 
 ### Fields
 
@@ -633,6 +641,13 @@ end sliderChanged
   works as usual, but opens empty.
 - **Colors:** `foreColor`, `backColor` and `borderColor` of buttons and
   fields, and `foreColor` of any chunk of a field.
+
+### Parts
+
+- **Layering:** `set the partNumber of button "Ace" to 200` moves a part
+  in front of the others on its card or background; 1 is the back, and a
+  number past the last is the front. Parts are drawn in this order, so a
+  script can bring what it's dragging to the front.
 
 ### Painting and pictures
 

@@ -350,12 +350,18 @@ fn draw_button(c: &mut Canvas, stack: &Stack, card: Id, layer: Layer, p: &Part) 
     if has_icon {
         let label_lines =
             (p.show_name && !label.is_empty()).then(|| one_line(TextAlign::Left, &label, 9, "Geneva", "plain", 0.0));
-        let block = 32.0 + label_lines.as_ref().map_or(2.0, |l| 2.0 + l[0].height);
+        // An icon is drawn at its own size (HyperCard's are 32×32).
+        let icon = stack.icons.get(&p.icon);
+        let (iw, ih) = icon.map_or((32.0, 32.0), |i| (i.picture.width as f32, i.picture.height as f32));
+        let block = ih + label_lines.as_ref().map_or(2.0, |l| 2.0 + l[0].height);
         let top = (cy - block / 2.0 + 1.0).floor();
-        let left = ((r.left + r.right) as f32 / 2.0 - 16.0).floor();
-        if let Some(icon) = stack.icons.get(&p.icon) {
+        let left = ((r.left + r.right) as f32 / 2.0 - iw / 2.0).floor();
+        if let Some(icon) = icon {
             let mut pic = icon.picture.clone();
-            if hilite {
+            if hilite && pic.has_color() {
+                // A color icon darkens, as on the screen.
+                pic.map(|Pixel([r, g, b, a])| Pixel::rgba((r as u16 * 3 / 5) as u8, (g as u16 * 3 / 5) as u8, (b as u16 * 3 / 5) as u8, a));
+            } else if hilite {
                 pic.map(|px| match px {
                     Pixel::BLACK => Pixel::WHITE,
                     Pixel::WHITE => Pixel::BLACK,
@@ -372,10 +378,10 @@ fn draw_button(c: &mut Canvas, stack: &Stack, card: Id, layer: Layer, p: &Part) 
                 TextAlign::Center => ((r.left + r.right) as f32 / 2.0 - w / 2.0).floor(),
             };
             if p.style == PartStyle::Transparent {
-                let y = top + 33.0;
+                let y = top + ih + 1.0;
                 c.fill_rect(Rect::new(x as i32 - 2, y as i32, (x + w) as i32 + 2, (y + lines[0].height) as i32), WHITE);
             }
-            c.lines(&lines, x, top + 33.0, fg);
+            c.lines(&lines, x, top + ih + 1.0, fg);
         }
         return;
     }

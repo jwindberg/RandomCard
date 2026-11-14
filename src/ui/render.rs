@@ -268,9 +268,20 @@ impl Textures {
             }
             let normal = picture_image(&icon.picture);
             let mut inverted = normal.clone();
+            // HyperCard's black-and-white icons reverse when hilited; a
+            // color icon darkens instead, as a pressed button does today.
+            let color = icon.picture.has_color();
             for px in &mut inverted.pixels {
                 if px.a() > 0 {
-                    *px = if *px == BLACK { WHITE } else { BLACK };
+                    *px = if color {
+                        let [r, g, b, a] = px.to_array();
+                        let dark = |c: u8| (c as u16 * 3 / 5) as u8;
+                        Color32::from_rgba_premultiplied(dark(r), dark(g), dark(b), a)
+                    } else if *px == BLACK {
+                        WHITE
+                    } else {
+                        BLACK
+                    };
                 }
             }
             let opts = TextureOptions::NEAREST;
@@ -832,19 +843,23 @@ fn draw_slider(painter: &Painter, p: &Part, rect: Rect, pressed: bool) {
 pub const ICON_SIZE: f32 = 32.0;
 
 /// HyperCard's icon button layout: the icon and a 9-point name beneath it,
-/// centered together. A missing icon leaves its space empty, as in HyperCard.
+/// centered together. An icon is drawn at its own size: HyperCard's are
+/// 32×32, and RandomCard's can be any size. A missing icon leaves a 32×32
+/// space empty, as in HyperCard.
 fn draw_icon_and_name(painter: &Painter, tex: &Textures, p: &Part, rect: Rect, inverted: bool, fg: Color32, fill: Color32) {
     let label_part = Part { text_size: 9, text_style: "plain".into(), text_font: "Geneva".into(), ..p.clone() };
     let label = (p.show_name && !p.name.is_empty()).then(|| {
         painter.layout_job(label_job(painter.ctx(), &label_part, &p.name, fg))
     });
+    let texture = tex.icon(p.icon, inverted);
+    let size = texture.map_or(Vec2::splat(ICON_SIZE), |t| t.size_vec2());
     let block_h = match &label {
-        Some(g) => ICON_SIZE + 1.0 + g.size().y + 1.0,
-        None => ICON_SIZE + 2.0,
+        Some(g) => size.y + 1.0 + g.size().y + 1.0,
+        None => size.y + 2.0,
     };
     let top = (rect.top() + rect.height() / 2.0 - block_h / 2.0 + 1.0).floor();
-    let icon_rect = Rect::from_min_size(Pos2::new((rect.center().x - ICON_SIZE / 2.0).floor(), top), Vec2::splat(ICON_SIZE));
-    if let Some(t) = tex.icon(p.icon, inverted) {
+    let icon_rect = Rect::from_min_size(Pos2::new((rect.center().x - size.x / 2.0).floor(), top), size);
+    if let Some(t) = texture {
         let tint = if p.enabled { WHITE } else { Color32::from_white_alpha(110) };
         painter.image(t.id(), icon_rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), tint);
     }

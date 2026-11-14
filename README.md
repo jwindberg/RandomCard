@@ -149,7 +149,9 @@ autoHilite and enabled. A popup's lines are its menu: clicking it shows the
 menu, choosing an item sends `mouseUp`, and `the selectedText of button 1`
 reports the choice. A slider, which HyperCard never had, is a button too:
 its contents is its value, from `the min` to `the max` in steps of `the
-step`, and dragging it sends `sliderMoved`, then `sliderChanged`. Field styles: transparent, opaque, rectangle, shadow and scrolling,
+step`, and dragging it sends `sliderMoved`, then `sliderChanged`. A
+button's icon can be HyperCard's 32×32 black and white, or a picture of
+any size in color, added from a file in Button Info. Field styles: transparent, opaque, rectangle, shadow and scrolling,
 with lockText, dontWrap, showLines, wideMargins, text font, size, style and
 alignment. Locked fields with autoSelect are list fields: a click selects
 the whole line, and with multipleLines Shift-click extends the selection.
@@ -365,6 +367,9 @@ guides:
   Pierre Lorenzi's HyperCard stack viewer (MIT License). The stack importer
   follows its file-format layouts and WyldCard's, `src/import/woba.rs`
   is a port of its WOBA bitmap decoder, and icon masks follow its method.
+- [Vector Playing Cards](https://code.google.com/archive/p/vector-playing-cards/)
+  by Byron Knoll, version 1.3, released into the public domain. The Tour's
+  playing cards (`src/model/tour_cards/`) are small copies of his.
 
 To test the importer against real stacks, point it at HyperCardPreview's
 sample files:

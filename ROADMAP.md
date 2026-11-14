@@ -202,11 +202,19 @@ text goes from one field to another (by menu, keyboard or `doMenu`).
 ## Buttons
 
 **Missing:**
-- **Creating and editing icons** (an icon editor, or importing images).
-  Icons can be imported and chosen, not drawn.
+- **Drawing and editing icons** (an icon editor). Icons can be imported
+  with stacks, chosen, and added from picture files (any size, in color),
+  but not drawn.
 - **Popup details:** the menu opens with the chosen item roughly over the
   button, but not to the pixel; the title is always drawn left-aligned;
   and `the selectedLine` can't be set (use `select line 2 of button 1`).
+
+**Done beyond HyperCard:** icons of any size, in color (Add From File in
+Button Info), and a settable `partNumber` to bring a part to the front.
+Solitaire (`examples/Solitaire.rcstack`, made by `tools/make_solitaire.py`
+from Byron Knoll's public-domain cards in `reference/`) uses both: FreeCell,
+with Windows FreeCell's numbered deals. Next: more games (Klondike, Spider)
+and card backs, which FreeCell doesn't need.
 
 ## HyperTalk
 
@@ -258,7 +266,9 @@ loaded to come back to.
   left.
 - **Home as HyperCard had it:** its user-level card, search paths and stack
   list. RandomCard keeps the user level in Preferences instead.
-- **Card size** changes (`set the rect of card window`).
+- **Card size** changes (`set the rect of card window`). Opening a stack
+  whose cards don't fit grows the window to fit (up to the screen), but a
+  smaller stack doesn't shrink it.
 
 ## Editing and the UI
 
