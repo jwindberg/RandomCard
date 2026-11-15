@@ -411,6 +411,16 @@ fn demo_stack_runs() {
     assert_eq!(click(&mut i, "Drawing", "FatBits"), None);
     assert_eq!(lock(&i.world).tool, crate::runtime::world::Tool::Pencil);
     run(&mut i, "choose browse tool");
+    // Draw Multiple: rings from one point, and boxes lined up on the grid.
+    assert_eq!(click(&mut i, "Drawing", "Draw Multiple"), None);
+    {
+        let w = lock(&i.world);
+        let pic = &w.stack.card(w.card_id).unwrap().picture;
+        let rings = (430..=470).filter(|x| pic.get(*x, 140) == crate::model::Pixel::BLACK).count();
+        assert!(rings >= 5, "{rings} rings");
+        assert!(!w.multiple && !w.centered && !w.grid);
+    }
+    run(&mut i, "choose browse tool");
     // The Web: JSON read and built on the card, offline; Send asks for a URL.
     run(&mut i, "go to card \"The Web\"");
     assert_eq!(click(&mut i, "The Web", "Read JSON"), None);
@@ -535,6 +545,15 @@ fn demo_stack_runs() {
     i.canned_answers.push(DialogReply::Button("OK".into()));
     assert_eq!(click(&mut i, "Palettes", "Ask Home"), None);
     assert_eq!(current(&i), "Palettes");
+    // The palette moved and put back, then shown with `show pattern window`.
+    lock(&i.world).palette_state.rect = crate::model::Rect::new(10, 60, 146, 256);
+    assert_eq!(click(&mut i, "Palettes", "Move the Tools"), None);
+    assert_eq!(run(&mut i, "put the loc of tool window"), "10,60");
+    assert!(run(&mut i, "put field \"Said\"").contains("went from 10,60"));
+    assert_eq!(click(&mut i, "Palettes", "Hide the Tools"), None);
+    assert_eq!(run(&mut i, "put the visible of pattern window"), "false");
+    assert_eq!(click(&mut i, "Palettes", "Show the Tools"), None);
+    assert_eq!(run(&mut i, "put the visible of tool window"), "true");
     lock(&i.world).home_path = None;
     std::fs::remove_dir_all(&home_dir).ok();
     assert_eq!(click(&mut i, "Contents", "Dice & Effects"), None);
@@ -776,6 +795,43 @@ fn script_painting() {
     drop(w);
     assert_eq!(run(&mut i, "put the pattern & \",\" & the textSize & \",\" & the tool"), "1,24,text tool");
     assert_eq!(run(&mut i, "set the polySides to 6\nset the brush to 9\nput the polySides && the brush"), "6 9");
+}
+
+#[test]
+fn paint_options() {
+    use crate::model::Pixel;
+    let mut i = interp_with(stack());
+    let pixel = |i: &Interp, x: i32, y: i32| lock(&i.world).stack.cards[0].picture.get(x, y);
+    let clear = |i: &mut Interp| run(i, "choose line tool\ndoMenu \"Clear Picture\"");
+    // The Options menu turns its settings on and off, and the properties say so.
+    assert_eq!(run(&mut i, "put the grid && the centered && the multiple && the powerKeys"), "false false false false");
+    run(&mut i, "doMenu \"Grid\"\ndoMenu \"Draw Centered\"\ndoMenu \"Draw Multiple\"\ndoMenu \"Draw Filled\"");
+    assert_eq!(run(&mut i, "put the grid && the centered && the multiple && the filled"), "true true true true");
+    run(&mut i, "set the grid to false\nset the centered to false\nset the multiple to false\nset the filled to false");
+    // Grid: a line drawn from 13,13 to 61,13 starts and ends on the 8-pixel grid.
+    run(&mut i, "set the grid to true\nchoose line tool\ndrag from 13,13 to 61,13");
+    assert_eq!((pixel(&i, 16, 16), pixel(&i, 64, 16), pixel(&i, 66, 16)), (Pixel::BLACK, Pixel::BLACK, Pixel::CLEAR));
+    run(&mut i, "set the grid to false");
+    clear(&mut i);
+    // Draw Centered: the rectangle grows both ways from where the drag starts.
+    run(&mut i, "set the centered to true\nchoose rectangle tool\ndrag from 100,100 to 120,110");
+    assert_eq!((pixel(&i, 80, 100), pixel(&i, 120, 100), pixel(&i, 100, 90)), (Pixel::BLACK, Pixel::BLACK, Pixel::BLACK));
+    run(&mut i, "set the centered to false");
+    clear(&mut i);
+    // Draw Multiple leaves the shape behind along the drag, multiSpace apart.
+    run(&mut i, "set the multiple to true\nset the multiSpace to 5\nchoose rectangle tool\ndrag from 10,10 to 40,40");
+    let edges = (10..=40).filter(|x| pixel(&i, *x, 25) == Pixel::BLACK).count();
+    assert!(edges >= 6, "{edges}");
+    run(&mut i, "set the multiple to false");
+    // Line Size… asks the UI for its dialog, and Power Keys is kept in Settings.
+    lock(&i.world).requests.clear();
+    i.handle_event(Event::MsgBox("doMenu \"Line Size…\"\ndoMenu \"Power Keys\"".into()));
+    let reqs = std::mem::take(&mut lock(&i.world).requests);
+    assert!(
+        matches!(&reqs[..], [UiRequest::PaintDialog(super::world::PaintDialog::LineSize), UiRequest::SavePowerKeys(true)]),
+        "{reqs:?}"
+    );
+    assert_eq!(run(&mut i, "put the powerKeys"), "true");
 }
 
 #[test]
@@ -1985,11 +2041,19 @@ fn forms_from_apples_stacks() {
     // Variables named like keywords.
     assert_eq!(run(&mut i, "put 5 into to\nput 2 into times\nput to * times"), "10");
     assert_eq!(run(&mut i, "put 2 into where\nput line where of (\"a\" & return & \"b\")"), "b");
-    // Windows, tool windows and the stack's size.
+    // Windows, the palettes and the stack's size.
     assert_eq!(run(&mut i, "put there is a window \"message box\""), "true");
     assert_eq!(run(&mut i, "put there is no window \"Describe Problem\""), "true");
     i.handle_event(Event::MsgBox("hide tool window".into()));
-    assert!(lock(&i.world).requests.drain(..).any(|r| matches!(r, UiRequest::ToolWindow(false))));
+    let palette = |r: &UiRequest| matches!(r, UiRequest::ShowPalette(false));
+    assert!(lock(&i.world).requests.drain(..).any(|r| palette(&r)));
+    assert_eq!(run(&mut i, "put the visible of tool window"), "false");
+    // `pattern window` is the same palette: moving it, its loc is where it went.
+    i.handle_event(Event::MsgBox("show pattern window at 30,200".into()));
+    let moved = |r: &UiRequest| matches!(r, UiRequest::MovePalette(30, 200));
+    assert!(lock(&i.world).requests.drain(..).any(|r| moved(&r)));
+    assert_eq!(run(&mut i, "put the loc of pattern window && the visible of pattern window"), "30,200 true");
+    assert_eq!(run(&mut i, "put the name of window \"Tools\""), "Tools");
     assert_eq!(run(&mut i, "put freeSize of this stack"), "0");
     assert_eq!(run(&mut i, "put size of this stack > 0"), "true");
     // Popping more cards than were pushed gives the Home card.

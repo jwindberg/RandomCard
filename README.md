@@ -117,23 +117,52 @@ HyperCard's own password scheme. A password is then needed to open Protect
 Stack or, through Preferences ▸ Unlock with Password…, to go above the
 limit. Protection stops casual changes. It isn't encryption.
 
-The tool panel sits on the left at Painting level and above. Hide or show
-it with View ▸ Tool Panel or Ctrl+T. The message box opens at the bottom of
+At Painting level and above, the **Tools palette** is a small window of
+its own that stays in front and acts on whichever stack is in front. It
+holds everything for painting, so the menu bar stays the same whichever
+tool you choose. Show or hide it with View ▸ Tools Palette or Ctrl+T; it
+opens again where you last put it. On desktops that can't keep a window in
+front (some Wayland desktops), or on a small screen, Preferences can dock
+it at the window's left instead. The message box opens at the bottom of
 the window. Preferences are saved in `~/.config/randomcard/settings.json`.
 
-**Tools.** Browse, Button, Field, and HyperCard's paint tools: Select,
-Lasso, Pencil, Brush, Eraser, Line, Spray, Rect, Round Rect, Bucket, Oval,
-Curve, Text, Regular Polygon and Polygon. Brush, spray, bucket and filled
-shapes paint with the current pattern from a 40-pattern palette (imported
-stacks bring their own patterns). There are 16 brush shapes, line sizes, a
-Filled option, and the number of sides for regular polygons. The Paint menu
-has Select All, Fill, Invert, Darken, Lighten, Trace Edges, Rotate,
-Flip, Opaque and Transparent, applied to the selection or the whole
-picture. Paint ▸ FatBits (or Command-click with the pencil) magnifies the
-paint eight times to work pixel by pixel, with the same spot at actual size
-in a corner; Option-drag or scroll to move around. Edit ▸ Icon… opens the
-icon editor, to draw a stack's icons pixel by pixel, in color and at any
-size.
+**The Tools palette**, from the top:
+- **Tools.** Browse, Button, Field, and HyperCard's paint tools: Select,
+  Lasso, Pencil, Brush, Eraser, Line, Spray, Rect, Round Rect, Bucket,
+  Oval, Curve, Text, Regular Polygon and Polygon. Double-clicking the Line,
+  Brush or Regular Polygon tool opens its setting below; double-clicking a
+  shape tool switches Draw Filled; double-clicking the pencil turns on
+  FatBits.
+- **Swatches** showing the pattern, the line and fill colors, the line
+  size, the brush and the polygon sides. Click one to unfold its choices
+  below it, as HyperCard's Patterns menu dropped down its patterns: the 40
+  patterns (imported stacks bring their own), a color picker with an
+  eyedropper and the recent colors, 6 line sizes, 16 brush shapes, and
+  polygons from 3 to 12 sides.
+- **HyperCard's Options**, as buttons that show when they're on: Draw
+  Filled, Draw Centered (shapes grow from where you start), Draw Multiple
+  (the shape is left behind as you drag; Option-1 to Option-9 spaces the
+  copies), Grid (lines, shapes and selections snap to 8 pixels) and
+  FatBits, which magnifies the paint eight times to work pixel by pixel,
+  with the same spot at actual size in a corner; Option-drag or scroll to
+  move around. Command-click with the pencil turns it on too.
+- **Paint**, folded until you open it: HyperCard's Paint menu as buttons in
+  its groups, applied to the selection or the whole picture. Select All,
+  Fill, Invert, Darken, Lighten, Trace Edges, Rotate Left and Right, Flip
+  Vertical and Horizontal, Opaque and Transparent work; Select, Pickup,
+  Keep and Revert are in their places, greyed out until they're in.
+
+The palette's buttons choose HyperCard's menu items, so stacks that say
+`doMenu "Fill"` or `doMenu "Draw Filled"`, or catch `doMenu`, work as
+before, and an item a stack disables greys out its button. Scripts move
+and show the palette as HyperCard's: `show tool window at 20,60`, `the loc
+of tool window`, and `show pattern window`, which shows the same palette.
+Power Keys (in Preferences) gives paint commands single keys while the
+message box is hidden: F for Fill, I for Invert, G for Grid, B and W for
+black and white, and the rest of HyperCard's.
+
+Edit ▸ Icon… opens the icon editor, to draw a stack's icons pixel by
+pixel, in color and at any size.
 
 **Editing.** The Edit menu's Cut, Copy, Paste and Clear act on the
 selected button or field (with the Button or Field tool) or the paint
@@ -222,9 +251,8 @@ Windows and "/" elsewhere, so a stack can find its own folder anywhere.
 - Painting in color, beyond HyperCard: `the penColor` (lines, borders, the
   pencil and text) and `the brushColor` (the pattern's set bits: brush,
   spray, bucket and filled shapes), as a name (`red`), `255,128,0` or
-  `#FF8000`. The tool panel has the same two colors, each with a picker
-  and an eyedropper, and recent colors that set whichever of Line or Fill
-  is chosen.
+  `#FF8000`. The palette's line and fill swatches have the same two
+  colors, each with a picker, an eyedropper and the recent colors.
 - Commands: put, get, set, add, subtract, multiply, divide, answer, ask
   (including password and file variants), go (including back and forth),
   find (normal, whole, word, chars and string), sort (lines, items or cards,
@@ -313,7 +341,7 @@ Watcher lists messages as they're sent (`show message watcher` works too).
 
 On a Mac, use ⌘ wherever this says Ctrl. macOS keeps ⌘H (Hide) and ⌘Tab
 (switching apps) for itself, so Home and the Browse tool have no shortcut
-there; use the Go menu and the tool panel. The menus are at the top of the
+there; use the Go menu and the Tools palette. The menus are at the top of the
 screen, so hiding the menu bar (Ctrl+Space) doesn't apply.
 
 | Keys | Action |
@@ -326,7 +354,7 @@ screen, so hiding the menu bar (Ctrl+Space) doesn't apply.
 | Ctrl+B | Edit background |
 | Ctrl+Alt+C / B / S | Card / background / stack script (Scripting level) |
 | Ctrl+Tab | Browse tool |
-| Ctrl+T | Show or hide the tool panel |
+| Ctrl+T | Show or hide the Tools palette |
 | Ctrl+Z, Ctrl+Shift+Z | Undo, redo |
 | Ctrl+. | Abort running script |
 | Ctrl+D | Set or clear a checkpoint (script editor) |
@@ -349,9 +377,9 @@ src/
   runtime/     shared World state, interpreter, objects and properties,
                commands, functions, dates; end-to-end tests
   paint/       raster painting: patterns, brushes, shapes, fills, selections,
-               Paint menu operations, painted text
+               paint operations, painted text
   sound/       note parsing, rendering, built-in voices and audio output
-  ui/          egui app: menus, tool panel, card rendering, transitions,
+  ui/          egui app: menus, palettes, card rendering, transitions,
                paint tools, info dialogs, script editor, user levels
 ```
 

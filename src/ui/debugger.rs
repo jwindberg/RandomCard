@@ -120,7 +120,7 @@ impl App {
 
     fn variable_watcher_window(&mut self, ctx: &egui::Context) {
         let mut open = true;
-        super::windows::tool_window(ctx, egui::Id::unique("variable watcher"), "Variable Watcher", [340.0, 300.0], &mut open, |ui| {
+        super::windows::editor_window(ctx, egui::Id::unique("variable watcher"), "Variable Watcher", [340.0, 300.0], &mut open, |ui| {
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| self.variables(ui, "watcher"));
             ui.label(RichText::new("Click a value to change it; Enter sets it.").weak().small());
         });
@@ -182,7 +182,7 @@ impl App {
     fn message_watcher_window(&mut self, ctx: &egui::Context) {
         let log: Vec<_> = lock(&self.rt.world).message_log.iter().cloned().collect();
         let mut open = true;
-        super::windows::tool_window(ctx, egui::Id::unique("message watcher"), "Message Watcher", [280.0, 360.0], &mut open, |ui| {
+        super::windows::editor_window(ctx, egui::Id::unique("message watcher"), "Message Watcher", [280.0, 360.0], &mut open, |ui| {
             ui.horizontal(|ui| {
                 ui.checkbox(&mut self.hide_frequent_messages, "Hide idle");
                 ui.checkbox(&mut self.hide_unhandled_messages, "Hide unused");

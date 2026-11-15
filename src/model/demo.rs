@@ -607,9 +607,9 @@ end mouseUp"#,
         Rect::new(20, 8, 492, 28),
         &if cfg!(target_os = "macos") {
             // macOS keeps ⌘Tab for switching apps.
-            "Draw with the paint tools on the left. The hand gets you back.".to_string()
+            "Draw with the paint tools in the Tools palette. The hand gets you back.".to_string()
         } else {
-            format!("Draw with the paint tools on the left. The hand (or {}) gets you back.", shortcut("Tab"))
+            format!("Draw with the paint tools in the Tools palette. The hand (or {}) gets you back.", shortcut("Tab"))
         },
         12,
     );
@@ -752,6 +752,38 @@ end mouseUp"#,
         "on mouseUp\n  choose pencil tool\n  doMenu \"FatBits\"\n  put \"FatBits: draw pixel by pixel. Alt-drag or scroll to move around; choose FatBits again, or the hand, to stop.\"\nend mouseUp",
     );
     b.card_part(c, Part { style: PartStyle::Standard, ..fat });
+    // HyperCard's Options: Draw Multiple and Draw Centered together leave
+    // rings growing out from one point, and Grid lines things up.
+    let options = b.button(
+        "Draw Multiple",
+        Rect::new(20, 70, 140, 92),
+        r#"
+on mouseUp
+  put the filled into oldFilled
+  put the lineSize into oldSize
+  choose oval tool
+  set the filled to false
+  set the lineSize to 1
+  set the multiple to true
+  set the centered to true
+  set the multiSpace to 4
+  drag from "430,140" to "470,160"
+  set the multiple to false
+  set the centered to false
+  choose rectangle tool
+  set the grid to true
+  -- Off by a few pixels each, but the grid lines them up.
+  drag from "27,103" to "46,121"
+  drag from "51,101" to "69,122"
+  drag from "75,105" to "94,120"
+  set the grid to false
+  set the lineSize to oldSize
+  set the filled to oldFilled
+  choose oval tool
+  put "Draw Multiple, Draw Centered and Grid are buttons on the Tools palette, under the swatches. With Power Keys on, M, C and G turn them on and off." into msg
+end mouseUp"#,
+    );
+    b.card_part(c, Part { style: PartStyle::Standard, ..options });
 
     // ----- Animation -----
     // A small state machine in the card's script: whether the ball is
@@ -1364,7 +1396,7 @@ end mouseUp"#,
     let about = b.label(
         "About",
         Rect::new(20, 42, 492, 90),
-        "A palette floats over the cards, and each of its buttons sends a message. HyperCard stacks keep theirs as resources, and RandomCard brings them along. Show this one, then go to another card: it stays.",
+        "A palette floats over the cards, and each of its buttons sends a message. HyperCard stacks keep theirs as resources, and RandomCard brings them along. Show this one, then go to another card: it stays. Scripts move the Tools palette too.",
         12,
     );
     b.card_part(c, about);
@@ -1376,6 +1408,23 @@ end mouseUp"#,
     for (i, (name, script)) in palette_buttons.iter().enumerate() {
         let y = 110 + i as i32 * 38;
         let p = b.button(name, Rect::new(36, y, 176, y + 28), script);
+        b.card_part(c, p);
+    }
+    // RandomCard's own palette, moved and shown by scripts as HyperCard's
+    // Tools palette was.
+    let own_palettes = [
+        (
+            "Move the Tools",
+            "on mouseUp\n  put the loc of tool window into oldLoc\n  show tool window at (item 1 of oldLoc + 120) & \",\" & (item 2 of oldLoc + 40)\n  wait 1 second\n  show tool window at oldLoc\n  put \"The Tools palette went from\" && oldLoc && \"and back: show tool window at, or set its loc.\" into field \"Said\"\nend mouseUp",
+        ),
+        (
+            "Hide the Tools",
+            "on mouseUp\n  if the visible of tool window then\n    hide tool window\n    set the name of me to \"Show the Tools\"\n    put \"hide tool window (or Ctrl+T)\" into field \"Said\"\n  else\n    show tool window\n    set the name of me to \"Hide the Tools\"\n    put \"show tool window: HyperCard's show pattern window shows it too\" into field \"Said\"\n  end if\nend mouseUp",
+        ),
+    ];
+    for (i, (name, script)) in own_palettes.iter().enumerate() {
+        let y = 110 + i as i32 * 38;
+        let p = b.button(name, Rect::new(196, y, 336, y + 28), script);
         b.card_part(c, p);
     }
     let mut said = b.label("Said", Rect::new(36, 200, 476, 222), "", 12);

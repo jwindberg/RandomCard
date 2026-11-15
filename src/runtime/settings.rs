@@ -12,17 +12,31 @@ use crate::model::Stack;
 pub struct Settings {
     /// The user level RandomCard runs at: 1 Browsing … 5 Scripting.
     pub user_level: u8,
-    /// Whether the tool panel is shown (when the user level allows tools).
+    /// Whether the palette is shown (when the user level allows tools).
     pub show_tools: bool,
+    /// The palette docked at the window's left instead of in a window of
+    /// its own (for desktops that can't keep it on top).
+    pub dock_palette: bool,
+    /// Where the palette was last, on screen.
+    pub palette_at: Option<[f32; 2]>,
     /// The folder a stack was last opened, imported or made in, where the
     /// next Open Stack dialog starts.
     pub stack_folder: Option<PathBuf>,
+    /// The Options menu's Power Keys: single keys for paint commands.
+    pub power_keys: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         // Like the full HyperCard: scripting level, tools at hand.
-        Settings { user_level: 5, show_tools: true, stack_folder: None }
+        Settings {
+            user_level: 5,
+            show_tools: true,
+            dock_palette: false,
+            palette_at: None,
+            stack_folder: None,
+            power_keys: false,
+        }
     }
 }
 

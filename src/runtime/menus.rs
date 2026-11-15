@@ -74,7 +74,8 @@ pub fn item_key(name: &str) -> String {
 /// enable, disable and delete them, as Apple's stacks do, but the menus don't
 /// show them.
 pub const SCRIPT_ONLY_ITEMS: &[&str] = &[
-    "page setup", "print report", "text style", "icon", "audio", "help", "scroll", "next window",
+    "page setup", "print report", "text style", "icon", "audio", "help", "scroll", "next window", "edit pattern",
+    "rotate", "slant", "distort", "perspective",
 ];
 
 /// RandomCard's standard menu bar, in HyperCard's order.
@@ -86,8 +87,13 @@ pub fn standard_menus() -> Vec<Menu> {
     style.extend(styles::SIZES.iter().map(|s| format!("{s} Point")));
     style.extend(["-".into(), "Text Color…".into()]);
     let style: Vec<&str> = style.iter().map(String::as_str).collect();
-    let paint: Vec<&str> =
-        ["Select All", "FatBits", "-"].into_iter().chain(crate::paint::PaintOp::ALL.iter().map(|op| op.name())).collect();
+    // HyperCard's Paint menu, in its order. RandomCard shows these and the
+    // Options menu on the Tools palette instead of in the menu bar; they're
+    // kept here for scripts' doMenu, and for stacks that change them.
+    let paint = [
+        "Select", "Select All", "-", "Fill", "Invert", "Pickup", "Darken", "Lighten", "Trace Edges", "Rotate Left",
+        "Rotate Right", "Flip Vertical", "Flip Horizontal", "-", "Opaque", "Transparent", "-", "Keep", "Revert",
+    ];
     vec![
         Menu::builtin(
             "File",
@@ -143,10 +149,32 @@ pub fn standard_menus() -> Vec<Menu> {
             "Go",
             &["Back", "Home", "Help", "Recent", "-", "First", "Prev", "Next", "Last", "-", "Find…", "Message", "Scroll", "Next Window"],
         ),
-        Menu::builtin("View", &["Tool Panel", "Message Box", "-", "Message Watcher", "Variable Watcher"]),
+        Menu::builtin("View", &["Tools Palette", "Message Box", "-", "Message Watcher", "Variable Watcher"]),
         Menu::builtin("Font", &fonts),
         Menu::builtin("Style", &style),
         Menu::builtin("Paint", &paint),
+        Menu::builtin(
+            "Options",
+            &[
+                "Grid",
+                "FatBits",
+                "Power Keys",
+                "-",
+                "Line Size…",
+                "Brush Shape…",
+                "Edit Pattern…",
+                "Polygon Sides…",
+                "-",
+                "Draw Filled",
+                "Draw Centered",
+                "Draw Multiple",
+                "-",
+                "Rotate",
+                "Slant",
+                "Distort",
+                "Perspective",
+            ],
+        ),
         Menu::builtin(
             "Objects",
             &[

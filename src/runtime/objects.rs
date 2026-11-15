@@ -441,8 +441,12 @@ impl Interp {
             "textstyle" => w.paint_text_style.clone(),
             "cursor" => "1".into(),
             "dragspeed" => "0".into(),
-            "textarrows" | "blindtyping" | "powerkeys" | "usermodify" => "true".into(),
-            "lockrecent" | "grid" | "centered" | "multiple" | "messagewatcher" | "variablewatcher" => {
+            "textarrows" | "blindtyping" | "usermodify" => "true".into(),
+            "powerkeys" => bool_str(w.power_keys),
+            "grid" => bool_str(w.grid),
+            "centered" => bool_str(w.centered),
+            "multiple" => bool_str(w.multiple),
+            "lockrecent" | "messagewatcher" | "variablewatcher" => {
                 "false".into()
             }
             "language" => "English".into(),
@@ -476,6 +480,10 @@ impl Interp {
             "brush" => self.w().brush = to_int(v)?.clamp(1, 32) as u32,
             "polysides" => self.w().poly_sides = to_int(v)?.clamp(3, 50) as u32,
             "multispace" => self.w().multi_space = to_int(v)?.max(1) as u32,
+            "grid" => self.w().grid = to_bool(v)?,
+            "centered" => self.w().centered = to_bool(v)?,
+            "multiple" => self.w().multiple = to_bool(v)?,
+            "powerkeys" => self.w().power_keys = to_bool(v)?,
             // The paint colors: lines and text, and the pattern.
             "pencolor" | "brushcolor" => {
                 let Some([r, g, b]) = crate::model::color::parse_color(v) else {
@@ -503,8 +511,8 @@ impl Interp {
                 }
             }
             "tracedelay" => self.w().trace_delay = to_int(v)?.clamp(0, 600) as u32,
-            "cursor" | "dragspeed" | "textarrows" | "blindtyping" | "powerkeys" | "usermodify"
-            | "lockrecent" | "grid" | "centered" | "multiple" | "language" | "messagewatcher"
+            "cursor" | "dragspeed" | "textarrows" | "blindtyping" | "usermodify"
+            | "lockrecent" | "language" | "messagewatcher"
             | "variablewatcher" | "textalign" | "textheight" | "scripttextfont" | "scripttextsize" | "debugger"
             | "scripteditor" => {}
             _ => return err(format!("No such property \"{name}\"")),

@@ -426,6 +426,33 @@ pub enum KeyAction {
     Nothing,
 }
 
+/// Whether a script names RandomCard's palette. HyperCard had a Tools
+/// palette (`tool window`) and a Patterns palette (`pattern window`);
+/// RandomCard has one palette with the tools, patterns and colors, which
+/// both names mean.
+pub fn is_palette_name(name: &str) -> bool {
+    matches!(
+        name.trim().to_ascii_lowercase().as_str(),
+        "tool" | "tools" | "tool window" | "tools window" | "pattern" | "patterns" | "pattern window" | "patterns window"
+    )
+}
+
+/// A palette as the UI last showed it, for scripts to read.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PaletteState {
+    pub visible: bool,
+    /// Its rect on screen, in global coordinates.
+    pub rect: crate::model::Rect,
+}
+
+/// The Options menu's dialogs for paint settings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PaintDialog {
+    LineSize,
+    BrushShape,
+    PolygonSides,
+}
+
 /// Things only the UI thread can do, requested by scripts or menu commands.
 #[derive(Clone, Debug)]
 pub enum UiRequest {
@@ -457,7 +484,7 @@ pub enum UiRequest {
     /// A Paint menu command, applied to the selection (or the whole picture).
     PaintOp(crate::paint::PaintOp),
     SelectAll,
-    /// Paint ▸ FatBits: magnify the paint, or stop.
+    /// Options ▸ FatBits: magnify the paint, or stop.
     FatBits,
     /// Edit ▸ Icon…: the icon editor, on the selected button's icon.
     IconEditor,
@@ -470,7 +497,8 @@ pub enum UiRequest {
     ExportPaint(std::path::PathBuf),
     ProtectStack,
     Preferences,
-    ToggleToolPanel,
+    /// View ▸ Tools Palette.
+    TogglePalette,
     /// Show the Recent dialog.
     Recent,
     /// Put the cursor in the message box at this character.
@@ -478,14 +506,21 @@ pub enum UiRequest {
     /// Show or hide the message or variable watcher.
     MessageWatcher(bool),
     VariableWatcher(bool),
-    /// Show or hide the tool panel (`show tool window`).
-    ToolWindow(bool),
+    /// Show or hide a palette (`show tool window`, `hide pattern window`).
+    ShowPalette(bool),
+    /// Move a palette's top left corner to this point on screen
+    /// (`set the loc of tool window`).
+    MovePalette(i32, i32),
     /// Move the window so the card's top left corner is at this point on screen.
     MoveWindow(i32, i32),
     /// Open a URL, such as a `mailto:` message, in the program that handles it.
     OpenUrl(String),
     /// Keep this user level in Settings: it was set from the Home stack.
     SaveUserLevel(u8),
+    /// Keep the Power Keys option in Settings: it was chosen in the Options menu.
+    SavePowerKeys(bool),
+    /// Show the Line Size, Brush Shape or Polygon Sides dialog.
+    PaintDialog(PaintDialog),
     /// Ask for the user's attention while RandomCard is in the background
     /// (Notification): the Dock icon bounces, the taskbar entry flashes.
     Attention,
@@ -569,6 +604,8 @@ pub struct World {
     pub requests: Vec<UiRequest>,
     /// Text windows scripts have opened (TEXWindow), in front last.
     pub script_windows: Vec<ScriptWindow>,
+    /// The palette, as the UI shows it.
+    pub palette_state: PaletteState,
     /// Where each palette was last shown, by lowercased name, so the
     /// `palette` command without a point puts it back there.
     pub palette_locs: HashMap<String, (i32, i32)>,
@@ -597,6 +634,12 @@ pub struct World {
     pub poly_sides: u32,
     /// The space between shapes drawn with Draw Multiple (`the multiSpace`).
     pub multi_space: u32,
+    /// The Options menu's settings: Grid (`the grid`), Draw Centered
+    /// (`the centered`), Draw Multiple (`the multiple`), and Power Keys.
+    pub grid: bool,
+    pub centered: bool,
+    pub multiple: bool,
+    pub power_keys: bool,
     /// The paint colors: lines, borders, the pencil and text
     /// (`the penColor`), and the pattern's set bits (`the brushColor`).
     pub line_color: crate::model::Pixel,
@@ -805,6 +848,7 @@ impl World {
             picture_rev: 0,
             requests: Vec::new(),
             script_windows: Vec::new(),
+            palette_state: Default::default(),
             palette_locs: HashMap::new(),
             zoom: None,
             dialog: None,
@@ -822,6 +866,10 @@ impl World {
             brush: 3,
             poly_sides: 4,
             multi_space: 1,
+            grid: false,
+            centered: false,
+            multiple: false,
+            power_keys: false,
             line_color: crate::model::Pixel::BLACK,
             fill_color: crate::model::Pixel::BLACK,
             paint_font: "Geneva".into(),
@@ -1206,6 +1254,7 @@ impl World {
             pattern: self.stack.pattern(self.pattern),
             brush: self.brush,
             poly_sides: self.poly_sides,
+            centered: self.centered,
             line_color: self.line_color,
             fill_color: self.fill_color,
         }

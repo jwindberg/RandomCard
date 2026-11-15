@@ -379,6 +379,36 @@ impl Axis {
     }
 }
 
+/// With Draw Centered, where a line or shape really starts: as far before
+/// the drag's start as its end is after it. A regular polygon always grows
+/// from its center, and freehand tools aren't affected.
+pub fn centered_start(tool: DragTool, a: (i32, i32), b: (i32, i32)) -> (i32, i32) {
+    match tool {
+        DragTool::Line | DragTool::Rect | DragTool::RoundRect | DragTool::Oval => (2 * a.0 - b.0, 2 * a.1 - b.1),
+        _ => a,
+    }
+}
+
+/// HyperCard's Grid: points snap to an invisible grid 8 pixels apart.
+pub const GRID: i32 = 8;
+
+pub fn snap_grid(p: (i32, i32)) -> (i32, i32) {
+    let snap = |v: i32| (v + GRID / 2).div_euclid(GRID) * GRID;
+    (snap(p.0), snap(p.1))
+}
+
+/// The tools Grid, Draw Centered and Draw Multiple work with: the line and
+/// the shapes.
+pub fn shape_tool(tool: DragTool) -> bool {
+    matches!(tool, DragTool::Line | DragTool::Rect | DragTool::RoundRect | DragTool::Oval | DragTool::RegularPolygon)
+}
+
+/// With Draw Multiple, whether a drag that last left a copy at `last` and is
+/// now at `p` has gone far enough to leave another: `the multiSpace` pixels.
+pub fn multiple_due(last: (i32, i32), p: (i32, i32), space: u32) -> bool {
+    (p.0 - last.0).abs().max((p.1 - last.1).abs()) >= space.max(1) as i32
+}
+
 /// Where a Shift-drag with `tool` from `a` to `b` really ends. The
 /// freehand tools keep their own Axis, since it's chosen at the start.
 pub fn constrain(tool: DragTool, a: (i32, i32), b: (i32, i32)) -> (i32, i32) {
@@ -624,6 +654,8 @@ pub struct Settings {
     pub pattern: [u8; 8],
     pub brush: u32,
     pub poly_sides: u32,
+    /// Draw Centered: lines and shapes grow from where the drag started.
+    pub centered: bool,
     /// The pencil, lines, shape borders and text (`the penColor`).
     pub line_color: Pixel,
     /// The pattern's set bits: brush, spray, bucket and shape interiors
@@ -663,6 +695,7 @@ pub enum DragTool {
 /// Paint a whole drag of a tool from `a` to `b` (straight, for freehand
 /// tools). Used for shape tools when the mouse is released, and by scripts.
 pub fn apply_drag(pic: &mut Picture, tool: DragTool, a: (i32, i32), b: (i32, i32), s: &Settings) {
+    let a = if s.centered { centered_start(tool, a, b) } else { a };
     match tool {
         DragTool::Pencil => {
             let color = pencil_color(pic, a.0, a.1, s.line_color);
@@ -779,7 +812,7 @@ mod tests {
         assert_eq!(brush_shape(6).len(), 4);
         assert_eq!(brush_shape(17), brush_shape(1));
         let mut p = Picture::new(20, 20);
-        let s = Settings { line_size: 1, filled: false, pattern: [0xff; 8], brush: 10, poly_sides: 4, line_color: Pixel::BLACK, fill_color: Pixel::BLACK };
+        let s = Settings { line_size: 1, filled: false, pattern: [0xff; 8], brush: 10, poly_sides: 4, centered: false, line_color: Pixel::BLACK, fill_color: Pixel::BLACK };
         apply_drag(&mut p, DragTool::Brush, (10, 10), (10, 10), &s);
         assert_eq!((p.get(6, 10), p.get(10, 11)), (Pixel::BLACK, Pixel::CLEAR));
     }
@@ -788,7 +821,7 @@ mod tests {
     fn painting_in_color() {
         let red = Pixel::rgba(220, 30, 30, 255);
         let blue = Pixel::rgba(30, 60, 220, 255);
-        let s = Settings { line_size: 2, filled: true, pattern: DEFAULT_PATTERNS[2], brush: 1, poly_sides: 4, line_color: blue, fill_color: red };
+        let s = Settings { line_size: 2, filled: true, pattern: DEFAULT_PATTERNS[2], brush: 1, poly_sides: 4, centered: false, line_color: blue, fill_color: red };
         let mut p = Picture::new(40, 40);
         apply_drag(&mut p, DragTool::Rect, (0, 0), (39, 39), &s);
         // A blue border, and the gray pattern in red and white inside.
