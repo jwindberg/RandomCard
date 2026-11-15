@@ -297,9 +297,8 @@ pub struct Part {
     #[serde(skip_serializing_if = "String::is_empty")]
     pub choices: String,
 
-    // Colors, with LiveCode's names: the text (foreColor), the fill
-    // (backColor) and the frame (borderColor). None is HyperCard's black
-    // and white.
+    // Colors: the text (foreColor), the fill (backColor) and the frame
+    // (borderColor). None is HyperCard's black and white.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fore_color: Option<color::Rgb>,
     #[serde(skip_serializing_if = "Option::is_none")]

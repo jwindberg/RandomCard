@@ -459,8 +459,8 @@ together, and black on white is just the default.
    gives each color its opposite, Trace Edges outlines in the paint's own
    color, and Darken and Lighten still sprinkle black or white. The
    Tour's Drawing card
-   paints balloons in color. Still to come: two-color patterns (a
-   background color for the clear bits), and painting with transparency.
+   paints balloons in color. Still to come: patterns in color (step 7),
+   and painting with transparency.
 3. ~~**Images.**~~ Done: HyperCard 2.x's Import Paint and Export Paint,
    in the File menu with a paint tool and from scripts. Import Paint
    reads PNG, JPEG, GIF and BMP, and old MacPaint and PICT files, and
@@ -472,7 +472,7 @@ together, and black on white is just the default.
    The Tour's Picture Files.
 4. **Colored parts and text.** ~~Fill, text and frame colors for buttons
    and fields in their Info windows and as properties~~ (done: `the
-   foreColor`, `the backColor` and `the borderColor`, LiveCode's names, as
+   foreColor`, `the backColor` and `the borderColor`, as
    HyperCard had none; a hilited part swaps its fill and text colors; the
    Tour's Colors on the Fields card). ~~A color in text style runs~~
    (done: `the foreColor` of a chunk, Style ▸ Text Color…, kept by Copy
@@ -481,6 +481,50 @@ together, and black on white is just the default.
    Color the House). AddColor stays its own layer rather than becoming
    part colors: its commands address items by their place in that list.
 5. **Printing in color**, including AddColor.
+6. **Color tools in place of 1-bit ones.** Some of HyperCard's paint
+   commands were the best a black-and-white screen could do, and don't
+   translate to grays and colors:
+   - **Darken and Lighten** sprinkle black or white dots: speckles on a
+     colored picture, not a darker or lighter one.
+   - **Trace Edges** counts anything not white as paint, so on gray or a
+     photo it outlines the whole selection as one block.
+   - **The bucket** fills one exact color, so on a gradient, photo or scan
+     it stops at the first slightly different pixel and leaves gaps.
+   - **Tight selections** (Select, the lasso) treat white as empty; on a
+     colored background nothing is, so they don't tighten.
+
+   Possible replacements, today's color tools for the same jobs: Darker
+   and Lighter, or a brightness amount (toward black or white, keeping
+   the hue); Blend or Fade (mix the selection into what's under it, or
+   into a color); Tint (a wash of color); Outline where the color changes;
+   a tolerance for the bucket and Fill; a gradient fill; perhaps Blur and
+   Sharpen. Invert, Transparent and the rest work as they are.
+
+   Design questions: one press a step, as in HyperCard, or an amount (a
+   slider, perhaps in the tool options row); in the Paint menu or a
+   color section of the palette; and how far to go. A few well-chosen
+   tools, not an image editor: RandomCard is for stacks, and photos can
+   be edited elsewhere and imported. Old stacks' `doMenu "Darken"`,
+   `"Lighten"` and `"Trace Edges"` keep working, with HyperCard's dots
+   on black-and-white pictures so they look as their authors made them.
+7. **Patterns in color.** A HyperCard pattern is 8×8 bits on or off; its
+   on bits paint in the fill color and its off bits always in white
+   (step 2). Color QuickDraw added full-color pixel patterns beside the
+   old ones, and RandomCard needs the same, in steps:
+   - **Two colors:** a color for the off bits too (navy stripes on
+     yellow), beside the line and fill colors on the palette, with a
+     property for scripts.
+   - **Clear off bits,** so a pattern lays its stripes or dots over what's
+     underneath.
+   - **Full color:** any color in each cell, a tiny tile (brick, wood,
+     gingham). The pattern editor becomes a small painting grid with the
+     color picker.
+   - **Perhaps larger tiles,** 16×16, as 8×8 is tight for detail in color.
+
+   A stack's 40 patterns and `the pattern` as a number keep working, so
+   old stacks see no difference; color patterns are kept with the stack,
+   as edited patterns are. The palette's shape icons already show the
+   current pattern, so they'd show color patterns too.
 
 A new release follows steps 1 and 2.
 
