@@ -752,7 +752,7 @@ end mouseUp"#,
         "on mouseUp\n  choose pencil tool\n  doMenu \"FatBits\"\n  put \"FatBits: draw pixel by pixel. Alt-drag or scroll to move around; choose FatBits again, or the hand, to stop.\"\nend mouseUp",
     );
     b.card_part(c, Part { style: PartStyle::Standard, ..fat });
-    // The Options menu: Draw Multiple and Draw Centered together leave
+    // HyperCard's Options: Draw Multiple and Draw Centered together leave
     // rings growing out from one point, and Grid lines things up.
     let options = b.button(
         "Draw Multiple",
@@ -780,7 +780,7 @@ on mouseUp
   set the lineSize to oldSize
   set the filled to oldFilled
   choose oval tool
-  put "Draw Multiple, Draw Centered and Grid are in the Options menu, with a paint tool chosen. With Power Keys on, M, C and G turn them on and off." into msg
+  put "Draw Multiple, Draw Centered and Grid are buttons on the Tools palette, under the swatches. With Power Keys on, M, C and G turn them on and off." into msg
 end mouseUp"#,
     );
     b.card_part(c, Part { style: PartStyle::Standard, ..options });

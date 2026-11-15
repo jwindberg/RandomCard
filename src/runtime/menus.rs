@@ -87,8 +87,13 @@ pub fn standard_menus() -> Vec<Menu> {
     style.extend(styles::SIZES.iter().map(|s| format!("{s} Point")));
     style.extend(["-".into(), "Text Color…".into()]);
     let style: Vec<&str> = style.iter().map(String::as_str).collect();
-    let paint: Vec<&str> =
-        ["Select All", "-"].into_iter().chain(crate::paint::PaintOp::ALL.iter().map(|op| op.name())).collect();
+    // HyperCard's Paint menu, in its order. RandomCard shows these and the
+    // Options menu on the Tools palette instead of in the menu bar; they're
+    // kept here for scripts' doMenu, and for stacks that change them.
+    let paint = [
+        "Select", "Select All", "-", "Fill", "Invert", "Pickup", "Darken", "Lighten", "Trace Edges", "Rotate Left",
+        "Rotate Right", "Flip Vertical", "Flip Horizontal", "-", "Opaque", "Transparent", "-", "Keep", "Revert",
+    ];
     vec![
         Menu::builtin(
             "File",

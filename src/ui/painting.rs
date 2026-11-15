@@ -116,20 +116,24 @@ const OPTION_TOGGLES: [(&str, &str, &str); 5] = [
     ("FatBits", "🔍", "FatBits: magnify to paint pixel by pixel"),
 ];
 
-/// The Paint menu's commands: item (also the tip) and icon.
-const PAINT_BUTTONS: [(&str, &str); 12] = [
-    ("Select All", "▣"),
-    ("Fill", "▦"),
-    ("Invert", "◑"),
-    ("Darken", "▼"),
-    ("Lighten", "△"),
-    ("Trace Edges", "◌"),
-    ("Rotate Left", "↺"),
-    ("Rotate Right", "↻"),
-    ("Opaque", "■"),
-    ("Flip Horizontal", "⇆"),
-    ("Flip Vertical", "⇅"),
-    ("Transparent", "□"),
+/// The Paint menu's commands in HyperCard's groups: item (also the tip),
+/// icon, and whether RandomCard has it yet.
+const PAINT_GROUPS: [&[(&str, &str, bool)]; 4] = [
+    &[("Select", "⬚", false), ("Select All", "▣", true)],
+    &[
+        ("Fill", "▦", true),
+        ("Invert", "◑", true),
+        ("Pickup", "⊡", false),
+        ("Darken", "▼", true),
+        ("Lighten", "△", true),
+        ("Trace Edges", "◌", true),
+        ("Rotate Left", "↺", true),
+        ("Rotate Right", "↻", true),
+        ("Flip Vertical", "⇅", true),
+        ("Flip Horizontal", "⇆", true),
+    ],
+    &[("Opaque", "■", true), ("Transparent", "□", true)],
+    &[("Keep", "⤓", false), ("Revert", "⤒", false)],
 ];
 
 /// Whether a stack has left one of RandomCard's menu items enabled.
@@ -291,25 +295,32 @@ impl App {
         });
     }
 
-    /// The Paint menu's commands, as buttons: on the selection, or the
-    /// whole picture when nothing is selected.
+    /// The Paint menu's commands, as buttons in HyperCard's groups: on the
+    /// selection, or the whole picture when nothing is selected. The ones
+    /// RandomCard doesn't have yet are in their places, greyed out.
     fn paint_buttons(&mut self, ui: &mut egui::Ui) {
-        let enabled: Vec<bool> = {
-            let w = self.world();
-            PAINT_BUTTONS.iter().map(|(item, _)| menu_item_enabled(&w, item)).collect()
-        };
-        egui::Grid::new("paint-buttons").spacing([2.0, 2.0]).min_col_width(0.0).show(ui, |ui| {
-            for (i, (item, icon)) in PAINT_BUTTONS.iter().enumerate() {
-                let button = egui::Button::new(RichText::new(*icon).size(15.0));
-                let resp = ui.add_enabled_ui(enabled[i], |ui| ui.add_sized([36.0, 24.0], button)).inner;
-                if resp.on_hover_text(*item).clicked() {
-                    self.do_menu(item);
-                }
-                if i % 3 == 2 {
-                    ui.end_row();
-                }
+        let w = self.world();
+        let enabled: Vec<Vec<bool>> =
+            PAINT_GROUPS.iter().map(|g| g.iter().map(|(item, _, has)| *has && menu_item_enabled(&w, item)).collect()).collect();
+        drop(w);
+        for (g, group) in PAINT_GROUPS.iter().enumerate() {
+            if g > 0 {
+                ui.add_space(4.0);
             }
-        });
+            egui::Grid::new(("paint-buttons", g)).spacing([2.0, 2.0]).min_col_width(0.0).show(ui, |ui| {
+                for (i, (item, icon, has)) in group.iter().enumerate() {
+                    let button = egui::Button::new(RichText::new(*icon).size(15.0));
+                    let resp = ui.add_enabled_ui(enabled[g][i], |ui| ui.add_sized([36.0, 24.0], button)).inner;
+                    let tip = if *has { item.to_string() } else { format!("{item}: not yet in RandomCard") };
+                    if resp.on_hover_text(tip.clone()).on_disabled_hover_text(tip).clicked() {
+                        self.do_menu(item);
+                    }
+                    if i % 3 == 2 {
+                        ui.end_row();
+                    }
+                }
+            });
+        }
     }
 
     /// One of the palette's swatches: what's chosen now, drawn. Clicking it

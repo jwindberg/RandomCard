@@ -119,44 +119,50 @@ limit. Protection stops casual changes. It isn't encryption.
 
 At Painting level and above, the **Tools palette** is a small window of
 its own that stays in front and acts on whichever stack is in front. It
-holds the tools, and below them six swatches showing the pattern, the line
-and fill colors, the line size, the brush and the polygon sides; click a
-swatch to pick from its choices, as HyperCard's Patterns menu dropped down
-its patterns. Show or hide the palette with View ▸ Tools Palette or Ctrl+T;
-it opens again where you last put it. Scripts move and show it as
-HyperCard's palettes: `show tool window at 20,60`, `the loc of tool
-window`, and `show pattern window`, which shows the same palette. On
-desktops that can't keep a window in front (some Wayland desktops), or on
-a small screen, Preferences can dock the palette at the window's left
-instead. The message box opens at the bottom of the window. Preferences are saved in `~/.config/randomcard/settings.json`.
+holds everything for painting, so the menu bar stays the same whichever
+tool you choose. Show or hide it with View ▸ Tools Palette or Ctrl+T; it
+opens again where you last put it. On desktops that can't keep a window in
+front (some Wayland desktops), or on a small screen, Preferences can dock
+it at the window's left instead. The message box opens at the bottom of
+the window. Preferences are saved in `~/.config/randomcard/settings.json`.
 
-**Tools.** Browse, Button, Field, and HyperCard's paint tools: Select,
-Lasso, Pencil, Brush, Eraser, Line, Spray, Rect, Round Rect, Bucket, Oval,
-Curve, Text, Regular Polygon and Polygon. Brush, spray, bucket and filled
-shapes paint with the current pattern from a 40-pattern palette (imported
-stacks bring their own patterns). There are 16 brush shapes, line sizes, a
-Filled option, and the number of sides for regular polygons. The Paint menu
-has Select All, Fill, Invert, Darken, Lighten, Trace Edges, Rotate,
-Flip, Opaque and Transparent, applied to the selection or the whole
-picture.
+**The Tools palette**, from the top:
+- **Tools.** Browse, Button, Field, and HyperCard's paint tools: Select,
+  Lasso, Pencil, Brush, Eraser, Line, Spray, Rect, Round Rect, Bucket,
+  Oval, Curve, Text, Regular Polygon and Polygon. Double-clicking the Line,
+  Brush or Regular Polygon tool opens its setting below; double-clicking a
+  shape tool switches Draw Filled; double-clicking the pencil turns on
+  FatBits.
+- **Swatches** showing the pattern, the line and fill colors, the line
+  size, the brush and the polygon sides. Click one to unfold its choices
+  below it, as HyperCard's Patterns menu dropped down its patterns: the 40
+  patterns (imported stacks bring their own), a color picker with an
+  eyedropper and the recent colors, 6 line sizes, 16 brush shapes, and
+  polygons from 3 to 12 sides.
+- **HyperCard's Options**, as buttons that show when they're on: Draw
+  Filled, Draw Centered (shapes grow from where you start), Draw Multiple
+  (the shape is left behind as you drag; Option-1 to Option-9 spaces the
+  copies), Grid (lines, shapes and selections snap to 8 pixels) and
+  FatBits, which magnifies the paint eight times to work pixel by pixel,
+  with the same spot at actual size in a corner; Option-drag or scroll to
+  move around. Command-click with the pencil turns it on too.
+- **Paint**, folded until you open it: HyperCard's Paint menu as buttons in
+  its groups, applied to the selection or the whole picture. Select All,
+  Fill, Invert, Darken, Lighten, Trace Edges, Rotate Left and Right, Flip
+  Vertical and Horizontal, Opaque and Transparent work; Select, Pickup,
+  Keep and Revert are in their places, greyed out until they're in.
 
-The Options menu, as in HyperCard, has Grid (lines, shapes and selections
-snap to 8 pixels), Draw Filled, Draw Centered (shapes grow from where you
-start), and Draw Multiple (the shape is left behind as you drag; Option-1
-to Option-9 spaces the copies). Its Line Size…, Brush Shape… and Polygon
-Sides… show the choices to click; double-clicking the Line, Brush or
-Regular Polygon tool does the same, and double-clicking a shape tool
-switches Draw Filled. The palettes hold what you paint with, and the
-Options menu how it's drawn, so each setting has one place.
-Power Keys (in the Options menu or Preferences) gives paint commands single
-keys while the message box is hidden: F for Fill, I for Invert, G for Grid,
-B and W for black and white, and the rest of HyperCard's.
+The palette's buttons choose HyperCard's menu items, so stacks that say
+`doMenu "Fill"` or `doMenu "Draw Filled"`, or catch `doMenu`, work as
+before, and an item a stack disables greys out its button. Scripts move
+and show the palette as HyperCard's: `show tool window at 20,60`, `the loc
+of tool window`, and `show pattern window`, which shows the same palette.
+Power Keys (in Preferences) gives paint commands single keys while the
+message box is hidden: F for Fill, I for Invert, G for Grid, B and W for
+black and white, and the rest of HyperCard's.
 
-Options ▸ FatBits (or Command-click with the pencil) magnifies the
-paint eight times to work pixel by pixel, with the same spot at actual size
-in a corner; Option-drag or scroll to move around. Edit ▸ Icon… opens the
-icon editor, to draw a stack's icons pixel by pixel, in color and at any
-size.
+Edit ▸ Icon… opens the icon editor, to draw a stack's icons pixel by
+pixel, in color and at any size.
 
 **Editing.** The Edit menu's Cut, Copy, Paste and Clear act on the
 selected button or field (with the Button or Field tool) or the paint
@@ -371,7 +377,7 @@ src/
   runtime/     shared World state, interpreter, objects and properties,
                commands, functions, dates; end-to-end tests
   paint/       raster painting: patterns, brushes, shapes, fills, selections,
-               Paint menu operations, painted text
+               paint operations, painted text
   sound/       note parsing, rendering, built-in voices and audio output
   ui/          egui app: menus, palettes, card rendering, transitions,
                paint tools, info dialogs, script editor, user levels

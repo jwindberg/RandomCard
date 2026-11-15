@@ -44,7 +44,8 @@ pub struct PaintOptions {
 impl MenuState {
     pub fn menu_shown(&self, menu: &str) -> bool {
         match menu {
-            "Paint" | "Options" => self.tool.is_paint(),
+            // On the Tools palette instead.
+            "Paint" | "Options" => false,
             "Font" | "Style" => self.text_style.is_some(),
             "Objects" => self.editing >= 4,
             _ => true,

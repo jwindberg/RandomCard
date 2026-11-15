@@ -62,7 +62,7 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 | HyperTalk commands and functions | Most; gaps below |
 | System messages | Mouse, navigation, keyboard, `idle`, `doMenu`; all commands interceptable |
 | Browse, Button and Field tools | Working, with clipboard and undo |
-| Paint tools | All 18 tools, the Tools palette with its swatches, the Paint and Options menus, FatBits |
+| Paint tools | All 18 tools, and the Tools palette with HyperCard's patterns, Paint and Options, and FatBits |
 | Fields | Styled text, the selection, click functions, list fields |
 | Visual effects | Complete |
 | Sound | `play`, notes, `dial`, `beep`; no MACE |
@@ -87,7 +87,7 @@ same.
 | --- | --- | --- |
 | 1 | Browsing | Clicking buttons and navigating; fields can't be typed in |
 | 2 | Typing | Typing and editing text in fields |
-| 3 | Painting | The paint tools and palettes, and the Paint and Options menus |
+| 3 | Painting | The paint tools and the Tools palette |
 | 4 | Authoring | The Button and Field tools, the Objects menu and Info dialogs |
 | 5 | Scripting | Opening and editing scripts |
 
@@ -145,7 +145,9 @@ menu bar or replace HyperCard's menus with their own.
 - The demo Address Book sets Typing level on `openBackground` and restores
   the level when you leave.
 
-- **The Options menu** while a paint tool is chosen, as in HyperCard.
+- **HyperCard's Paint and Options menus on the Tools palette,** so the
+  menu bar doesn't change with the tool. They're still menus behind the
+  scenes, for scripts' `doMenu` and stacks that change them.
 
 **What protection can and can't do.** It keeps a stack's users from
 changing it by accident or casually. It isn't security: a `.rcstack` file
@@ -169,13 +171,14 @@ text, multi-level undo and redo, and script-driven painting with `drag`,
   another card, or quitting; until then Revert threw them all away
   (unlike Undo, which takes back only the last change). RandomCard saves
   paint changes as they're made, so it has neither yet.
-- **Paint menu:** Pickup and Scale. (Shift-constrained drawing is done:
-  straight strokes, lines and polygon sides at multiples of 15°, squares
-  and circles, straight moves of a selection, and `drag … with shiftKey`.
-  So are the Options menu's Grid, Draw Centered, Draw Multiple and Power
-  Keys, and `the grid`, `centered`, `multiple`, `multiSpace` and
-  `powerKeys`.)
-- **The Options menu's Rotate, Slant, Distort and Perspective,** which
+- **Paint:** Select (the last thing painted, selected tightly), Pickup and
+  Scale; their buttons on the palette are greyed out until then.
+  (Shift-constrained drawing is done: straight strokes, lines and polygon
+  sides at multiples of 15°, squares and circles, straight moves of a
+  selection, and `drag … with shiftKey`. So are Options' Grid, Draw
+  Centered, Draw Multiple and Power Keys, and `the grid`, `centered`,
+  `multiple`, `multiSpace` and `powerKeys`.)
+- **Options' Rotate, Slant, Distort and Perspective,** which
   reshape a selection by dragging its corners. Scripts can choose them;
   they say they aren't in RandomCard yet.
 - **Power keys for Select, Pickup and Revert** (S, P and R), which come with
@@ -552,10 +555,10 @@ their feedback. For now:
    window`, `the stacks`, suspendStack and resumeStack); the editor
    windows (script editors, the Variable and Message Watchers, and Info
    windows), each a real window of its own beside the card; and the Tools
-   and Patterns palettes. Small alerts
-   and dialogs stay in the main window, as in HyperCard.
-7. **The rest of painting:** FatBits, the icon editor, the Options menu
-   and the two palettes are done. Left: editing patterns, Pickup, Scale, and
+   palette. Small alerts and dialogs stay in the main window, as in
+   HyperCard.
+7. **The rest of painting:** FatBits, the icon editor, Options, and the
+   Tools palette holding them are done. Left: editing patterns, Pickup, Scale, and
    Keep and Revert.
 8. **History across stacks.** (Objects in other stacks are done: `field 1 of card 2 of stack "X"`.)
 9. **Report printing, MACE sound, picture windows.**

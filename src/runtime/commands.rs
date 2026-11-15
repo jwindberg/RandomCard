@@ -2376,6 +2376,9 @@ impl Interp {
                 Ok(())
             }
             "select all" => self.request(UiRequest::SelectAll),
+            // RandomCard keeps paint changes as they're made, so there's
+            // nothing more for Keep to do. (Revert comes with held changes.)
+            "keep" => Ok(()),
             "fatbits" => self.request(UiRequest::FatBits),
             // The Options menu's settings go on and off.
             "grid" | "draw centered" | "draw multiple" | "draw filled" | "power keys" => {
