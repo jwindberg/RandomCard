@@ -291,6 +291,11 @@ impl Textures {
         }
     }
 
+    /// A picture layer's texture, for FatBits to draw magnified.
+    pub fn picture(&self, layer: Layer, id: Id, color_key: u64) -> Option<&TextureHandle> {
+        self.get(layer, id, color_key)
+    }
+
     fn get(&self, layer: Layer, id: Id, color_key: u64) -> Option<&TextureHandle> {
         self.map.get(&(layer, id, color_key)).and_then(|(_, h)| h.as_ref())
     }

@@ -103,6 +103,28 @@ fn line_rows(galley: &egui::Galley) -> Vec<egui::Rect> {
     lines
 }
 
+/// A tool window (a script editor, an Info window, a watcher) as a real
+/// window of its own, so it can sit beside the card it's about instead of
+/// over it. Its close box clears `open`. Small alerts and dialogs stay in
+/// the main window, as in HyperCard.
+pub(super) fn tool_window<R>(
+    ctx: &egui::Context,
+    id: egui::Id,
+    title: &str,
+    size: [f32; 2],
+    open: &mut bool,
+    add: impl FnOnce(&mut egui::Ui) -> R,
+) -> Option<R> {
+    let builder = egui::ViewportBuilder::default().with_title(title).with_inner_size(size).with_min_inner_size([200.0, 120.0]);
+    let mut add = Some(add);
+    ctx.show_viewport_immediate(egui::ViewportId::from_hash_of(id), builder, |ui, _class| {
+        if ui.ctx().input(|i| i.viewport().close_requested()) {
+            *open = false;
+        }
+        egui::CentralPanel::default().show(ui, |ui| add.take().map(|f| f(ui))).inner
+    })
+}
+
 pub struct ErrorAlert {
     pub msg: String,
     pub obj: Option<ObjRef>,
@@ -232,16 +254,14 @@ impl App {
                     InfoTarget::Stack => "Stack Info".to_string(),
                 }
             };
-            egui::Window::new(title)
-                .id(egui::Id::unique(("info", info_key(win.target))))
-                .open(&mut open)
-                .resizable(false)
-                .collapsible(false)
-                .show(ctx, |ui| {
+            let id = egui::Id::unique(("info", info_key(win.target)));
+            tool_window(ctx, id, &title, [380.0, 420.0], &mut open, |ui| {
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                     if let Some(obj) = self.info_contents(ui, win.target) {
                         open_script = Some(obj);
                     }
                 });
+            });
             win.open = open;
         }
         infos.retain(|w| w.open);
@@ -288,6 +308,7 @@ impl App {
                     .collect();
                 let text = w.stack.field_text(card, layer, id);
                 let mut add_icon = false;
+                let mut edit_icon = None;
                 let Some(p) = w.stack.part_mut(card, layer, id) else {
                     ui.label("This object no longer exists.");
                     return None;
@@ -409,6 +430,9 @@ impl App {
                                 });
                                 // Any picture file, any size, in color.
                                 add_icon = ui.button("Add From File…").clicked();
+                                if p.icon != 0 && ui.button("Edit…").clicked() {
+                                    edit_icon = Some(p.icon);
+                                }
                             });
                         }
                         ui.end_row();
@@ -488,6 +512,11 @@ impl App {
                     && let Some(i) = crate::import::hypercard_icons().get(&icon)
                 {
                     w.stack.icons.insert(icon, i.clone());
+                }
+                if let Some(icon) = edit_icon {
+                    drop(w);
+                    self.open_icon_editor(Some(icon));
+                    return None;
                 }
                 if add_icon
                     && let Some(path) = rfd::FileDialog::new()
@@ -635,12 +664,11 @@ impl App {
             _ => false,
         };
         let mut decided = None;
-        egui::Window::new(format!("Script of {}", ed.title))
-            .id(id)
-            .open(&mut open)
-            .default_size([520.0, 380.0])
-            .resizable(true)
-            .show(ctx, |ui| {
+        let mut keyboard = false;
+        let title = format!("Script of {}", ed.title);
+        tool_window(ctx, id, &title, [600.0, 460.0], &mut open, |ui| {
+                // The editor's own Command keys are typed in its window.
+                self.shortcuts(&ui.ctx().clone());
                 ui.horizontal(|ui| {
                     if ui.button("Save").clicked() {
                         self.save_script(ed);
@@ -778,6 +806,7 @@ impl App {
                     // debugger is stopped at.
                     ui.painter().extend(shapes);
                 });
+                keyboard = ui.ctx().memory(|m| [edit_id, find_id, replace_id, line_id].iter().any(|i| m.has_focus(*i)));
             });
         // The window's close box: ask first if there are changes.
         if !open && !close && self.script_changed(ed) {
@@ -800,7 +829,7 @@ impl App {
             self.script_closed(ed.obj);
         }
         ed.open = open;
-        ctx.memory(|m| [edit_id, find_id, replace_id, line_id].iter().any(|i| m.has_focus(*i)))
+        keyboard
     }
 
     /// The bar under the editor's buttons: Find, Replace, or Go to Line.

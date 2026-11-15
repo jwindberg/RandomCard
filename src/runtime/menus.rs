@@ -87,7 +87,7 @@ pub fn standard_menus() -> Vec<Menu> {
     style.extend(["-".into(), "Text Color…".into()]);
     let style: Vec<&str> = style.iter().map(String::as_str).collect();
     let paint: Vec<&str> =
-        ["Select All", "-"].into_iter().chain(crate::paint::PaintOp::ALL.iter().map(|op| op.name())).collect();
+        ["Select All", "FatBits", "-"].into_iter().chain(crate::paint::PaintOp::ALL.iter().map(|op| op.name())).collect();
     vec![
         Menu::builtin(
             "File",

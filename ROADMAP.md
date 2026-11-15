@@ -62,7 +62,7 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 | HyperTalk commands and functions | Most; gaps below |
 | System messages | Mouse, navigation, keyboard, `idle`, `doMenu`; all commands interceptable |
 | Browse, Button and Field tools | Working, with clipboard and undo |
-| Paint tools | All 18 tools, patterns, Paint menu; no FatBits |
+| Paint tools | All 18 tools, patterns, Paint menu, FatBits |
 | Fields | Styled text, the selection, click functions, list fields |
 | Visual effects | Complete |
 | Sound | `play`, notes, `dial`, `beep`; no MACE |
@@ -154,7 +154,6 @@ text, multi-level undo and redo, and script-driven painting with `drag`,
 `click at` and `type`. Code: `src/paint/` and `src/ui/painting.rs`.
 
 **Missing:**
-- **FatBits** (zoomed pixel editing). Needs the card view to scale.
 - **Pattern editing** (double-clicking a pattern to change it) and
   `the pattern` affecting lines and borders, which are always solid.
 - **Keep and Revert.** HyperCard saved everything as you worked except
@@ -202,9 +201,10 @@ text goes from one field to another (by menu, keyboard or `doMenu`).
 ## Buttons
 
 **Missing:**
-- **Drawing and editing icons** (an icon editor). Icons can be imported
-  with stacks, chosen, and added from picture files (any size, in color),
-  but not drawn.
+- **Icon editor details:** it draws with the Line color and clears with
+  a right-click, but has none of HyperCard's Special menu (Frame, Gray,
+  Invert, Mirror, Rotate, Shadow), no undo, and new icons are always
+  32×32.
 - **Popup details:** the menu opens with the chosen item roughly over the
   button, but not to the pixel; the title is always drawn left-aligned;
   and `the selectedLine` can't be set (use `select line 2 of button 1`).
@@ -212,9 +212,9 @@ text goes from one field to another (by menu, keyboard or `doMenu`).
 **Done beyond HyperCard:** icons of any size, in color (Add From File in
 Button Info), and a settable `partNumber` to bring a part to the front.
 Solitaire (`examples/Solitaire.rcstack`, made by `tools/make_solitaire.py`
-from Byron Knoll's public-domain cards in `reference/`) uses both: FreeCell,
-with Windows FreeCell's numbered deals. Next: more games (Klondike, Spider)
-and card backs, which FreeCell doesn't need.
+from Byron Knoll's public-domain cards and BdRGames' CC0 back in
+`reference/`) uses both: FreeCell, with Windows FreeCell's numbered deals,
+Klondike (draw one or three) and Spider (one, two or four suits).
 
 ## HyperTalk
 
@@ -253,7 +253,7 @@ opened at startup, Go ▸ Home and `go home`), the message path stack →
 stacks in use → Home, `start using`/`stop using` with `libraryStack` and
 `releaseStack`, `the stacksInUse`, `go to stack "X"` and
 `go to card 3 of stack "X"`, `send … to stack "X"`, and the name and script
-of other stacks. Leaving a stack saves it; a stack without a file stays
+of other stacks, and their cards and parts (`field 1 of card 2 of stack "X"`). Leaving a stack saves it; a stack without a file stays
 loaded to come back to. Stacks open in windows of their own (`go to stack
 … in a new window`, File ▸ Open Stack in New Window…), each keeping its
 card, history and undo; the front one is current, with `suspendStack` and
@@ -265,11 +265,10 @@ Stack (⌘W) or `close window` closes one.
   and message box, can't be closed (Close Stack there goes Home); dialogs
   such as `answer` appear in it whichever stack asked; a window behind
   shows its card as it last looked, so a script changing that stack shows
-  only when it comes forward; and a window's place on screen isn't kept
-  with its stack or reported to scripts.
-- **Objects in other stacks:** `field 1 of card 2 of stack "X"` and
-  counting other stacks' cards need object references that name a stack;
-  today only going there works.
+  only when it comes forward; a window's place on screen isn't kept with
+  its stack or reported to scripts; and script editors and Info windows
+  close when another stack comes forward, as they do on going to another
+  stack.
 - **History across stacks:** Back and Recent forget cards of stacks you've
   left.
 - **Home as HyperCard had it:** its user-level card, search paths and stack
@@ -535,16 +534,15 @@ their feedback. For now:
    new script editor, and its menus and tools.
 5. **The card window:** global rect and loc, scrolling (hBarLoc, vBarLoc),
    zoom, `moveWindow` and `sizeWindow`, and card size changes.
-6. **Multiple windows.** Stack windows are done (`go to stack … in a new
-   window`, `the stacks`, suspendStack and resumeStack). Next, the tool
-   windows: script editors, the Variable and Message Watchers, and Info
-   windows are drawn inside the main window today, so stepping through a
-   script covers the card being debugged. Each should be a real OS window
-   (an egui viewport), as the stack windows are. Small alerts and dialogs
-   stay in the main window, as in HyperCard.
-7. **FatBits, an icon editor and the rest of painting:** the Options and
-   Patterns menus, editing patterns, Pickup, Scale, and Keep and Revert.
-8. **Objects in other stacks,** and history across stacks.
+6. **Multiple windows.** Done: stack windows (`go to stack … in a new
+   window`, `the stacks`, suspendStack and resumeStack), and the tool
+   windows (script editors, the Variable and Message Watchers, and Info
+   windows), each a real window of its own beside the card. Small alerts
+   and dialogs stay in the main window, as in HyperCard.
+7. **The rest of painting:** FatBits and the icon editor are done. Left:
+   the Options and Patterns menus, editing patterns, Pickup, Scale, and
+   Keep and Revert.
+8. **History across stacks.** (Objects in other stacks are done: `field 1 of card 2 of stack "X"`.)
 9. **Report printing, MACE sound, picture windows.**
 10. **Needs a design first:** AppleEvents (`request`, `reply`): what they
     mean on today's systems. Home's User Preferences and search-path cards.

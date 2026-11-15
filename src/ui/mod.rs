@@ -4,6 +4,7 @@ mod addcolor;
 mod bitmap_fonts;
 mod debugger;
 mod editing;
+mod icon_editor;
 mod images;
 mod text_color;
 mod menus;
@@ -84,6 +85,10 @@ pub struct App {
     rt: Runtime,
     tex: Textures,
     last_scene: Option<Scene>,
+    /// The icon editor, while it's open.
+    icon_editor: Option<icon_editor::IconEditor>,
+    /// FatBits, while it's on.
+    fat: Option<painting::FatBits>,
     /// The card window in front (0 is this, the first).
     front_key: u32,
     /// Card windows behind the front one: how each looked last, and its
@@ -242,6 +247,8 @@ impl App {
             password_prompt: None,
             tex: Textures::default(),
             last_scene: None,
+            icon_editor: None,
+            fat: None,
             front_key: 0,
             behind: std::collections::HashMap::new(),
             frozen: None,
@@ -625,6 +632,18 @@ impl App {
                 UiRequest::Key(target, action) => self.key_action(ctx, target, action),
                 UiRequest::PaintOp(op) => self.apply_paint_op(op),
                 UiRequest::SelectAll => self.select_all(),
+                UiRequest::IconEditor => self.open_icon_editor(None),
+                UiRequest::FatBits => {
+                    if self.fat.is_some() {
+                        self.fat = None;
+                    } else {
+                        let (w, h) = {
+                            let w = self.world();
+                            (w.stack.width as i32, w.stack.height as i32)
+                        };
+                        self.fat_bits_at(w / 2, h / 2);
+                    }
+                }
                 UiRequest::TextColor => self.open_text_color(),
                 UiRequest::SelectPaint(rect) => self.select_paint(rect),
                 UiRequest::ExportPaint(path) => self.export = Some(painting::Export::new(path)),
@@ -1924,7 +1943,7 @@ impl App {
             let w = lock(&self.rt.world);
             // Another window came forward since this frame began: this one
             // is drawn as it was, and changes over next frame.
-            if w.window_key != self.front_key {
+            if w.window_key != self.front_key || w.lent {
                 None
             } else {
                 let scene = Scene::capture(&w);
@@ -1994,6 +2013,14 @@ impl App {
             ui.painter().rect_stroke(frame_rect, 0.0, Stroke::new(2.0, Color32::BLACK), StrokeKind::Inside);
         }
 
+        // FatBits is for painting: another tool, or another stack, ends it.
+        if self.fat.is_some() && (!tool.is_paint() || self.export.is_some()) {
+            self.fat = None;
+        }
+        let fat_view = self.fat.is_some();
+        if fat_view {
+            self.fat_bits_pan(&ctx, &resp, size);
+        }
         let pressed = if self.pressed_inside { self.pressed } else { None };
         let pressed_button = pressed
             .filter(|o| {
@@ -2008,6 +2035,10 @@ impl App {
             Some(a) if animating => {
                 let t = a.start.elapsed().as_secs_f32() / a.seconds;
                 render::draw_transition(&painter, &self.tex, &a.old, &shown, origin, &a.effect, t);
+            }
+            _ if fat_view => {
+                self.anim = None;
+                self.draw_fat_bits(&painter, &shown, origin, size);
             }
             _ => {
                 self.anim = None;
@@ -2424,7 +2455,7 @@ impl eframe::App for App {
         });
         self.busy_poked = busy && (self.busy_poked || (self.busy_since.is_some() && poked));
         self.busy_since = if busy { Some(self.busy_since.unwrap_or_else(Instant::now)) } else { None };
-        if title != self.title {
+        if title != self.title && !self.world().lent {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.title = title;
         }
@@ -2469,6 +2500,7 @@ impl eframe::App for App {
             return;
         }
         self.show_windows(&ctx);
+        self.icon_editor_window(&ctx);
         self.recent_window(&ctx);
         self.popup_menu(&ctx);
         self.debugger(&ctx);

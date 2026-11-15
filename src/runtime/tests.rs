@@ -407,6 +407,10 @@ fn demo_stack_runs() {
     }
     // With no window, its file dialog cancels straight away.
     assert_eq!(click(&mut i, "Drawing", "Picture Files"), None);
+    // FatBits: the pencil, magnified.
+    assert_eq!(click(&mut i, "Drawing", "FatBits"), None);
+    assert_eq!(lock(&i.world).tool, crate::runtime::world::Tool::Pencil);
+    run(&mut i, "choose browse tool");
     // The Web: JSON read and built on the card, offline; Send asks for a URL.
     run(&mut i, "go to card \"The Web\"");
     assert_eq!(click(&mut i, "The Web", "Read JSON"), None);
@@ -527,6 +531,10 @@ fn demo_stack_runs() {
     assert_eq!(run(&mut i, "put the short name of this stack && the number of lines of the stacks"), "Home 2");
     run(&mut i, "close window \"Home\"");
     assert_eq!(current(&i), "Palettes");
+    // Home's cards, read from here.
+    i.canned_answers.push(DialogReply::Button("OK".into()));
+    assert_eq!(click(&mut i, "Palettes", "Ask Home"), None);
+    assert_eq!(current(&i), "Palettes");
     lock(&i.world).home_path = None;
     std::fs::remove_dir_all(&home_dir).ok();
     assert_eq!(click(&mut i, "Contents", "Dice & Effects"), None);
@@ -608,6 +616,7 @@ fn demo_stack_runs() {
     assert_eq!(click(&mut i, "Icons", "Deal"), None);
     assert_eq!(click(&mut i, "Icons", "Deal"), None);
     assert_eq!(card_now(&mut i).0, "Ace of Spades");
+    assert_eq!(click(&mut i, "Icons", "Icon Editor"), None);
     // The debugger card's script runs to its answer (tests don't stop at checkpoints).
     run(&mut i, "go to card \"Debugging\"");
     assert_eq!(click(&mut i, "Debugging", "Step Through Me"), None);
@@ -1134,6 +1143,23 @@ fn stack_windows() {
     // A stack behind is still there to ask about, and Home still answers.
     assert_eq!(run(&mut i, "put the short name of stack \"Lib\""), "Lib");
     assert_eq!(run(&mut i, "put homeVersion()"), "Home 1.0");
+    // Its cards and parts can be read and changed from here, without going
+    // there, and this stack stays current.
+    assert_eq!(run(&mut i, "put the short name of card 2 of stack \"Lib\""), "Two");
+    assert_eq!(run(&mut i, "put the number of cards of stack \"Lib\""), "3");
+    assert_eq!(run(&mut i, "put the number of buttons of card 1 of stack \"Lib\""), "1");
+    run(&mut i, "put \"from Main\" into field \"Name\" of card \"Two\" of stack \"Lib\"");
+    assert_eq!(run(&mut i, "put field \"Name\" of card \"Two\" of stack \"Lib\""), "from Main");
+    assert_eq!(run(&mut i, "put word 2 of field \"Name\" of card \"Two\" of stack \"Lib\""), "Main");
+    assert_eq!(run(&mut i, "put there is a card \"Three\" of stack \"Lib\""), "true");
+    run(&mut i, "set the name of card 3 of stack \"Lib\" to \"Third\"");
+    assert_eq!(run(&mut i, "put the short name of card 3 of stack \"Lib\""), "Third");
+    assert_eq!(here(&mut i), "Main One");
+    assert_eq!(run(&mut i, "put field \"Name\""), "Apple");
+    // Read there, written here.
+    run(&mut i, "put field \"Name\" of card \"Two\" of stack \"Lib\" into field \"Name\"");
+    assert_eq!(run(&mut i, "put field \"Name\""), "from Main");
+    assert!(run(&mut i, "put the short name of card 1 of stack \"Nowhere\"").contains("No such stack"));
     // Opening it again in a new window brings its window forward.
     run(&mut i, "go to stack \"Lib\" in a new window");
     assert_eq!(here(&mut i), "Lib Two");
@@ -1147,6 +1173,7 @@ fn stack_windows() {
     assert_eq!(run(&mut i, "put the number of lines of the stacks"), "1");
     let saved = Stack::load(&lib_path).unwrap();
     assert_eq!(saved.field_text(20, Layer::Background, 10), "changed");
+    assert_eq!(saved.cards[2].name, "Third");
     // Closing a window behind leaves the current stack in front, unsuspended.
     run(&mut i, "go to stack \"Lib\" in a new window\ngo to stack \"Main\"");
     log(&mut i);
@@ -1216,8 +1243,9 @@ fn stacks_home_and_libraries() {
     assert!(Stack::load(&lib_path).unwrap().script.contains("return 2"));
     run(&mut i, "stop using stack \"Lib\"");
     assert!(run(&mut i, "put libFn()").starts_with("ERROR"));
-    // Cards of other stacks can only be reached by going there.
-    assert!(run(&mut i, "put the name of card 1 of stack \"Lib\"").starts_with("ERROR"));
+    // Cards of other stacks can be reached without going there.
+    assert_eq!(run(&mut i, "put the number of cards of stack \"Lib\""), "1");
+    assert!(!run(&mut i, "put the name of card 1 of stack \"Lib\"").starts_with("ERROR"));
 
     // Going to another stack saves the one left.
     run(&mut i, "put \"changed\" into field \"Name\"\ngo to stack \"Lib\"");
@@ -3606,7 +3634,7 @@ fn the_solitaire_stack() {
         }
     }
     // Every card has its face as a color icon.
-    assert_eq!(stack.icons.len(), 52);
+    assert_eq!(stack.icons.len(), 53);
     assert!(stack.icons.values().all(|i| i.picture.has_color() && i.picture.width == 80));
 
     let mut i = interp_with(stack);
@@ -3618,7 +3646,7 @@ fn the_solitaire_stack() {
         "JD,KD,2S,4C,3S,6D,6S/2D,KC,KS,5C,TD,8S,9C/9H,9S,9D,TS,4S,8D,2H/JC,5S,QD,QH,TH,QS,6H/\
          5D,AD,JS,4H,8H,6C/7H,QC,AS,AC,2C,3D/7C,KH,AH,4D,JH,8C/5H,3H,3C,7S,7D,TC|///|///"
     );
-    assert_eq!(run(&mut i, "put field \"Status\""), "Game 1     Moves: 0     Cards left: 52");
+    assert_eq!(run(&mut i, "put field \"Status\""), "Game 1   Moves: 0   Cards left: 52");
     assert_eq!(run(&mut i, "put maxMove(false) && maxMove(true)"), "5 5");
     // The 2 of hearts has nowhere better than a free cell.
     assert_eq!(run(&mut i, "put clickMove(\"2H\", \"col,3,7\")"), "");
@@ -3658,21 +3686,84 @@ fn the_solitaire_stack() {
     // The game is kept in its fields, to be there next time.
     assert_eq!(run(&mut i, "put line 1 of field \"State\""), "///////|///|KC/KD/KH/KS");
     // The win is counted once, and the cards end in a ring around the news.
-    assert_eq!(run(&mut i, "put field \"Record\" of card \"Games\""), "Won 1, lost 0 (100%). Streak 1, best 1.");
+    assert_eq!(run(&mut i, "put field \"FreeCell Record\" of card \"Games\""), "Won 1, lost 0 (100%). Streak 1, best 1.");
     run(&mut i, "checkWin");
     assert_eq!(run(&mut i, "put field \"Won\""), "1");
-    assert_eq!(run(&mut i, "put the visible of field \"Banner\" && the loc of card button \"AC\""), "true 400,134");
+    assert_eq!(run(&mut i, "put the visible of field \"Banner\" && the loc of card button \"AC\""), "true 420,134");
     // Leaving a game with moves made, not won, is a loss; a fresh deal isn't.
-    run(&mut i, "abandonGame\nnewGame 2");
+    run(&mut i, "global gMoves\nabandonGame gMoves\nnewGame 2");
     assert_eq!(run(&mut i, "put the visible of field \"Banner\""), "false");
-    run(&mut i, "abandonGame\nnewGame 3\nget clickMove(last item of line 1 of gCols, \"col,1,\" & the number of items of line 1 of gCols)");
+    run(&mut i, "global gMoves\nabandonGame gMoves\nnewGame 3\nget clickMove(last item of line 1 of gCols, \"col,1,\" & the number of items of line 1 of gCols)");
     assert_eq!(run(&mut i, "put gMoves"), "1");
-    run(&mut i, "abandonGame\nnewGame 4");
-    assert_eq!(run(&mut i, "put field \"Record\" of card \"Games\""), "Won 1, lost 1 (50%). Streak 0, best 1.");
+    run(&mut i, "global gMoves\nabandonGame gMoves\nnewGame 4");
+    assert_eq!(run(&mut i, "put field \"FreeCell Record\" of card \"Games\""), "Won 1, lost 1 (50%). Streak 0, best 1.");
     // Edit ▸ Undo undoes a move.
     run(&mut i, "get clickMove(last item of line 1 of gCols, \"col,1,\" & the number of items of line 1 of gCols)");
     run(&mut i, "doMenu \"Undo\"");
     assert_eq!(run(&mut i, "put gMoves"), "0");
+
+    // ----- Klondike -----
+    run(&mut i, "go to card \"Klondike\"\nnewGame 1");
+    // One to seven cards a column, only the top one face up; 24 in the stock.
+    for n in 1..=7 {
+        let col = run(&mut i, &format!("put line {n} of gKCols"));
+        let items: Vec<&str> = col.split(',').collect();
+        assert_eq!(items.len(), n);
+        assert!(items[..n - 1].iter().all(|c| c.starts_with('-')) && !items[n - 1].starts_with('-'), "{col}");
+    }
+    assert_eq!(run(&mut i, "put the number of items of gKStock && gKWaste"), "24 ");
+    // The stock deals one, or three with Draw Three; then turns the waste over.
+    run(&mut i, "dealStock");
+    assert_eq!(run(&mut i, "put the number of items of gKStock && the number of items of gKWaste"), "23 1");
+    run(&mut i, "set the hilite of button \"Draw Three\" to true\ndealStock");
+    assert_eq!(run(&mut i, "put the number of items of gKStock && the number of items of gKWaste"), "20 4");
+    run(&mut i, "set the hilite of button \"Draw Three\" to false");
+    run(&mut i, "unpackState \"KH/QS/-5D,JD////|2C,3C|4C|///\"\ndealStock\ndealStock");
+    assert_eq!(run(&mut i, "put gKStock & \"|\" & gKWaste"), "|4C,3C,2C");
+    run(&mut i, "dealStock");
+    assert_eq!(run(&mut i, "put gKStock & \"|\" & gKWaste"), "2C,3C,4C|");
+    // Down in alternating colors, kings only to an empty column, and the
+    // card left on top turns over.
+    assert_eq!(run(&mut i, "put tryMove(\"QS\", \"col,2,1\", \"col,1\")"), "");
+    assert_eq!(run(&mut i, "put tryMove(\"JD\", \"col,3,2\", \"col,2\")"), "Only a king can go in an empty column.");
+    assert_eq!(run(&mut i, "put tryMove(\"KH,QS\", \"col,1,1\", \"col,3\")"), "That card doesn't go there.");
+    assert_eq!(run(&mut i, "put tryMove(\"JD\", \"col,3,2\", \"col,1\")"), "");
+    assert_eq!(run(&mut i, "put line 1 of gKCols & \"|\" & line 3 of gKCols"), "KH,QS,JD|5D");
+    // The waste's top card goes to a foundation with a click.
+    run(&mut i, "unpackState \"KH//////|2C|AH|///\"");
+    assert_eq!(run(&mut i, "put whereIs(\"AH\") && pickUp(\"AH\", \"waste\")"), "waste AH");
+    assert_eq!(run(&mut i, "put clickMove(\"AH\", \"waste\") & line 1 of gKHomes"), "AH");
+    // Kings home, and the game is won.
+    run(&mut i, "unpackState \"KC/KD/KH/KS////|||QC/QD/QH/QS\"");
+    assert_eq!(run(&mut i, "put clickMove(\"KC\", \"col,1,1\")"), "");
+    run(&mut i, "checkWin");
+    assert_eq!(run(&mut i, "put field \"Klondike Record\" of card \"Games\""), "Won 1, lost 0 (100%). Streak 1, best 1.");
+
+    // ----- Spider -----
+    run(&mut i, "go to card \"Spider\"\nnewGame 1");
+    let tall: Vec<String> = (1..=10).map(|n| run(&mut i, &format!("put the number of items of line {n} of gSCols"))).collect();
+    assert_eq!(tall, ["6", "6", "6", "6", "5", "5", "5", "5", "5", "5"]);
+    assert_eq!(run(&mut i, "put the number of items of gSStock && the number of lines of gSFaces"), "50 104");
+    // One suit: every card a spade.
+    assert_eq!(run(&mut i, "put \"H\" is in gSFaces or \"D\" is in gSFaces or \"C\" is in gSFaces"), "false");
+    run(&mut i, "dealStock");
+    assert_eq!(run(&mut i, "put the number of items of gSStock && the number of items of line 10 of gSCols"), "40 6");
+    // Known faces: s1 to s13 are the king down to the ace of spades, s14
+    // the five of spades and s15 the four of hearts.
+    run(&mut i, "repeat with k = 1 to 13\nput char (14 - k) of \"A23456789TJQK\" & \"S\" into line k of gSFaces\nend repeat\nput \"5S\" into line 14 of gSFaces\nput \"4H\" into line 15 of gSFaces");
+    run(&mut i, "unpackState \"s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12/s13/s14,s15///////|s20|\"");
+    // Only a run of one suit moves together.
+    assert_eq!(run(&mut i, "put pickUp(\"s14\", \"col,3,1\")"), "");
+    assert_eq!(run(&mut i, "put pickUp(\"s11\", \"col,1,11\")"), "s11,s12");
+    // The ace finishes king to ace: the run comes off.
+    assert_eq!(run(&mut i, "put tryMove(\"s13\", \"col,2,1\", \"col,1\")"), "");
+    assert_eq!(run(&mut i, "put gSDone & \"|\" & line 1 of gSCols"), "s1|");
+    // The stock won't deal onto an empty column.
+    run(&mut i, "dealStock");
+    assert_eq!(run(&mut i, "put field \"Status\""), "Every column needs a card before the stock deals.");
+    // Eight runs off, and the game is won.
+    run(&mut i, "unpackState \"//////////||s1,s14,s27,s40,s53,s66,s79,s92\"\ncheckWin");
+    assert_eq!(run(&mut i, "put field \"Spider Record\" of card \"Games\""), "Won 1, lost 0 (100%). Streak 1, best 1.");
 }
 
 #[test]

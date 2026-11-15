@@ -286,6 +286,12 @@ field when the card has none by that name, as in HyperCard.
 A field's text is its value: `put field "Name" into n`, `put n into field
 "Name"`.
 
+Cards and parts of another stack are reached by naming it, without going
+there: `put field "Phone" of card "Ann" of stack "Addresses" into p`, `set
+the name of card 3 of stack "Notes" to "Done"`, `the number of cards of
+stack "Addresses"`. The stack is loaded if it isn't open, and the current
+stack stays current.
+
 ## Commands
 
 | Command | Example |
@@ -594,8 +600,8 @@ The `examples/` folder has three stacks built on these: ICNDB (a REST
 client for one service), PostCard (a small Postman), and Swatches (colors
 looked up, converted and explained with The Color API, and a tour of
 RandomCard's color features and sliders). Solitaire, beside them, plays
-FreeCell with playing cards as color icons, dragged with `the mouse` and
-`the mouseLoc`.
+FreeCell, Klondike and Spider with playing cards as color icons, dragged
+with `the mouse` and `the mouseLoc`.
 
 ### Modern controls
 

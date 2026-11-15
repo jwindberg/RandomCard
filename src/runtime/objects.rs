@@ -164,7 +164,9 @@ impl Interp {
                 let name = self.eval(name)?;
                 match self.stack_ref(&name)? {
                     Some(ObjRef::Stack) => self.resolve_card_in(inner, cards, current, marked),
-                    _ => err(format!("Can't refer to cards of stack \"{name}\" unless you go there")),
+                    // Another stack is lent in by the expression that names it.
+                    Some(_) => err(format!("Can't refer to cards of stack \"{name}\" here")),
+                    None => err(format!("No such stack \"{name}\"")),
                 }
             }
             CardSpec::OfBackground(inner, bs) => {
@@ -374,6 +376,7 @@ impl Interp {
                 let o = self.resolve_dynamic(e)?;
                 match o {
                     ObjRef::Background(bg) => self.w().stack.cards_of_bg(bg).len(),
+                    ObjRef::OtherStack(k) => self.w().other(k).map_or(0, |s| s.cards.len()),
                     _ => self.w().stack.cards.len(),
                 }
             }

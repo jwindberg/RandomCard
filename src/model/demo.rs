@@ -745,6 +745,13 @@ on mouseUp
 end mouseUp"#,
     );
     b.card_part(c, Part { style: PartStyle::Standard, ..addcolor });
+    // FatBits: the paint magnified, to work pixel by pixel.
+    let fat = b.button(
+        "FatBits",
+        Rect::new(372, 70, 492, 92),
+        "on mouseUp\n  choose pencil tool\n  doMenu \"FatBits\"\n  put \"FatBits: draw pixel by pixel. Alt-drag or scroll to move around; choose FatBits again, or the hand, to stop.\"\nend mouseUp",
+    );
+    b.card_part(c, Part { style: PartStyle::Standard, ..fat });
 
     // ----- Animation -----
     // A small state machine in the card's script: whether the ball is
@@ -1233,10 +1240,12 @@ end mouseUp"#,
     deal.auto_hilite = true;
     deal.icon = b.stack.find_icon("King of Hearts").unwrap_or(0);
     b.card_part(c, deal);
+    let editor = b.button("Icon Editor", Rect::new(160, 268, 290, 294), "on mouseUp\n  doMenu \"Icon…\"\nend mouseUp");
+    b.card_part(c, editor);
     let colors = b.label(
         "Color Icons",
-        Rect::new(160, 186, 492, 290),
-        "Icons can also be any size and in color, like this playing card (the deck is Byron Knoll's, in the public domain). Click it to deal another; it darkens while pressed. Add your own icon from a picture file with Add From File in Button Info.",
+        Rect::new(160, 182, 492, 264),
+        "Icons can also be any size and in color, like this playing card (the deck is Byron Knoll's, in the public domain). Click it to deal another. Add your own from a picture file in Button Info, or draw one in the Icon Editor.",
         12,
     );
     b.card_part(c, colors);
@@ -1377,7 +1386,7 @@ end mouseUp"#,
     let windows = b.label(
         "Windows",
         Rect::new(20, 228, 492, 262),
-        "A stack can open in a window of its own. Open Home beside the Tour, then click either one to bring it forward; Close Stack closes the one in front.",
+        "A stack can open in a window of its own. Open Home beside the Tour, then click either one to bring it forward. A script can also read another stack's cards without going there.",
         12,
     );
     b.card_part(c, windows);
@@ -1387,6 +1396,12 @@ end mouseUp"#,
         "on mouseUp\n  go to stack \"Home\" in a new window\n  if the result is not empty then answer the result\nend mouseUp",
     );
     b.card_part(c, open);
+    let ask = b.button(
+        "Ask Home",
+        Rect::new(206, 268, 346, 296),
+        "on mouseUp\n  answer \"Home has\" && the number of cards of stack \"Home\" && \"cards. The first is called\" && quote & the short name of card 1 of stack \"Home\" & quote & \".\"\nend mouseUp",
+    );
+    b.card_part(c, ask);
 
     // ----- The web: JSON on the card itself, and requests to an address
     // the user types. Nothing here calls a service of its own accord: the

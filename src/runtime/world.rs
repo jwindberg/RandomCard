@@ -457,6 +457,10 @@ pub enum UiRequest {
     /// A Paint menu command, applied to the selection (or the whole picture).
     PaintOp(crate::paint::PaintOp),
     SelectAll,
+    /// Paint ▸ FatBits: magnify the paint, or stop.
+    FatBits,
+    /// Edit ▸ Icon…: the icon editor, on the selected button's icon.
+    IconEditor,
     /// Style ▸ Text Color…: a color for the selected text.
     TextColor,
     /// Select this rectangle of the picture with the Select tool (after
@@ -621,6 +625,9 @@ pub struct World {
     /// The current card window: 0 for the first, which RandomCard opens
     /// with; others take their stack's key.
     pub window_key: u32,
+    /// Another stack is in for a moment, for a script to reach its cards
+    /// and parts; the window keeps showing what it showed.
+    pub lent: bool,
     /// Stacks in use (`start using`), by name, in message-path order.
     pub in_use: Vec<String>,
     /// Where the Home stack lives.
@@ -708,6 +715,16 @@ pub fn same_script(a: ObjRef, b: ObjRef) -> bool {
 pub struct LoadedStack {
     pub key: u32,
     pub stack: Stack,
+}
+
+/// What `lend_stack` changed, for `return_stack` to put back.
+pub struct Lent {
+    key: u32,
+    card_id: Id,
+    dirty: bool,
+    undo: usize,
+    redo: usize,
+    lent: bool,
 }
 
 /// A stack open in a card window behind the current one, with what its
@@ -819,6 +836,7 @@ impl World {
             next_stack_key: 1,
             windows: Vec::new(),
             window_key: 0,
+            lent: false,
             in_use: Vec::new(),
             home_path: None,
             stack_serial: 0,
@@ -948,6 +966,50 @@ impl World {
             return Some(self.window_key);
         }
         self.windows.iter().find(|sw| shows(&sw.stack)).map(|sw| sw.key)
+    }
+
+    /// Lend a loaded stack for a moment, as if it were current, so a script
+    /// can reach `field 1 of card 2 of stack "X"`: it comes in at its own
+    /// card. `return_stack` puts everything back.
+    pub fn lend_stack(&mut self, key: u32) -> Option<Lent> {
+        let (stack, card) = if let Some(sw) = self.windows.iter_mut().find(|sw| sw.key == key) {
+            let card = sw.card_id;
+            (&mut sw.stack, card)
+        } else {
+            let o = self.others.iter_mut().find(|o| o.key == key)?;
+            let card = o.stack.cards[0].id;
+            (&mut o.stack, card)
+        };
+        std::mem::swap(&mut self.stack, stack);
+        let lent = Lent {
+            key,
+            card_id: std::mem::replace(&mut self.card_id, card),
+            dirty: std::mem::replace(&mut self.dirty, false),
+            undo: self.undo.len(),
+            redo: self.redo.len(),
+            lent: std::mem::replace(&mut self.lent, true),
+        };
+        Some(lent)
+    }
+
+    /// Put back a lent stack. Its changes are saved if it's only loaded,
+    /// or wait in its window to be saved; the current stack's undo history
+    /// doesn't take them.
+    pub fn return_stack(&mut self, lent: Lent) {
+        let changed = std::mem::replace(&mut self.dirty, lent.dirty);
+        self.card_id = lent.card_id;
+        self.undo.truncate(lent.undo);
+        self.redo.truncate(lent.redo);
+        self.lent = lent.lent;
+        if let Some(sw) = self.windows.iter_mut().find(|sw| sw.key == lent.key) {
+            std::mem::swap(&mut self.stack, &mut sw.stack);
+            sw.dirty |= changed;
+        } else if let Some(o) = self.others.iter_mut().find(|o| o.key == lent.key) {
+            std::mem::swap(&mut self.stack, &mut o.stack);
+            if changed && !o.stack.cant_modify && let Some(p) = &o.stack.path {
+                let _ = o.stack.save(p);
+            }
+        }
     }
 
     /// Every open stack, the current one first, then the windows behind.

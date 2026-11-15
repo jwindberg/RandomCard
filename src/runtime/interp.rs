@@ -1035,6 +1035,36 @@ impl Interp {
     }
 
     pub fn eval(&mut self, e: &Expr) -> R<String> {
+        // An object of another stack: that stack comes in for the moment.
+        if let Some(name) = expr_stack(e)
+            && let Some(key) = self.foreign_stack(name)?
+        {
+            return self.in_stack(key, |me| me.eval_here(e));
+        }
+        self.eval_here(e)
+    }
+
+    /// The key of the loaded stack a name means, if it isn't the current one.
+    pub(super) fn foreign_stack(&mut self, name: &Expr) -> R<Option<u32>> {
+        let name = self.eval(name)?;
+        Ok(match self.stack_ref(&name)? {
+            Some(ObjRef::OtherStack(k)) => Some(k),
+            _ => None,
+        })
+    }
+
+    /// Run `f` with another loaded stack in as the current one, for a
+    /// script reaching its cards and parts; then put it back.
+    pub(super) fn in_stack<T>(&mut self, key: u32, f: impl FnOnce(&mut Self) -> R<T>) -> R<T> {
+        let Some(lent) = self.w().lend_stack(key) else { return f(self) };
+        self.scripts_changed();
+        let r = f(self);
+        self.w().return_stack(lent);
+        self.scripts_changed();
+        r
+    }
+
+    fn eval_here(&mut self, e: &Expr) -> R<String> {
         match e {
             Expr::Lit(s) => Ok(s.clone()),
             Expr::Var(name) => Ok(self.get_var(name).unwrap_or_else(|| {
@@ -1342,6 +1372,15 @@ impl Interp {
     }
 
     pub fn put_into(&mut self, dest: &Expr, prep: Prep, value: &str) -> R<()> {
+        if let Some(name) = expr_stack(dest)
+            && let Some(key) = self.foreign_stack(name)?
+        {
+            return self.in_stack(key, |me| me.put_into_here(dest, prep, value));
+        }
+        self.put_into_here(dest, prep, value)
+    }
+
+    fn put_into_here(&mut self, dest: &Expr, prep: Prep, value: &str) -> R<()> {
         if matches!(dest, Expr::Call(n, _) if n == "__menu") {
             // Menus aren't scriptable; putting into one does nothing.
             return Ok(());
@@ -1481,4 +1520,32 @@ pub fn to_bool(s: &str) -> R<bool> {
     parse_bool(s).ok_or_else(|| {
         Ctl::Error(ScriptError { msg: format!("Expected true or false here, not \"{s}\""), obj: None, line: None })
     })
+}
+
+/// The stack an object reference names, `card 2 of stack "X"` or a part
+/// on one, if it names one.
+pub(super) fn expr_stack(e: &Expr) -> Option<&Expr> {
+    match e {
+        Expr::Object(spec) | Expr::ThereIs(_, spec) => spec_stack(spec),
+        Expr::Property { obj: Some(spec), .. } => spec_stack(spec),
+        Expr::Chunk(_, target) => expr_stack(target),
+        Expr::Number(Countable::Parts { of: Some(spec), .. }) => spec_stack(spec),
+        _ => None,
+    }
+}
+
+pub(super) fn spec_stack(spec: &ObjSpec) -> Option<&Expr> {
+    match spec {
+        ObjSpec::Card(cs) => card_stack(cs),
+        ObjSpec::Part { card: Some(cs), .. } => card_stack(cs),
+        _ => None,
+    }
+}
+
+fn card_stack(cs: &CardSpec) -> Option<&Expr> {
+    match cs {
+        CardSpec::OfStack(_, name) => Some(name),
+        CardSpec::OfBackground(inner, _) => card_stack(inner),
+        _ => None,
+    }
 }

@@ -12,6 +12,36 @@ use crate::runtime::world::Tool;
 
 use super::{App, render, windows};
 
+/// FatBits magnifies this many times.
+pub const FAT_ZOOM: f32 = 8.0;
+
+/// FatBits: the paint shown magnified for pixel-by-pixel work, as in
+/// HyperCard. `left` and `top` are the card pixel at the view's top left.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FatBits {
+    pub left: f32,
+    pub top: f32,
+}
+
+/// The card pixel under a point on the screen, through FatBits if it's on.
+pub fn to_card(fat: Option<FatBits>, origin: Pos2, q: Pos2) -> (i32, i32) {
+    match fat {
+        Some(f) => (
+            ((q.x - origin.x) / FAT_ZOOM + f.left.floor()).floor() as i32,
+            ((q.y - origin.y) / FAT_ZOOM + f.top.floor()).floor() as i32,
+        ),
+        None => ((q.x - origin.x).floor() as i32, (q.y - origin.y).floor() as i32),
+    }
+}
+
+/// Where a card point is on the screen, through FatBits if it's on.
+pub fn to_screen(fat: Option<FatBits>, origin: Pos2, x: f32, y: f32) -> Pos2 {
+    match fat {
+        Some(f) => origin + Vec2::new((x - f.left.floor()) * FAT_ZOOM, (y - f.top.floor()) * FAT_ZOOM),
+        None => origin + Vec2::new(x, y),
+    }
+}
+
 pub struct PaintStroke {
     start: (i32, i32),
     last: (i32, i32),
@@ -302,7 +332,7 @@ impl App {
             return;
         }
         let (Some(slot), Some(q)) = (self.eyedropper, resp.interact_pointer_pos()) else { return };
-        let (x, y) = ((q.x - origin.x).floor() as i32, (q.y - origin.y).floor() as i32);
+        let (x, y) = to_card(self.fat, origin, q);
         let color = {
             let w = self.world();
             let card = w.stack.card(w.card_id).map(|c| c.picture.get(x, y)).unwrap_or(Pixel::CLEAR);
@@ -355,8 +385,23 @@ impl App {
     // ----- tools -----
 
     pub(super) fn paint_input(&mut self, ctx: &egui::Context, resp: &egui::Response, origin: Pos2, tool: Tool) {
-        let to_card = |q: Pos2| ((q.x - origin.x).floor() as i32, (q.y - origin.y).floor() as i32);
+        let fat = self.fat;
+        // In FatBits, Option-drag moves the view instead of painting.
+        if fat.is_some() && ctx.input(|i| i.modifiers.alt) {
+            return;
+        }
+        let to_card = |q: Pos2| to_card(fat, origin, q);
         let p = resp.interact_pointer_pos().or(resp.hover_pos()).map(to_card);
+        // Command-click with the pencil magnifies there, as in HyperCard.
+        if tool == Tool::Pencil
+            && fat.is_none()
+            && resp.clicked()
+            && ctx.input(|i| i.modifiers.command)
+            && let Some((x, y)) = p
+        {
+            self.fat_bits_at(x, y);
+            return;
+        }
         match tool {
             Tool::Select | Tool::Lasso => return self.selection_input(ctx, resp, p, tool),
             Tool::Polygon => return self.polygon_input(ctx, resp, p),
@@ -597,8 +642,8 @@ impl App {
         } else {
             FontFamily::Proportional
         };
-        let min = origin + Vec2::new(entry.pos.0 as f32, entry.pos.1 as f32);
-        let rect = Rect::from_min_max(min, origin + card_size);
+        let min = to_screen(self.fat, origin, entry.pos.0 as f32, entry.pos.1 as f32);
+        let rect = Rect::from_min_max(min, (origin + card_size).max(min + Vec2::splat(40.0)));
         let resp = ui.put(
             rect,
             egui::TextEdit::multiline(&mut entry.text)
@@ -702,8 +747,75 @@ impl App {
 
     // ----- previews -----
 
+    /// Turn FatBits on, centered on a card pixel.
+    pub(super) fn fat_bits_at(&mut self, x: i32, y: i32) {
+        let (w, h) = {
+            let w = self.world();
+            (w.stack.width as f32, w.stack.height as f32)
+        };
+        let (vw, vh) = (w / FAT_ZOOM, h / FAT_ZOOM);
+        self.fat = Some(FatBits {
+            left: (x as f32 - vw / 2.0).clamp(0.0, (w - vw).max(0.0)),
+            top: (y as f32 - vh / 2.0).clamp(0.0, (h - vh).max(0.0)),
+        });
+    }
+
+    /// Moving around in FatBits: Option-drag (Alt) or the scroll wheel.
+    pub(super) fn fat_bits_pan(&mut self, ctx: &egui::Context, resp: &egui::Response, size: Vec2) {
+        let Some(f) = &mut self.fat else { return };
+        let mut delta = Vec2::ZERO;
+        if ctx.input(|i| i.modifiers.alt) && resp.dragged() {
+            delta -= resp.drag_delta() / FAT_ZOOM;
+        }
+        if resp.hovered() {
+            delta -= ctx.input(|i| i.smooth_scroll_delta) / FAT_ZOOM;
+        }
+        let (vw, vh) = (size.x / FAT_ZOOM, size.y / FAT_ZOOM);
+        f.left = (f.left + delta.x).clamp(0.0, (size.x - vw).max(0.0));
+        f.top = (f.top + delta.y).clamp(0.0, (size.y - vh).max(0.0));
+    }
+
+    /// FatBits: the paint magnified, with a line between pixels, and the
+    /// same part at actual size in the corner. Buttons and fields aren't
+    /// shown, as in HyperCard.
+    pub(super) fn draw_fat_bits(&self, painter: &egui::Painter, scene: &render::Scene, origin: Pos2, size: Vec2) {
+        let Some(f) = self.fat else { return };
+        let (left, top) = (f.left.floor(), f.top.floor());
+        let view = Vec2::new(size.x / FAT_ZOOM, size.y / FAT_ZOOM);
+        let uv = Rect::from_min_size(Pos2::new(left / size.x, top / size.y), Vec2::new(view.x / size.x, view.y / size.y));
+        let whole = Rect::from_min_size(origin, size);
+        let draw = |rect: Rect| {
+            painter.rect_filled(rect, 0.0, Color32::WHITE);
+            let layers = [
+                (crate::model::Layer::Background, scene.bg, scene.show_bg_pict),
+                (crate::model::Layer::Card, scene.card, scene.show_card_pict),
+            ];
+            for (layer, id, shown) in layers {
+                if let Some(t) = self.tex.picture(layer, id, scene.color_key).filter(|_| shown) {
+                    painter.image(t.id(), rect, uv, Color32::WHITE);
+                }
+            }
+        };
+        draw(whole);
+        // The lines between pixels.
+        let grid = Stroke::new(1.0, Color32::from_gray(225));
+        for i in 1..view.x.ceil() as i32 {
+            let x = origin.x + i as f32 * FAT_ZOOM;
+            painter.line_segment([Pos2::new(x, whole.top()), Pos2::new(x, whole.bottom())], grid);
+        }
+        for i in 1..view.y.ceil() as i32 {
+            let y = origin.y + i as f32 * FAT_ZOOM;
+            painter.line_segment([Pos2::new(whole.left(), y), Pos2::new(whole.right(), y)], grid);
+        }
+        // Actual size, in the corner.
+        let inset = Rect::from_min_size(Pos2::new(whole.left() + 8.0, whole.bottom() - view.y - 8.0), view).round();
+        painter.rect_filled(inset.expand(2.0), 0.0, Color32::BLACK);
+        draw(inset);
+    }
+
     pub(super) fn paint_overlay(&self, painter: &egui::Painter, origin: Pos2, tool: Tool, ctx: &egui::Context) {
-        let at = |x: i32, y: i32| origin + Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
+        let fat = self.fat;
+        let at = |x: i32, y: i32| to_screen(fat, origin, x as f32 + 0.5, y as f32 + 0.5);
         let stroke = Stroke::new(1.0, Color32::BLACK);
         let dashed = |points: &[Pos2]| {
             for s in egui::Shape::dashed_line(points, stroke, 4.0, 3.0) {
@@ -747,7 +859,7 @@ impl App {
         if let Some(pts) = &self.polygon {
             let mut line: Vec<Pos2> = pts.iter().map(|p| at(p.0, p.1)).collect();
             if let Some(mouse) = ctx.input(|i| i.pointer.latest_pos()) {
-                let card = ((mouse.x - origin.x).floor() as i32, (mouse.y - origin.y).floor() as i32);
+                let card = to_card(fat, origin, mouse);
                 let corner = self.polygon_point(ctx, card);
                 line.push(at(corner.0, corner.1));
             }

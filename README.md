@@ -129,7 +129,11 @@ stacks bring their own patterns). There are 16 brush shapes, line sizes, a
 Filled option, and the number of sides for regular polygons. The Paint menu
 has Select All, Fill, Invert, Darken, Lighten, Trace Edges, Rotate,
 Flip, Opaque and Transparent, applied to the selection or the whole
-picture.
+picture. Paint ▸ FatBits (or Command-click with the pencil) magnifies the
+paint eight times to work pixel by pixel, with the same spot at actual size
+in a corner; Option-drag or scroll to move around. Edit ▸ Icon… opens the
+icon editor, to draw a stack's icons pixel by pixel, in color and at any
+size.
 
 **Editing.** The Edit menu's Cut, Copy, Paste and Clear act on the
 selected button or field (with the Button or Field tool) or the paint

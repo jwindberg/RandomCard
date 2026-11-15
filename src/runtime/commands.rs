@@ -55,6 +55,15 @@ impl Interp {
                     Some(Expr::Menu(r)) => self.set_menu_property(r, &prop, &v),
                     Some(e @ (Expr::Chunk(..) | Expr::Selection)) => self.set_chunk_property(e, &prop, &v),
                     Some(Expr::Object(spec)) => {
+                        // A card or part of another stack: it comes in for the moment.
+                        if let Some(name) = super::interp::spec_stack(spec)
+                            && let Some(key) = self.foreign_stack(name)?
+                        {
+                            return self.in_stack(key, |me| {
+                                let o = me.resolve(spec)?;
+                                me.set_property(o, &prop, &v)
+                            });
+                        }
                         let o = self.resolve(spec)?;
                         self.set_property(o, &prop, &v)
                     }
@@ -2320,6 +2329,7 @@ impl Interp {
                 Ok(())
             }
             "select all" => self.request(UiRequest::SelectAll),
+            "fatbits" => self.request(UiRequest::FatBits),
             _ if crate::paint::PaintOp::parse(&key).is_some() => {
                 self.request(UiRequest::PaintOp(crate::paint::PaintOp::parse(&key).unwrap()))
             }
@@ -2337,9 +2347,18 @@ impl Interp {
             // Nothing to do: stacks are written whole, printing goes through
             // PDF, and there's one window and no help stack.
             "compact stack" => self.compact_stack(),
-            "page setup" | "scroll" | "next window" | "help" | "about hypercard"
-            | "about randomcard" => Ok(()),
-            "print report" | "text style" | "icon" | "audio" => {
+            "page setup" | "scroll" | "help" | "about hypercard" | "about randomcard" => Ok(()),
+            // The stack window furthest back comes forward, so repeating it
+            // goes round them all.
+            "next window" => {
+                let last = self.w().windows.last().map(|sw| sw.key);
+                match last {
+                    Some(key) => self.bring_forward(key),
+                    None => Ok(()),
+                }
+            }
+            "icon" => self.request(UiRequest::IconEditor),
+            "print report" | "text style" | "audio" => {
                 let name = item.trim().trim_end_matches('…').trim_end_matches("...");
                 self.dialog(Dialog::Answer {
                     prompt: format!("{name} isn't in RandomCard yet."),
