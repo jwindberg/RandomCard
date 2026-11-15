@@ -12,7 +12,7 @@ use super::dates;
 use super::interp::{Ctl, Interp, OpenFile, R, err, to_int, to_number};
 use super::menus;
 use super::undo::UndoEntry;
-use super::world::{Dialog, DialogReply, EditOp, PaintDialog, Palette, FieldRange, ObjRef, TextClip, Tool, Transition, UiRequest};
+use super::world::{Dialog, DialogReply, EditOp, PaintDialog, is_palette_name, FieldRange, ObjRef, TextClip, Tool, Transition, UiRequest};
 
 impl Interp {
     pub fn command(&mut self, c: &Cmd) -> R<()> {
@@ -420,8 +420,8 @@ impl Interp {
                 let name = self.eval(window)?;
                 let value = self.eval(value)?;
                 // The palettes: shown or hidden, and moved.
-                if let Some(palette) = Palette::named(&name) {
-                    return self.set_palette_prop(palette, prop, &value);
+                if is_palette_name(&name) {
+                    return self.set_palette_prop(prop, &value);
                 }
                 let mut w = self.w();
                 let Some(win) = w
@@ -818,30 +818,30 @@ impl Interp {
     }
 
     /// `show tool window at 10,40`, `hide pattern window`.
-    fn show_palette(&mut self, palette: Palette, show: bool, at: Option<String>) -> R<()> {
+    fn show_palette(&mut self, show: bool, at: Option<String>) -> R<()> {
         if let Some(at) = at {
-            self.set_palette_prop(palette, "loc", &at)?;
+            self.set_palette_prop("loc", &at)?;
         }
         let mut w = self.w();
-        w.palettes[palette.index()].visible = show;
-        w.requests.push(UiRequest::ShowPalette(palette, show));
+        w.palette_state.visible = show;
+        w.requests.push(UiRequest::ShowPalette(show));
         Ok(())
     }
 
     /// `set the visible of tool window`, `set the loc of pattern window`. A
     /// palette is the size its contents need, so its rect only moves it.
-    fn set_palette_prop(&mut self, palette: Palette, prop: &str, v: &str) -> R<()> {
+    fn set_palette_prop(&mut self, prop: &str, v: &str) -> R<()> {
         let prop = prop.to_ascii_lowercase();
         if prop == "visible" {
-            return self.show_palette(palette, super::interp::to_bool(v)?, None);
+            return self.show_palette(super::interp::to_bool(v)?, None);
         }
-        let r = self.w().palettes[palette.index()].rect;
+        let r = self.w().palette_state.rect;
         let (x, y) = match prop.as_str() {
             "loc" | "location" | "topleft" => parse_point(v),
             "rect" | "rectangle" => crate::hypertalk::value::parse_rect(v).map(|(l, t, _, _)| (l, t)),
             "left" => to_int(v).ok().map(|l| (l as i32, r.top)),
             "top" => to_int(v).ok().map(|t| (r.left, t as i32)),
-            _ => return err(format!("Can't set the {prop} of the {} palette", palette.title())),
+            _ => return err(format!("Can't set the {prop} of the palette")),
         }
         .ok_or_else(|| super::interp::Ctl::Error(super::interp::ScriptError {
             msg: format!("Expected a point, not \"{v}\""),
@@ -849,9 +849,9 @@ impl Interp {
             line: None,
         }))?;
         let mut w = self.w();
-        let rect = &mut w.palettes[palette.index()].rect;
+        let rect = &mut w.palette_state.rect;
         *rect = Rect::new(x, y, x + rect.width(), y + (rect.bottom - rect.top));
-        w.requests.push(UiRequest::MovePalette(palette, x, y));
+        w.requests.push(UiRequest::MovePalette(x, y));
         Ok(())
     }
 
@@ -873,8 +873,8 @@ impl Interp {
                 {
                     return self.show_hide(&ShowHide::MsgBox, show, at);
                 }
-                if let Some(palette) = Palette::named(name) {
-                    return self.show_palette(palette, show, at);
+                if is_palette_name(name) {
+                    return self.show_palette(show, at);
                 }
                 // HyperCard 2's Scroll palette: RandomCard scrolls a big card
                 // with the window's own scroll bars, so it has none to show.
@@ -898,8 +898,7 @@ impl Interp {
                     win.set_property("loc", &at).or_else(err)?;
                 }
             }
-            ShowHide::ToolWindow => return self.show_palette(Palette::Tools, show, at),
-            ShowHide::PatternWindow => return self.show_palette(Palette::Patterns, show, at),
+            ShowHide::ToolWindow | ShowHide::PatternWindow => return self.show_palette(show, at),
             ShowHide::VariableWatcher => self.w().requests.push(UiRequest::VariableWatcher(show)),
             ShowHide::ScrollWindow | ShowHide::Groups => {}
             ShowHide::MenuBar => self.w().menubar_visible = show,
@@ -2175,8 +2174,7 @@ impl Interp {
             "text color" => self.request(UiRequest::TextColor),
             "preferences" => self.request(UiRequest::Preferences),
             // "Tool Panel" was RandomCard's name before the palettes.
-            "tools palette" | "tool panel" => self.request(UiRequest::TogglePalette(Palette::Tools)),
-            "patterns palette" => self.request(UiRequest::TogglePalette(Palette::Patterns)),
+            "tools palette" | "tool panel" => self.request(UiRequest::TogglePalette),
             "print card" => {
                 let id = self.w().card_id;
                 self.print_cards(vec![id], true)

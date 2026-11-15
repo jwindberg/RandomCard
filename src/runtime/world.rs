@@ -426,37 +426,15 @@ pub enum KeyAction {
     Nothing,
 }
 
-/// HyperCard's two palettes: the Tools palette (`tool window`) and the
-/// Patterns palette (`pattern window`), with the patterns and colors.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Palette {
-    Tools,
-    Patterns,
-}
-
-impl Palette {
-    pub const ALL: [Palette; 2] = [Palette::Tools, Palette::Patterns];
-
-    /// The palette a script names: "tool window", "patterns"…
-    pub fn named(name: &str) -> Option<Palette> {
-        match name.trim().to_ascii_lowercase().as_str() {
-            "tool" | "tools" | "tool window" | "tools window" => Some(Palette::Tools),
-            "pattern" | "patterns" | "pattern window" | "patterns window" => Some(Palette::Patterns),
-            _ => None,
-        }
-    }
-
-    pub fn index(self) -> usize {
-        self as usize
-    }
-
-    /// Its title, and its name in `the windows`.
-    pub fn title(self) -> &'static str {
-        match self {
-            Palette::Tools => "Tools",
-            Palette::Patterns => "Patterns",
-        }
-    }
+/// Whether a script names RandomCard's palette. HyperCard had a Tools
+/// palette (`tool window`) and a Patterns palette (`pattern window`);
+/// RandomCard has one palette with the tools, patterns and colors, which
+/// both names mean.
+pub fn is_palette_name(name: &str) -> bool {
+    matches!(
+        name.trim().to_ascii_lowercase().as_str(),
+        "tool" | "tools" | "tool window" | "tools window" | "pattern" | "patterns" | "pattern window" | "patterns window"
+    )
 }
 
 /// A palette as the UI last showed it, for scripts to read.
@@ -468,7 +446,7 @@ pub struct PaletteState {
 }
 
 /// The Options menu's dialogs for paint settings.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PaintDialog {
     LineSize,
     BrushShape,
@@ -519,8 +497,8 @@ pub enum UiRequest {
     ExportPaint(std::path::PathBuf),
     ProtectStack,
     Preferences,
-    /// View ▸ Tools Palette or Patterns Palette.
-    TogglePalette(Palette),
+    /// View ▸ Tools Palette.
+    TogglePalette,
     /// Show the Recent dialog.
     Recent,
     /// Put the cursor in the message box at this character.
@@ -529,10 +507,10 @@ pub enum UiRequest {
     MessageWatcher(bool),
     VariableWatcher(bool),
     /// Show or hide a palette (`show tool window`, `hide pattern window`).
-    ShowPalette(Palette, bool),
+    ShowPalette(bool),
     /// Move a palette's top left corner to this point on screen
     /// (`set the loc of tool window`).
-    MovePalette(Palette, i32, i32),
+    MovePalette(i32, i32),
     /// Move the window so the card's top left corner is at this point on screen.
     MoveWindow(i32, i32),
     /// Open a URL, such as a `mailto:` message, in the program that handles it.
@@ -626,8 +604,8 @@ pub struct World {
     pub requests: Vec<UiRequest>,
     /// Text windows scripts have opened (TEXWindow), in front last.
     pub script_windows: Vec<ScriptWindow>,
-    /// The Tools and Patterns palettes, as the UI shows them.
-    pub palettes: [PaletteState; 2],
+    /// The palette, as the UI shows it.
+    pub palette_state: PaletteState,
     /// Where each palette was last shown, by lowercased name, so the
     /// `palette` command without a point puts it back there.
     pub palette_locs: HashMap<String, (i32, i32)>,
@@ -870,7 +848,7 @@ impl World {
             picture_rev: 0,
             requests: Vec::new(),
             script_windows: Vec::new(),
-            palettes: Default::default(),
+            palette_state: Default::default(),
             palette_locs: HashMap::new(),
             zoom: None,
             dialog: None,

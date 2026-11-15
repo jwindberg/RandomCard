@@ -1396,7 +1396,7 @@ end mouseUp"#,
     let about = b.label(
         "About",
         Rect::new(20, 42, 492, 90),
-        "A palette floats over the cards, and each of its buttons sends a message. HyperCard stacks keep theirs as resources, and RandomCard brings them along. Show this one, then go to another card: it stays. Scripts move the Tools and Patterns palettes too.",
+        "A palette floats over the cards, and each of its buttons sends a message. HyperCard stacks keep theirs as resources, and RandomCard brings them along. Show this one, then go to another card: it stays. Scripts move the Tools palette too.",
         12,
     );
     b.card_part(c, about);
@@ -1410,16 +1410,16 @@ end mouseUp"#,
         let p = b.button(name, Rect::new(36, y, 176, y + 28), script);
         b.card_part(c, p);
     }
-    // RandomCard's own palettes, moved and shown by scripts as HyperCard's
-    // Tools and Patterns palettes were.
+    // RandomCard's own palette, moved and shown by scripts as HyperCard's
+    // Tools palette was.
     let own_palettes = [
         (
             "Move the Tools",
             "on mouseUp\n  put the loc of tool window into oldLoc\n  show tool window at (item 1 of oldLoc + 120) & \",\" & (item 2 of oldLoc + 40)\n  wait 1 second\n  show tool window at oldLoc\n  put \"The Tools palette went from\" && oldLoc && \"and back: show tool window at, or set its loc.\" into field \"Said\"\nend mouseUp",
         ),
         (
-            "Patterns Palette",
-            "on mouseUp\n  if the visible of pattern window then\n    hide pattern window\n    put \"hide pattern window\" into field \"Said\"\n  else\n    show pattern window\n    put \"show pattern window: it opens by itself with a paint tool, too\" into field \"Said\"\n  end if\nend mouseUp",
+            "Hide the Tools",
+            "on mouseUp\n  if the visible of tool window then\n    hide tool window\n    set the name of me to \"Show the Tools\"\n    put \"hide tool window (or Ctrl+T)\" into field \"Said\"\n  else\n    show tool window\n    set the name of me to \"Hide the Tools\"\n    put \"show tool window: HyperCard's show pattern window shows it too\" into field \"Said\"\n  end if\nend mouseUp",
         ),
     ];
     for (i, (name, script)) in own_palettes.iter().enumerate() {

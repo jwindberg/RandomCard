@@ -117,17 +117,18 @@ HyperCard's own password scheme. A password is then needed to open Protect
 Stack or, through Preferences ▸ Unlock with Password…, to go above the
 limit. Protection stops casual changes. It isn't encryption.
 
-At Painting level and above there are two palettes, as in HyperCard, each
-in a small window of its own that stays in front and acts on whichever
-stack is in front. The **Tools palette** holds the tools; show or hide it
-with View ▸ Tools Palette or Ctrl+T. The **Patterns palette** holds the
-patterns and the paint colors; it opens by itself while a paint tool is
-chosen, and View ▸ Patterns Palette shows or hides it. Each opens again
-where you last put it. Scripts move and show them as HyperCard's did:
-`show tool window at 20,60`, `hide pattern window`, `the loc of tool
-window`. On desktops that can't keep a window in front (some Wayland
-desktops), or on a small screen, Preferences can dock both palettes at the
-window's left instead. The message box opens at the bottom of the window. Preferences are saved in `~/.config/randomcard/settings.json`.
+At Painting level and above, the **Tools palette** is a small window of
+its own that stays in front and acts on whichever stack is in front. It
+holds the tools, and below them six swatches showing the pattern, the line
+and fill colors, the line size, the brush and the polygon sides; click a
+swatch to pick from its choices, as HyperCard's Patterns menu dropped down
+its patterns. Show or hide the palette with View ▸ Tools Palette or Ctrl+T;
+it opens again where you last put it. Scripts move and show it as
+HyperCard's palettes: `show tool window at 20,60`, `the loc of tool
+window`, and `show pattern window`, which shows the same palette. On
+desktops that can't keep a window in front (some Wayland desktops), or on
+a small screen, Preferences can dock the palette at the window's left
+instead. The message box opens at the bottom of the window. Preferences are saved in `~/.config/randomcard/settings.json`.
 
 **Tools.** Browse, Button, Field, and HyperCard's paint tools: Select,
 Lasso, Pencil, Brush, Eraser, Line, Spray, Rect, Round Rect, Bucket, Oval,
@@ -244,9 +245,8 @@ Windows and "/" elsewhere, so a stack can find its own folder anywhere.
 - Painting in color, beyond HyperCard: `the penColor` (lines, borders, the
   pencil and text) and `the brushColor` (the pattern's set bits: brush,
   spray, bucket and filled shapes), as a name (`red`), `255,128,0` or
-  `#FF8000`. The Patterns palette has the same two colors, each with a picker
-  and an eyedropper, and recent colors that set whichever of Line or Fill
-  is chosen.
+  `#FF8000`. The palette's line and fill swatches have the same two
+  colors, each with a picker, an eyedropper and the recent colors.
 - Commands: put, get, set, add, subtract, multiply, divide, answer, ask
   (including password and file variants), go (including back and forth),
   find (normal, whole, word, chars and string), sort (lines, items or cards,

@@ -62,7 +62,7 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 | HyperTalk commands and functions | Most; gaps below |
 | System messages | Mouse, navigation, keyboard, `idle`, `doMenu`; all commands interceptable |
 | Browse, Button and Field tools | Working, with clipboard and undo |
-| Paint tools | All 18 tools, the Tools and Patterns palettes, the Paint and Options menus, FatBits |
+| Paint tools | All 18 tools, the Tools palette with its swatches, the Paint and Options menus, FatBits |
 | Fields | Styled text, the selection, click functions, list fields |
 | Visual effects | Complete |
 | Sound | `play`, notes, `dial`, `beep`; no MACE |
@@ -103,16 +103,16 @@ menu bar or replace HyperCard's menus with their own.
 **Decisions:**
 - RandomCard behaves like the purchased HyperCard: it runs at Scripting
   level by default, and otherwise stacks behave as they did in HyperCard.
-- The Tools and Patterns palettes are small windows of their own, as in
-  HyperCard, kept in front and acting on whichever stack is in front. The
-  Tools palette is shown or hidden with View ▸ Tools Palette, Ctrl+T or
-  Preferences; the Patterns palette opens while a paint tool is chosen.
-  Each opens where it was last. They only appear at levels that allow
-  tools. Preferences can dock both at the window's left instead, for
-  desktops that can't keep a window in front and for small screens. There
-  is no Tools menu. The palettes hold what you paint with (tools,
-  patterns, colors); the Options menu holds how it's drawn (Draw Filled,
-  Line Size, Brush Shape, Polygon Sides, Grid…), so each has one place.
+- The Tools palette is a small window of its own, kept in front and
+  acting on whichever stack is in front. It holds the tools and swatches
+  for the pattern, the line and fill colors, the line size, the brush and
+  the polygon sides, each popping up its choices (as HyperCard's Patterns
+  menu did). HyperCard's `tool window` and `pattern window` both name it.
+  It's shown or hidden with View ▸ Tools Palette, Ctrl+T or Preferences,
+  opens where it was last, and only appears at levels that allow tools.
+  Preferences can dock it at the window's left instead, for desktops that
+  can't keep a window in front and for small screens. There is no Tools
+  menu.
 - The message box stays at the bottom of the window. Screens are bigger now,
   so RandomCard can take the space.
 
@@ -397,9 +397,9 @@ together, and black on white is just the default.
    picture is kept at one byte a pixel and saved exactly as before; one
    with color is saved as a PNG. Printing shows colors as the nearer of
    black and white until step 5.
-2. ~~**The color palette.**~~ Done: in the Patterns palette under the
-   patterns, Line and Fill swatches with a picker and an eyedropper each,
-   and recent colors that set whichever of Line or Fill is chosen. A
+2. ~~**The color palette.**~~ Done: the Tools palette's Line and Fill
+   swatches, each popping up a picker, an eyedropper and the recent
+   colors. A
    pattern's set bits paint in the fill color and its clear bits white;
    the pencil, lines, borders and text use the line color. Scripts use
    `the penColor` and `the brushColor` (a name, `r,g,b` or `#rrggbb`).

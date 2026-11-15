@@ -19,7 +19,6 @@ pub struct MenuState {
     pub can_undo: bool,
     pub can_redo: bool,
     pub tools_shown: bool,
-    pub patterns_shown: bool,
     pub message_watcher: bool,
     pub variable_watcher: bool,
     /// What Cut, Copy and Clear act on ("Button", "Picture"…).
@@ -90,14 +89,13 @@ impl MenuState {
                 }
                 self.paste.is_some()
             }
-            "tools palette" | "patterns palette" => self.editing >= 3,
+            "tools palette" => self.editing >= 3,
             _ => true,
         };
         let checked = match key.as_str() {
             "background" => self.edit_bg,
             "message" | "message box" => self.msg_visible,
             "tools palette" => self.tools_shown,
-            "patterns palette" => self.patterns_shown,
             "message watcher" => self.message_watcher,
             "variable watcher" => self.variable_watcher,
             "grid" => self.paint.grid,

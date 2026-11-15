@@ -144,7 +144,7 @@ pub fn standard_menus() -> Vec<Menu> {
             "Go",
             &["Back", "Home", "Help", "Recent", "-", "First", "Prev", "Next", "Last", "-", "Find…", "Message", "Scroll", "Next Window"],
         ),
-        Menu::builtin("View", &["Tools Palette", "Patterns Palette", "Message Box", "-", "Message Watcher", "Variable Watcher"]),
+        Menu::builtin("View", &["Tools Palette", "Message Box", "-", "Message Watcher", "Variable Watcher"]),
         Menu::builtin("Font", &fonts),
         Menu::builtin("Style", &style),
         Menu::builtin("Paint", &paint),

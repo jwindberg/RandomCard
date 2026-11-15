@@ -75,6 +75,38 @@ pub enum ColorSlot {
     Fill,
 }
 
+/// The palette's swatches, each showing what's chosen and popping up the
+/// choices.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Swatch {
+    Pattern,
+    Color(ColorSlot),
+    Setting(PaintDialog),
+}
+
+impl Swatch {
+    /// In the palette's order: pattern and colors, then line, brush, sides.
+    pub const ALL: [Swatch; 6] = [
+        Swatch::Pattern,
+        Swatch::Color(ColorSlot::Line),
+        Swatch::Color(ColorSlot::Fill),
+        Swatch::Setting(PaintDialog::LineSize),
+        Swatch::Setting(PaintDialog::BrushShape),
+        Swatch::Setting(PaintDialog::PolygonSides),
+    ];
+
+    fn tip(self) -> &'static str {
+        match self {
+            Swatch::Pattern => "Pattern: for the brush, spray, bucket and filled shapes",
+            Swatch::Color(ColorSlot::Line) => "Line color: lines, borders, the pencil and text",
+            Swatch::Color(ColorSlot::Fill) => "Fill color: the pattern's color",
+            Swatch::Setting(PaintDialog::LineSize) => "Line size",
+            Swatch::Setting(PaintDialog::BrushShape) => "Brush shape",
+            Swatch::Setting(PaintDialog::PolygonSides) => "Polygon sides",
+        }
+    }
+}
+
 /// The recent colors before any are chosen: black, white and a rainbow.
 pub const STARTING_COLORS: [Pixel; 10] = [
     Pixel::BLACK,
@@ -140,138 +172,202 @@ fn freehand(t: Tool) -> bool {
 impl App {
     // ----- palette -----
 
-    /// The palettes' contents: the tools, and the patterns and colors (the
-    /// Options menu has the settings for how things are drawn). Docked, both
-    /// go in the panel at the window's left under headings; floating, each
-    /// is in its own window, titled.
-    pub(super) fn palette(&mut self, ui: &mut egui::Ui, tools: bool, patterns_shown: bool, headings: bool) {
-        let ctx = ui.ctx().clone();
-        let (tool, pattern, patterns, line_color, fill_color) = {
-            let w = self.world();
-            (w.tool, w.pattern, w.stack.patterns.clone(), w.line_color, w.fill_color)
-        };
-        // A scroll bar with its own room, so it doesn't cover the patterns.
+    /// The palette: the tools, then swatches showing the pattern, the line
+    /// and fill colors, the line size, the brush and the polygon sides.
+    /// Clicking a swatch unfolds its choices below.
+    /// Returns the height its contents take.
+    pub(super) fn palette(&mut self, ui: &mut egui::Ui) -> f32 {
+        let tool = self.world().tool;
+        let mut height = 0.0;
+        // A scroll bar with its own room, so it doesn't cover the swatches.
         ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.add_space(2.0);
-            if tools {
-                if headings {
-                    ui.label(RichText::new("Tools").strong());
-                }
-                egui::Grid::new("tools").spacing([2.0, 2.0]).min_col_width(0.0).show(ui, |ui| {
-                    for (i, t) in Tool::ALL.iter().enumerate() {
-                        let icon = RichText::new(tool_icon(*t)).size(16.0);
-                        let resp = ui
-                            .add_sized([36.0, 26.0], egui::Button::selectable(tool == *t, icon))
-                            .on_hover_text(windows::capitalize(t.name()));
-                        if resp.clicked() {
-                            self.choose_tool(*t);
-                        }
-                        // As in HyperCard: double-click a tool for its setting.
-                        if resp.double_clicked() {
-                            match t {
-                                Tool::Line => self.paint_dialog = Some(PaintDialog::LineSize),
-                                Tool::Brush => self.paint_dialog = Some(PaintDialog::BrushShape),
-                                Tool::RegularPolygon => self.paint_dialog = Some(PaintDialog::PolygonSides),
-                                Tool::Pencil => self.do_menu("FatBits"),
-                                Tool::Rect | Tool::RoundRect | Tool::Oval | Tool::Polygon => {
-                                    self.do_menu("Draw Filled")
-                                }
-                                _ => {}
-                            }
-                        }
-                        if i % 3 == 2 {
-                            ui.end_row();
+            egui::Grid::new("tools").spacing([2.0, 2.0]).min_col_width(0.0).show(ui, |ui| {
+                for (i, t) in Tool::ALL.iter().enumerate() {
+                    let icon = RichText::new(tool_icon(*t)).size(16.0);
+                    let resp = ui
+                        .add_sized([36.0, 26.0], egui::Button::selectable(tool == *t, icon))
+                        .on_hover_text(windows::capitalize(t.name()));
+                    if resp.clicked() {
+                        self.choose_tool(*t);
+                    }
+                    // As in HyperCard: double-click a tool for its setting.
+                    if resp.double_clicked() {
+                        match t {
+                            Tool::Line => self.open_swatch = Some(Swatch::Setting(PaintDialog::LineSize)),
+                            Tool::Brush => self.open_swatch = Some(Swatch::Setting(PaintDialog::BrushShape)),
+                            Tool::RegularPolygon => self.open_swatch = Some(Swatch::Setting(PaintDialog::PolygonSides)),
+                            Tool::Pencil => self.do_menu("FatBits"),
+                            Tool::Rect | Tool::RoundRect | Tool::Oval | Tool::Polygon => self.do_menu("Draw Filled"),
+                            _ => {}
                         }
                     }
-                });
-            }
-            if !patterns_shown {
-                return;
-            }
-            if tools {
-                ui.separator();
-            }
-            if headings {
-                ui.label(RichText::new("Pattern").strong());
-            }
-            let textures = self.pattern_textures(&ctx, &patterns, fill_color);
-            egui::Grid::new("patterns").spacing([2.0, 2.0]).min_col_width(0.0).show(ui, |ui| {
-                for (i, tex) in textures.iter().enumerate() {
-                    let (rect, resp) = ui.allocate_exact_size(Vec2::new(20.0, 14.0), Sense::click());
-                    let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(20.0 / 8.0, 14.0 / 8.0));
-                    ui.painter().image(*tex, rect, uv, Color32::WHITE);
-                    let (width, color) =
-                        if pattern == i + 1 { (2.0, Color32::from_rgb(0, 90, 200)) } else { (1.0, Color32::GRAY) };
-                    ui.painter().rect_stroke(rect, 0.0, Stroke::new(width, color), StrokeKind::Outside);
-                    if resp.on_hover_text(format!("Pattern {}", i + 1)).clicked() {
-                        self.world().pattern = i + 1;
-                    }
-                    if i % 5 == 4 {
+                    if i % 3 == 2 {
                         ui.end_row();
                     }
                 }
             });
             ui.separator();
-            self.color_palette(ui, line_color, fill_color);
+            egui::Grid::new("swatches").spacing([2.0, 2.0]).min_col_width(0.0).show(ui, |ui| {
+                for (i, which) in Swatch::ALL.into_iter().enumerate() {
+                    self.swatch(ui, which);
+                    if i % 3 == 2 {
+                        ui.end_row();
+                    }
+                }
+            });
+            // The open swatch's choices unfold below, in the palette (a
+            // popup couldn't reach past the palette's own small window).
+            if let Some(which) = self.open_swatch {
+                ui.separator();
+                if self.swatch_choices(ui, which) {
+                    self.open_swatch = None;
+                }
+            }
+            height = ui.min_rect().height();
         });
+        height
     }
 
-    /// The color palette: the line and fill colors, each with a picker and
-    /// an eyedropper, and the recent colors. Clicking "Line" or "Fill"
-    /// chooses which color the recent colors set; using a color's picker or
-    /// eyedropper chooses it too.
-    fn color_palette(&mut self, ui: &mut egui::Ui, line_color: Pixel, fill_color: Pixel) {
-        ui.label(RichText::new("Color").strong());
-        egui::Grid::new("paint-colors").num_columns(3).spacing([4.0, 2.0]).show(ui, |ui| {
-            for (slot, name, color, tip) in [
-                (ColorSlot::Line, "Line", line_color, "Lines, borders, the pencil and text"),
-                (ColorSlot::Fill, "Fill", fill_color, "The pattern: brush, spray, bucket and filled shapes"),
-            ] {
-                let chosen = self.color_target == slot;
-                let label = ui
-                    .add_sized([40.0, 20.0], egui::Button::selectable(chosen, name))
-                    .on_hover_text(format!("{tip}. Click so the colors below set it."));
-                if label.clicked() {
-                    self.color_target = slot;
+    /// One of the palette's swatches: what's chosen now, drawn. Clicking it
+    /// opens or closes its choices.
+    fn swatch(&mut self, ui: &mut egui::Ui, which: Swatch) {
+        let (rect, resp) = ui.allocate_exact_size(Vec2::new(36.0, 26.0), Sense::click());
+        self.draw_swatch(ui, rect, which);
+        let hover = if resp.hovered() { Stroke::new(2.0, Color32::from_rgb(0, 90, 200)) } else { Stroke::new(1.0, Color32::GRAY) };
+        ui.painter().rect_stroke(rect, 2.0, hover, StrokeKind::Inside);
+        let open = self.open_swatch == Some(which);
+        if open {
+            ui.painter().rect_stroke(rect, 2.0, Stroke::new(2.0, Color32::from_rgb(0, 90, 200)), StrokeKind::Inside);
+        }
+        if resp.on_hover_text(which.tip()).clicked() {
+            self.open_swatch = if open { None } else { Some(which) };
+        }
+    }
+
+    fn draw_swatch(&mut self, ui: &mut egui::Ui, rect: Rect, which: Swatch) {
+        let (pattern, patterns, line_color, fill_color, line_size, brush, sides) = {
+            let w = self.world();
+            (w.pattern, w.stack.patterns.clone(), w.line_color, w.fill_color, w.line_size, w.brush, w.poly_sides)
+        };
+        let painter = ui.painter().with_clip_rect(rect.shrink(1.0));
+        painter.rect_filled(rect, 2.0, Color32::WHITE);
+        let c = rect.center();
+        match which {
+            Swatch::Pattern => {
+                let textures = self.pattern_textures(ui.ctx(), &patterns, fill_color);
+                if let Some(tex) = textures.get(pattern.wrapping_sub(1)) {
+                    let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(rect.width() / 8.0, rect.height() / 8.0));
+                    painter.image(*tex, rect, uv, Color32::WHITE);
                 }
-                let mut c = color32(color);
-                let resp = egui::color_picker::color_edit_button_srgba(ui, &mut c, egui::color_picker::Alpha::Opaque);
-                if resp.clicked() {
-                    self.color_target = slot;
+            }
+            // The line color as a frame, the fill color filling the swatch.
+            Swatch::Color(ColorSlot::Line) => {
+                painter.rect_stroke(rect.shrink(5.0), 0.0, Stroke::new(4.0, color32(line_color)), StrokeKind::Middle);
+            }
+            Swatch::Color(ColorSlot::Fill) => {
+                painter.rect_filled(rect.shrink(4.0), 0.0, color32(fill_color));
+            }
+            Swatch::Setting(PaintDialog::LineSize) => {
+                painter.rect_filled(Rect::from_center_size(c, Vec2::new(24.0, line_size as f32)), 0.0, Color32::BLACK);
+            }
+            Swatch::Setting(PaintDialog::BrushShape) => {
+                for (dx, dy) in paint::brush_shape(brush) {
+                    let at = c + Vec2::new(dx as f32, dy as f32) * 1.5;
+                    painter.rect_filled(Rect::from_min_size(at, Vec2::splat(1.5)), 0.0, Color32::BLACK);
                 }
-                if resp.changed() {
-                    self.set_paint_color(slot, pixel(c), false);
+            }
+            Swatch::Setting(PaintDialog::PolygonSides) => {
+                let mut pts: Vec<Pos2> = paint::regular_polygon_points((0, 0), (0, -10), sides)
+                    .iter()
+                    .map(|p| c + Vec2::new(p.0 as f32, p.1 as f32 + 1.0))
+                    .collect();
+                if let Some(first) = pts.first().copied() {
+                    pts.push(first);
                 }
-                let picking = self.eyedropper == Some(slot);
-                let dropper = ui
-                    .add(egui::Button::selectable(picking, RichText::new("💧").size(13.0)))
-                    .on_hover_text(format!("Pick the {} color from the card", name.to_lowercase()));
-                if dropper.clicked() {
-                    self.eyedropper = if picking { None } else { Some(slot) };
-                    self.color_target = slot;
+                painter.add(egui::Shape::line(pts, Stroke::new(1.0, Color32::BLACK)));
+            }
+        }
+    }
+
+    /// A swatch's choices, in its popup; true when one was taken.
+    fn swatch_choices(&mut self, ui: &mut egui::Ui, which: Swatch) -> bool {
+        match which {
+            Swatch::Pattern => self.pattern_choices(ui),
+            Swatch::Color(slot) => self.color_choices(ui, slot),
+            Swatch::Setting(setting) => self.setting_choices(ui, setting),
+        }
+    }
+
+    fn pattern_choices(&mut self, ui: &mut egui::Ui) -> bool {
+        let (pattern, patterns, fill_color) = {
+            let w = self.world();
+            (w.pattern, w.stack.patterns.clone(), w.fill_color)
+        };
+        let textures = self.pattern_textures(ui.ctx(), &patterns, fill_color);
+        let mut chosen = false;
+        egui::Grid::new("pattern-choices").spacing([3.0, 3.0]).min_col_width(0.0).show(ui, |ui| {
+            for (i, tex) in textures.iter().enumerate() {
+                let (rect, resp) = ui.allocate_exact_size(Vec2::new(26.0, 16.0), Sense::click());
+                let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(26.0 / 8.0, 16.0 / 8.0));
+                ui.painter().image(*tex, rect, uv, Color32::WHITE);
+                let (width, color) = if pattern == i + 1 || resp.hovered() {
+                    (2.0, Color32::from_rgb(0, 90, 200))
+                } else {
+                    (1.0, Color32::GRAY)
+                };
+                ui.painter().rect_stroke(rect, 0.0, Stroke::new(width, color), StrokeKind::Outside);
+                if resp.on_hover_text(format!("Pattern {}", i + 1)).clicked() {
+                    self.world().pattern = i + 1;
+                    chosen = true;
                 }
-                ui.end_row();
+                if i % 4 == 3 {
+                    ui.end_row();
+                }
             }
         });
+        chosen
+    }
+
+    /// The line or fill color: a picker, the eyedropper, and the recent
+    /// colors. The picker stays open while it's dragged.
+    fn color_choices(&mut self, ui: &mut egui::Ui, slot: ColorSlot) -> bool {
+        let current = {
+            let w = self.world();
+            if slot == ColorSlot::Line { w.line_color } else { w.fill_color }
+        };
+        let what = match slot {
+            ColorSlot::Line => "Line color: lines, borders, the pencil and text",
+            ColorSlot::Fill => "Fill color: the pattern, for the brush, spray, bucket and filled shapes",
+        };
+        ui.label(RichText::new(what).small());
+        ui.spacing_mut().slider_width = 104.0;
+        let mut c = color32(current);
+        if egui::color_picker::color_picker_color32(ui, &mut c, egui::color_picker::Alpha::Opaque) {
+            self.set_paint_color(slot, pixel(c), false);
+        }
+        let mut chosen = false;
         let recent = self.recent_colors.clone();
-        let target = self.color_target;
-        let tip = format!("Set the {} color", if target == ColorSlot::Line { "line" } else { "fill" });
         egui::Grid::new("recent-colors").spacing([2.0, 2.0]).min_col_width(0.0).show(ui, |ui| {
             for (i, color) in recent.iter().enumerate() {
-                let (rect, resp) = ui.allocate_exact_size(Vec2::new(18.0, 14.0), Sense::click());
+                let (rect, resp) = ui.allocate_exact_size(Vec2::new(20.0, 14.0), Sense::click());
                 ui.painter().rect_filled(rect, 0.0, color32(*color));
                 ui.painter().rect_stroke(rect, 0.0, Stroke::new(1.0, Color32::GRAY), StrokeKind::Outside);
-                // The row stays put while choosing; colors move up when
-                // they're painted with.
-                if resp.on_hover_text(&tip).clicked() {
-                    self.set_paint_color(target, *color, false);
+                if resp.clicked() {
+                    self.set_paint_color(slot, *color, false);
+                    chosen = true;
                 }
                 if i % 5 == 4 {
                     ui.end_row();
                 }
             }
         });
+        if ui.button("💧 From the card").on_hover_text("Then click the card to take its color there").clicked() {
+            self.eyedropper = Some(slot);
+            chosen = true;
+        }
+        chosen
     }
 
     /// Set a paint color, remembering it among the recent colors.
@@ -410,8 +506,9 @@ impl App {
         }
     }
 
-    /// The Options menu's Line Size, Brush Shape and Polygon Sides dialogs:
-    /// click a choice to take it.
+    /// The Options menu's Line Size, Brush Shape and Polygon Sides, as
+    /// dialogs when the palette isn't showing (when it is, its swatches
+    /// pop up the same choices): click a choice to take it.
     pub(super) fn show_paint_dialog(&mut self, ctx: &egui::Context) {
         let Some(dialog) = self.paint_dialog else { return };
         let title = match dialog {
@@ -419,88 +516,97 @@ impl App {
             PaintDialog::BrushShape => "Brush Shape",
             PaintDialog::PolygonSides => "Polygon Sides",
         };
-        let (line_size, brush, sides) = {
-            let w = self.world();
-            (w.line_size, w.brush, w.poly_sides)
-        };
         let mut open = true;
         let mut chosen = false;
-        let selected = Color32::from_rgb(0, 90, 200);
         egui::Window::new(title)
             .open(&mut open)
             .resizable(false)
             .collapsible(false)
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
-            .show(ctx, |ui| match dialog {
-                PaintDialog::LineSize => {
-                    ui.horizontal(|ui| {
-                        for size in [1u32, 2, 3, 4, 6, 8] {
-                            let (rect, resp) = ui.allocate_exact_size(Vec2::new(30.0, 40.0), Sense::click());
-                            ui.painter().rect_filled(
-                                Rect::from_center_size(rect.center(), Vec2::new(size as f32, 30.0)),
-                                0.0,
-                                Color32::BLACK,
-                            );
-                            let width = if size == line_size { 2.0 } else { 1.0 };
-                            let color = if size == line_size { selected } else { Color32::GRAY };
-                            ui.painter().rect_stroke(rect, 0.0, Stroke::new(width, color), StrokeKind::Inside);
-                            if resp.on_hover_text(format!("{size}")).clicked() {
-                                self.world().line_size = size;
-                                chosen = true;
-                            }
-                        }
-                    });
+            .show(ctx, |ui| chosen = self.setting_choices(ui, dialog));
+        if !open || chosen {
+            self.paint_dialog = None;
+        }
+    }
+
+    /// The choices for the line size, brush or polygon sides; true when
+    /// one was taken.
+    fn setting_choices(&mut self, ui: &mut egui::Ui, dialog: PaintDialog) -> bool {
+        let (line_size, brush, sides) = {
+            let w = self.world();
+            (w.line_size, w.brush, w.poly_sides)
+        };
+        let mut chosen = false;
+        let selected = Color32::from_rgb(0, 90, 200);
+        // Laid out to fit the palette's width: lines down a column, brushes
+        // and polygons in grids.
+        let mut choice = |ui: &mut egui::Ui, size: Vec2, current: bool, tip: String, draw: &dyn Fn(&egui::Painter, Rect)| {
+            let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+            ui.painter().rect_filled(rect, 0.0, Color32::WHITE);
+            draw(ui.painter(), rect);
+            let hot = current || resp.hovered();
+            let stroke = if hot { Stroke::new(2.0, selected) } else { Stroke::new(1.0, Color32::GRAY) };
+            ui.painter().rect_stroke(rect, 0.0, stroke, StrokeKind::Inside);
+            let clicked = resp.on_hover_text(tip).clicked();
+            chosen |= clicked;
+            clicked
+        };
+        match dialog {
+            PaintDialog::LineSize => {
+                for size in [1u32, 2, 3, 4, 6, 8] {
+                    let draw = |p: &egui::Painter, r: Rect| {
+                        p.rect_filled(Rect::from_center_size(r.center(), Vec2::new(r.width() - 16.0, size as f32)), 0.0, Color32::BLACK);
+                    };
+                    if choice(ui, Vec2::new(110.0, 16.0), size == line_size, format!("{size}"), &draw) {
+                        self.world().line_size = size;
+                    }
                 }
-                PaintDialog::BrushShape => {
-                    egui::Grid::new("brush-shapes").spacing([4.0, 4.0]).min_col_width(0.0).show(ui, |ui| {
-                        for (i, name) in paint::BRUSH_NAMES.iter().enumerate() {
-                            let n = i as u32 + 1;
-                            let (rect, resp) = ui.allocate_exact_size(Vec2::splat(40.0), Sense::click());
+            }
+            PaintDialog::BrushShape => {
+                egui::Grid::new("brush-shapes").spacing([2.0, 2.0]).min_col_width(0.0).show(ui, |ui| {
+                    for (i, name) in paint::BRUSH_NAMES.iter().enumerate() {
+                        let n = i as u32 + 1;
+                        let draw = |p: &egui::Painter, r: Rect| {
                             for (dx, dy) in paint::brush_shape(n) {
-                                let at = rect.center() + Vec2::new(dx as f32, dy as f32) * 2.0;
-                                ui.painter().rect_filled(Rect::from_min_size(at, Vec2::splat(2.0)), 0.0, Color32::BLACK);
+                                let at = r.center() + Vec2::new(dx as f32, dy as f32) * 1.5;
+                                p.rect_filled(Rect::from_min_size(at, Vec2::splat(1.5)), 0.0, Color32::BLACK);
                             }
-                            let current = (brush.max(1) - 1) % paint::BRUSH_NAMES.len() as u32 + 1 == n;
-                            let width = if current { 2.0 } else { 1.0 };
-                            let color = if current { selected } else { Color32::GRAY };
-                            ui.painter().rect_stroke(rect, 0.0, Stroke::new(width, color), StrokeKind::Inside);
-                            if resp.on_hover_text(*name).clicked() {
-                                self.world().brush = n;
-                                chosen = true;
-                            }
-                            if i % 4 == 3 {
-                                ui.end_row();
-                            }
+                        };
+                        let current = (brush.max(1) - 1) % paint::BRUSH_NAMES.len() as u32 + 1 == n;
+                        if choice(ui, Vec2::splat(26.0), current, name.to_string(), &draw) {
+                            self.world().brush = n;
                         }
-                    });
-                }
-                PaintDialog::PolygonSides => {
-                    ui.horizontal(|ui| {
-                        for n in [3u32, 4, 5, 6, 8] {
-                            let (rect, resp) = ui.allocate_exact_size(Vec2::splat(44.0), Sense::click());
-                            let c = rect.center();
-                            let mut pts: Vec<Pos2> = paint::regular_polygon_points((0, 0), (0, -16), n)
+                        if i % 4 == 3 {
+                            ui.end_row();
+                        }
+                    }
+                });
+            }
+            PaintDialog::PolygonSides => {
+                egui::Grid::new("polygon-sides").spacing([2.0, 2.0]).min_col_width(0.0).show(ui, |ui| {
+                    for (i, n) in [3u32, 4, 5, 6, 8, 12].into_iter().enumerate() {
+                        let draw = |p: &egui::Painter, r: Rect| {
+                            let c = r.center();
+                            let mut pts: Vec<Pos2> = paint::regular_polygon_points((0, 0), (0, -13), n)
                                 .iter()
-                                .map(|p| c + Vec2::new(p.0 as f32, p.1 as f32 + 2.0))
+                                .map(|q| c + Vec2::new(q.0 as f32, q.1 as f32 + 1.0))
                                 .collect();
                             if let Some(first) = pts.first().copied() {
                                 pts.push(first);
                             }
-                            ui.painter().add(egui::Shape::line(pts, Stroke::new(1.5, Color32::BLACK)));
-                            let width = if n == sides { 2.0 } else { 1.0 };
-                            let color = if n == sides { selected } else { Color32::GRAY };
-                            ui.painter().rect_stroke(rect, 0.0, Stroke::new(width, color), StrokeKind::Inside);
-                            if resp.on_hover_text(format!("{n} sides")).clicked() {
-                                self.world().poly_sides = n;
-                                chosen = true;
-                            }
+                            p.add(egui::Shape::line(pts, Stroke::new(1.5, Color32::BLACK)));
+                        };
+                        if choice(ui, Vec2::splat(35.0), n == sides, format!("{n} sides"), &draw) {
+                            self.world().poly_sides = n;
                         }
-                    });
-                }
-            });
-        if !open || chosen {
-            self.paint_dialog = None;
+                        if i % 3 == 2 {
+                            ui.end_row();
+                        }
+                    }
+                });
+            }
         }
+        chosen
     }
 
     // ----- pictures and undo -----

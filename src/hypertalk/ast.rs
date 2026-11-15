@@ -256,7 +256,8 @@ pub enum ShowHide {
     VariableWatcher,
     /// `show tool window`: the Tools palette.
     ToolWindow,
-    /// `show pattern window`: the Patterns palette.
+    /// `show pattern window`: HyperCard's Patterns palette, which in
+    /// RandomCard is part of the Tools palette.
     PatternWindow,
     /// `show groups`: HyperCard 2's gray underline under text in the group
     /// style. RandomCard doesn't draw it yet.

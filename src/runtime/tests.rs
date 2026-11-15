@@ -545,13 +545,15 @@ fn demo_stack_runs() {
     i.canned_answers.push(DialogReply::Button("OK".into()));
     assert_eq!(click(&mut i, "Palettes", "Ask Home"), None);
     assert_eq!(current(&i), "Palettes");
-    // The Tools palette moved and put back; the Patterns palette shown.
-    lock(&i.world).palettes[0].rect = crate::model::Rect::new(10, 60, 146, 256);
+    // The palette moved and put back, then shown with `show pattern window`.
+    lock(&i.world).palette_state.rect = crate::model::Rect::new(10, 60, 146, 256);
     assert_eq!(click(&mut i, "Palettes", "Move the Tools"), None);
     assert_eq!(run(&mut i, "put the loc of tool window"), "10,60");
     assert!(run(&mut i, "put field \"Said\"").contains("went from 10,60"));
-    assert_eq!(click(&mut i, "Palettes", "Patterns Palette"), None);
-    assert_eq!(run(&mut i, "put the visible of pattern window"), "true");
+    assert_eq!(click(&mut i, "Palettes", "Hide the Tools"), None);
+    assert_eq!(run(&mut i, "put the visible of pattern window"), "false");
+    assert_eq!(click(&mut i, "Palettes", "Show the Tools"), None);
+    assert_eq!(run(&mut i, "put the visible of tool window"), "true");
     lock(&i.world).home_path = None;
     std::fs::remove_dir_all(&home_dir).ok();
     assert_eq!(click(&mut i, "Contents", "Dice & Effects"), None);
@@ -2043,12 +2045,12 @@ fn forms_from_apples_stacks() {
     assert_eq!(run(&mut i, "put there is a window \"message box\""), "true");
     assert_eq!(run(&mut i, "put there is no window \"Describe Problem\""), "true");
     i.handle_event(Event::MsgBox("hide tool window".into()));
-    let palette = |r: &UiRequest| matches!(r, UiRequest::ShowPalette(super::world::Palette::Tools, false));
+    let palette = |r: &UiRequest| matches!(r, UiRequest::ShowPalette(false));
     assert!(lock(&i.world).requests.drain(..).any(|r| palette(&r)));
     assert_eq!(run(&mut i, "put the visible of tool window"), "false");
-    // Moving the Patterns palette: its loc is where it went, and the UI is asked to move it.
+    // `pattern window` is the same palette: moving it, its loc is where it went.
     i.handle_event(Event::MsgBox("show pattern window at 30,200".into()));
-    let moved = |r: &UiRequest| matches!(r, UiRequest::MovePalette(super::world::Palette::Patterns, 30, 200));
+    let moved = |r: &UiRequest| matches!(r, UiRequest::MovePalette(30, 200));
     assert!(lock(&i.world).requests.drain(..).any(|r| moved(&r)));
     assert_eq!(run(&mut i, "put the loc of pattern window && the visible of pattern window"), "30,200 true");
     assert_eq!(run(&mut i, "put the name of window \"Tools\""), "Tools");
