@@ -634,6 +634,11 @@ pub struct World {
     pub pattern: usize,
     pub brush: u32,
     pub poly_sides: u32,
+    /// The spray can's circle across, in pixels (`the spraySize`), and the
+    /// dots it sprays at a time (`the sprayDensity`): beyond HyperCard,
+    /// whose spray was fixed at 16 and 12.
+    pub spray_size: u32,
+    pub spray_density: u32,
     /// The space between shapes drawn with Draw Multiple (`the multiSpace`).
     pub multi_space: u32,
     /// The Options menu's settings: Grid (`the grid`), Draw Centered
@@ -867,6 +872,8 @@ impl World {
             pattern: 1,
             brush: 3,
             poly_sides: 4,
+            spray_size: crate::paint::SPRAY_SIZE,
+            spray_density: crate::paint::SPRAY_DENSITY,
             multi_space: 1,
             grid: false,
             centered: false,
@@ -1256,6 +1263,8 @@ impl World {
             pattern: self.stack.pattern(self.pattern),
             brush: self.brush,
             poly_sides: self.poly_sides,
+            spray_size: self.spray_size,
+            spray_density: self.spray_density,
             centered: self.centered,
             line_color: self.line_color,
             fill_color: self.fill_color,

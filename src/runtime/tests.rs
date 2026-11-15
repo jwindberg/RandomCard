@@ -411,6 +411,25 @@ fn demo_stack_runs() {
     assert_eq!(click(&mut i, "Drawing", "FatBits"), None);
     assert_eq!(lock(&i.world).tool, crate::runtime::world::Tool::Pencil);
     run(&mut i, "choose browse tool");
+    // The brush cursor's button picks a big brush.
+    assert_eq!(click(&mut i, "Drawing", "Brush Cursor"), None);
+    assert_eq!(lock(&i.world).brush, 5);
+    run(&mut i, "choose browse tool");
+    // The spray can, small and light, then big and heavy.
+    let (size, density) = {
+        let w = lock(&i.world);
+        (w.spray_size, w.spray_density)
+    };
+    assert_eq!(click(&mut i, "Drawing", "Spray Sizes"), None);
+    {
+        let w = lock(&i.world);
+        assert_eq!((w.spray_size, w.spray_density), (size, density));
+        let pic = &w.stack.card(w.card_id).unwrap().picture;
+        let dots = |x0: i32, x1: i32| (x0..=x1).flat_map(|x| (280..=320).map(move |y| (x, y))).filter(|(x, y)| pic.get(*x, *y) == crate::model::Pixel::BLACK).count();
+        let (light, heavy) = (dots(260, 330), dots(425, 480));
+        assert!(heavy > light * 2, "light {light}, heavy {heavy}");
+    }
+    run(&mut i, "choose browse tool");
     // Draw Multiple: rings from one point, and boxes lined up on the grid.
     assert_eq!(click(&mut i, "Drawing", "Draw Multiple"), None);
     {
@@ -557,6 +576,10 @@ fn demo_stack_runs() {
     assert_eq!(click(&mut i, "Palettes", "Tool Icons"), None);
     assert_eq!(lock(&i.world).poly_sides, sides);
     assert!(run(&mut i, "put field \"Said\"").contains("icon shows its setting"));
+    assert_eq!(click(&mut i, "Palettes", "Peek"), None);
+    assert!(run(&mut i, "put field \"Said\"").contains("hidden button"));
+    assert_eq!(click(&mut i, "Palettes", "Secret"), None);
+    assert_eq!(run(&mut i, "put field \"Said\""), "You found the hidden button.");
     assert_eq!(click(&mut i, "Palettes", "Paint Menu"), None);
     assert_eq!(lock(&i.world).tool, crate::runtime::world::Tool::Select);
     run(&mut i, "choose browse tool");
@@ -3711,7 +3734,7 @@ fn the_solitaire_stack() {
     }
     // Every card has its face as a color icon.
     assert_eq!(stack.icons.len(), 53);
-    assert!(stack.icons.values().all(|i| i.picture.has_color() && i.picture.width == 80));
+    assert!(stack.icons.values().all(|i| i.picture.has_color() && i.picture.width == 64));
 
     let mut i = interp_with(stack);
     run(&mut i, "go to card \"FreeCell\"\nnewGame 1");
@@ -3765,7 +3788,7 @@ fn the_solitaire_stack() {
     assert_eq!(run(&mut i, "put field \"FreeCell Record\" of card \"Games\""), "Won 1, lost 0 (100%). Streak 1, best 1.");
     run(&mut i, "checkWin");
     assert_eq!(run(&mut i, "put field \"Won\""), "1");
-    assert_eq!(run(&mut i, "put the visible of field \"Banner\" && the loc of card button \"AC\""), "true 420,134");
+    assert_eq!(run(&mut i, "put the visible of field \"Banner\" && the loc of card button \"AC\""), "true 336,107");
     // Leaving a game with moves made, not won, is a loss; a fresh deal isn't.
     run(&mut i, "global gMoves\nabandonGame gMoves\nnewGame 2");
     assert_eq!(run(&mut i, "put the visible of field \"Banner\""), "false");

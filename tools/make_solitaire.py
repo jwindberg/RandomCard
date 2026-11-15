@@ -9,6 +9,7 @@ The back is drawn here after Bas de Reuver's (BdRGames) design 1, which is
 CC0. The games' scripts are here, readable; in the stack, choose Objects ▸
 Card Script on a game's card, and Stack Script for what they share.
 """
+import re
 import base64
 import io
 import json
@@ -16,8 +17,20 @@ import os
 
 from PIL import Image, ImageDraw
 
+# The table is laid out in these units, then scaled by SCALE: at 0.8 it's
+# 672×480 and fits a 720×720 screen. The scripts' numbers are marked §n
+# and scaled the same way, so the slots and the cards placed in them agree.
+SCALE = 0.8
 WIDTH, HEIGHT = 840, 600
 CARD_W, CARD_H = 80, 116
+
+
+def sc(n):
+    """A length in the layout's units, scaled and rounded."""
+    return int(n * SCALE + 0.5)
+
+
+PX_W, PX_H = sc(CARD_W), sc(CARD_H)
 FACES = 'reference/Playing Cards/PNG-cards-1.3'
 FELT = [21, 96, 54]
 SLOT = [16, 78, 43]
@@ -34,19 +47,41 @@ def new_id():
 
 
 def rect(l, t, r, b):
+    """A rect in the layout's units, scaled."""
+    return rect_px(sc(l), sc(t), sc(l) + sc(r - l), sc(t) + sc(b - t))
+
+
+def rect_px(l, t, r, b):
+    """A rect already scaled."""
     return {'left': l, 'top': t, 'right': r, 'bottom': b}
 
 
+def card_rect(x, y):
+    """A card's rect at (x, y), both already scaled."""
+    return rect_px(x, y, x + PX_W, y + PX_H)
+
+
+def text_size(n):
+    return max(10, sc(n))
+
+
+def scaled(script):
+    """The script with each §n replaced by n scaled."""
+    return re.sub(r'§(\d+)', lambda m: str(sc(int(m.group(1)))), script)
+
+
 def button(name, r, script='', style='RoundRect', **extra):
-    p = {'id': new_id(), 'kind': 'Button', 'name': name, 'rect': rect(*r), 'script': script.strip('\n'),
-         'style': style}
+    p = {'id': new_id(), 'kind': 'Button', 'name': name, 'rect': r if isinstance(r, dict) else rect(*r),
+         'script': script.strip('\n'), 'style': style}
+    if 'text_size' in extra:
+        extra['text_size'] = text_size(extra['text_size'])
     p.update(extra)
     return p
 
 
 def field(name, r, text='', size=12, style='Transparent', lock=True, align='Left', bold=False, **extra):
     p = {'id': new_id(), 'kind': 'Field', 'name': name, 'rect': rect(*r), 'script': '', 'style': style,
-         'contents': text, 'text_size': size, 'text_style': 'bold' if bold else 'plain', 'text_align': align,
+         'contents': text, 'text_size': text_size(size), 'text_style': 'bold' if bold else 'plain', 'text_align': align,
          'lock_text': lock, 'dont_wrap': False}
     p.update(extra)
     return p
@@ -57,7 +92,7 @@ def label(name, r, text, size=12, **extra):
 
 
 def picture():
-    return {'width': WIDTH, 'height': HEIGHT, 'data': ''}
+    return {'width': sc(WIDTH), 'height': sc(HEIGHT), 'data': ''}
 
 
 RANKS = 'A23456789TJQK'
@@ -81,7 +116,7 @@ def png_picture(im):
 
 
 def icon_picture(path):
-    return png_picture(Image.open(path).convert('RGBA').resize((CARD_W, CARD_H), Image.LANCZOS))
+    return png_picture(Image.open(path).convert('RGBA').resize((PX_W, PX_H), Image.LANCZOS))
 
 
 def card_back(color=(30, 68, 149)):
@@ -112,7 +147,7 @@ def card_back(color=(30, 68, 149)):
     ImageDraw.Draw(mask).rectangle((left, top, right, bottom), fill=255)
     im.paste(lattice, (0, 0), Image.composite(lattice, Image.new('RGBA', (w, h)), mask))
     d.rectangle((left, top, right, bottom), outline=color + (255,), width=max(1, round(sx)))
-    return png_picture(im.resize((CARD_W, CARD_H), Image.LANCZOS))
+    return png_picture(im.resize((PX_W, PX_H), Image.LANCZOS))
 
 
 # ----- What every game shares: the stack script -----
@@ -156,7 +191,7 @@ end shuffled
 -- A card put in its place, face up (its own icon) or down (the Back),
 -- in front of the cards it covers.
 on placeCard b, face, x, y
-  set the rect of card button b to x & "," & y & "," & (x + 80) & "," & (y + 116)
+  set the rect of card button b to x & "," & y & "," & (x + §80) & "," & (y + §116)
   if the icon of card button b is not face then set the icon of card button b to face
   show card button b
   set the partNumber of card button b to 999
@@ -236,8 +271,8 @@ on celebrate cardList
   repeat with k = 1 to howMany
     put item k of cardList into c
     put (k - 1) * 2 * pi / howMany - pi / 2 into angle
-    put 420 + round(260 * cos(angle)) into x
-    put 334 + round(200 * sin(angle)) into y
+    put §420 + round(§260 * cos(angle)) into x
+    put §334 + round(§200 * sin(angle)) into y
     show card button c
     set the partNumber of card button c to 999
     if the mouseClick then put true into skip
@@ -611,9 +646,9 @@ end clickMove
 function dropPlace pt
   put item 1 of pt into x
   put item 2 of pt into y
-  put (x - 36) div 96 + 1 into n
-  if x < 36 or n > 8 then return empty
-  if y < 172 then
+  put (x - §36) div §96 + 1 into n
+  if x < §36 or n > 8 then return empty
+  if y < §172 then
     if n <= 4 then return "cell," & n
     return "home," & (n - 4)
   end if
@@ -623,7 +658,7 @@ end dropPlace
 -- ----- Showing the game -----
 
 function slotLeft n
-  return 44 + (n - 1) * 96
+  return §44 + (n - 1) * §96
 end slotLeft
 
 -- Put every card where the game says it is, in front of the ones it
@@ -634,14 +669,14 @@ on layout
   repeat with n = 1 to 8
     put line n of gCols into pile
     put the number of items of pile into howMany
-    put 26 into gap
-    if howMany > 1 then put min(26, (590 - 182 - 116) div (howMany - 1)) into gap
+    put §26 into gap
+    if howMany > 1 then put min(§26, (§590 - §182 - §116) div (howMany - 1)) into gap
     repeat with i = 1 to howMany
-      placeCard item i of pile, item i of pile, slotLeft(n), 182 + (i - 1) * gap
+      placeCard item i of pile, item i of pile, slotLeft(n), §182 + (i - 1) * gap
     end repeat
   end repeat
   repeat with n = 1 to 4
-    if line n of gCells is not empty then placeCard line n of gCells, line n of gCells, slotLeft(n), 46
+    if line n of gCells is not empty then placeCard line n of gCells, line n of gCells, slotLeft(n), §46
     put line n of gHomes into pileTop
     if pileTop is not empty then
       put char 2 of pileTop into suit
@@ -649,7 +684,7 @@ on layout
       repeat with r = 1 to below
         hide card button (char r of "A23456789TJQK" & suit)
       end repeat
-      placeCard pileTop, pileTop, slotLeft(n + 4), 46
+      placeCard pileTop, pileTop, slotLeft(n + 4), §46
     end if
   end repeat
   hide field "Banner"
@@ -1019,9 +1054,9 @@ end clickMove
 function dropPlace pt
   put item 1 of pt into x
   put item 2 of pt into y
-  put (x - 84) div 96 + 1 into n
-  if x < 84 or n > 7 then return empty
-  if y < 172 then
+  put (x - §84) div §96 + 1 into n
+  if x < §84 or n > 7 then return empty
+  if y < §172 then
     if n >= 4 then return "home," & (n - 3)
     return empty
   end if
@@ -1031,7 +1066,7 @@ end dropPlace
 -- ----- Showing the game -----
 
 function slotLeft n
-  return 92 + (n - 1) * 96
+  return §92 + (n - 1) * §96
 end slotLeft
 
 on layout
@@ -1048,7 +1083,7 @@ on layout
   repeat with k = 1 to n
     put item k of gKWaste into c
     if k < firstShown then hide card button c
-    else placeCard c, c, slotLeft(2) + (k - firstShown) * 16, 46
+    else placeCard c, c, slotLeft(2) + (k - firstShown) * §16, §46
   end repeat
   -- The columns: cards face down close together, face up further apart,
   -- all squeezed up if a column runs long.
@@ -1059,19 +1094,19 @@ on layout
     repeat with i = 1 to the number of items of pile
       if char 1 of item i of pile is "-" then add 1 to downs else add 1 to ups
     end repeat
-    put downs * 10 + max(0, ups - 1) * 26 into wanted
+    put downs * §10 + max(0, ups - 1) * §26 into wanted
     put 1 into scale
-    if wanted > 292 then put 292 / wanted into scale
-    put 182 into y
+    if wanted > §292 then put §292 / wanted into scale
+    put §182 into y
     repeat with i = 1 to the number of items of pile
       put item i of pile into c
       if char 1 of c is "-" then
         put char 2 to 3 of c into c
         placeCard c, "Back", slotLeft(col), y
-        add round(10 * scale) to y
+        add round(§10 * scale) to y
       else
         placeCard c, c, slotLeft(col), y
-        add round(26 * scale) to y
+        add round(§26 * scale) to y
       end if
     end repeat
   end repeat
@@ -1083,7 +1118,7 @@ on layout
       repeat with r = 1 to below
         hide card button (char r of "A23456789TJQK" & suit)
       end repeat
-      placeCard pileTop, pileTop, slotLeft(h + 3), 46
+      placeCard pileTop, pileTop, slotLeft(h + 3), §46
     end if
   end repeat
   hide field "Banner"
@@ -1427,15 +1462,15 @@ end clickMove
 
 function dropPlace pt
   put item 1 of pt into x
-  put (x - 10) div 82 + 1 into n
-  if x < 10 or n > 10 then return empty
+  put (x - §10) div §82 + 1 into n
+  if x < §10 or n > 10 then return empty
   return "col," & n
 end dropPlace
 
 -- ----- Showing the game -----
 
 function slotLeft n
-  return 11 + (n - 1) * 82
+  return §11 + (n - 1) * §82
 end slotLeft
 
 on layout
@@ -1452,10 +1487,10 @@ on layout
     repeat with i = 1 to the number of items of pile
       if char 1 of item i of pile is "-" then add 1 to downs else add 1 to ups
     end repeat
-    put downs * 8 + max(0, ups - 1) * 24 into wanted
+    put downs * §8 + max(0, ups - 1) * §24 into wanted
     put 1 into scale
-    if wanted > 300 then put 300 / wanted into scale
-    put 46 into y
+    if wanted > §300 then put §300 / wanted into scale
+    put §46 into y
     repeat with i = 1 to the number of items of pile
       put item i of pile into b
       if char 1 of b is "-" then
@@ -1464,14 +1499,14 @@ on layout
         add round(8 * scale) to y
       else
         placeCard b, faceOf(b), slotLeft(col), y
-        add round(24 * scale) to y
+        add round(§24 * scale) to y
       end if
     end repeat
   end repeat
   -- Each run taken off shows its king at the bottom left.
   repeat with k = 1 to the number of items of gSDone
     put item k of gSDone into b
-    placeCard b, faceOf(b), 11 + (k - 1) * 24, 476
+    placeCard b, faceOf(b), §11 + (k - 1) * §24, §476
   end repeat
   hide field "Banner"
   hide button "Play Again"
@@ -1552,6 +1587,10 @@ SPIDER_RULES = (
     'onto every column, which all need a card first. Choose one, two or four suits for new games.')
 
 
+STACK_SCRIPT, FREECELL_SCRIPT, KLONDIKE_SCRIPT, SPIDER_SCRIPT = (
+    scaled(STACK_SCRIPT), scaled(FREECELL_SCRIPT), scaled(KLONDIKE_SCRIPT), scaled(SPIDER_SCRIPT))
+
+
 def ask_game(abandon):
     return r'''
 on mouseUp
@@ -1621,7 +1660,7 @@ def build():
     def finish(p, buttons):
         """The cards, then the win banner in front of them."""
         for b, icon in buttons:
-            p.append(button(b, (24, 182, 24 + CARD_W, 182 + CARD_H), '', 'Transparent', icon=icon,
+            p.append(button(b, card_rect(sc(24), sc(182)), '', 'Transparent', icon=icon,
                             show_name=False, auto_hilite=False, visible=False))
         p.append(field('Banner', (290, 284, 550, 364), '', 18, style='Rectangle', align='Center', bold=True,
                        back_color=[255, 250, 230], visible=False, dont_save=True))
@@ -1653,29 +1692,25 @@ def build():
     # ----- FreeCell -----
     p = game_card('FreeCell', FREECELL_SCRIPT, FREECELL_RULES, 'gMoves', 'gGame')
     for n in range(4):
-        x = 44 + n * 96
-        p.append(button(f'Cell {n + 1}', (x, 46, x + CARD_W, 46 + CARD_H), '', 'RoundRect', **slot))
-        x = 44 + (n + 4) * 96
-        p.append(button(f'Foundation {n + 1}', (x, 46, x + CARD_W, 46 + CARD_H), '', 'RoundRect', **slot))
+        p.append(button(f'Cell {n + 1}', card_rect(sc(44) + n * sc(96), sc(46)), '', 'RoundRect', **slot))
+        p.append(button(f'Foundation {n + 1}', card_rect(sc(44) + (n + 4) * sc(96), sc(46)), '', 'RoundRect',
+                        **slot))
     for n in range(8):
-        x = 44 + n * 96
-        p.append(button(f'Column {n + 1}', (x, 182, x + CARD_W, 182 + CARD_H), '', 'RoundRect', **slot))
+        p.append(button(f'Column {n + 1}', card_rect(sc(44) + n * sc(96), sc(182)), '', 'RoundRect', **slot))
     finish(p, [(code, 40001 + i) for i, code in enumerate(faces)])
 
     # ----- Klondike -----
     draw3 = button('Draw Three', (478, 13, 584, 31), 'on mouseUp\n  layout\nend mouseUp', 'CheckBox',
                    fore_color=WHITE, text_size=12, auto_hilite=True)
     p = game_card('Klondike', KLONDIKE_SCRIPT, KLONDIKE_RULES, 'gKMoves', 'gKGame', [draw3])
-    x = 92
-    p.append(button('Stock Place', (x, 46, x + CARD_W, 46 + CARD_H), 'on mouseUp\n  dealStock\nend mouseUp',
+    p.append(button('Stock Place', card_rect(sc(92), sc(46)), 'on mouseUp\n  dealStock\nend mouseUp',
                     'RoundRect', **slot))
     for n in range(4):
-        x = 92 + (n + 3) * 96
-        p.append(button(f'Foundation {n + 1}', (x, 46, x + CARD_W, 46 + CARD_H), '', 'RoundRect', **slot))
+        p.append(button(f'Foundation {n + 1}', card_rect(sc(92) + (n + 3) * sc(96), sc(46)), '', 'RoundRect',
+                        **slot))
     for n in range(7):
-        x = 92 + n * 96
-        p.append(button(f'Column {n + 1}', (x, 182, x + CARD_W, 182 + CARD_H), '', 'RoundRect', **slot))
-    p.append(button('Stock', (92, 46, 92 + CARD_W, 46 + CARD_H), '', 'Transparent', icon=BACK_ICON,
+        p.append(button(f'Column {n + 1}', card_rect(sc(92) + n * sc(96), sc(182)), '', 'RoundRect', **slot))
+    p.append(button('Stock', card_rect(sc(92), sc(46)), '', 'Transparent', icon=BACK_ICON,
                     show_name=False, auto_hilite=False))
     finish(p, [(code, 40001 + i) for i, code in enumerate(faces)])
 
@@ -1687,10 +1722,8 @@ def build():
                              text_size=12, auto_hilite=True, hilite=(n == 1)))
     p = game_card('Spider', SPIDER_SCRIPT, SPIDER_RULES, 'gSMoves', 'gSGame', radios)
     for n in range(10):
-        x = 11 + n * 82
-        p.append(button(f'Column {n + 1}', (x, 46, x + CARD_W, 46 + CARD_H), '', 'RoundRect', **slot))
-    x = WIDTH - 11 - CARD_W
-    p.append(button('Stock', (x, 476, x + CARD_W, 476 + CARD_H), '', 'Transparent', icon=BACK_ICON,
+        p.append(button(f'Column {n + 1}', card_rect(sc(11) + n * sc(82), sc(46)), '', 'RoundRect', **slot))
+    p.append(button('Stock', card_rect(sc(WIDTH) - sc(11) - PX_W, sc(476)), '', 'Transparent', icon=BACK_ICON,
                     show_name=False, auto_hilite=False))
     finish(p, [(f's{k}', BACK_ICON) for k in range(1, 105)])
 
@@ -1716,8 +1749,8 @@ def build():
                    'back to the start of the deal.', 13, style='Scrolling'))
     p.append(button('Games', (40, 540, 160, 570), 'on mouseUp\n  go to card "Games"\nend mouseUp'))
 
-    stack = {'format': 1, 'name': 'Solitaire', 'script': STACK_SCRIPT.strip('\n'), 'width': WIDTH,
-             'height': HEIGHT, 'next_id': next_id, 'backgrounds': [table, plain], 'cards': cards,
+    stack = {'format': 1, 'name': 'Solitaire', 'script': STACK_SCRIPT.strip('\n'), 'width': sc(WIDTH),
+             'height': sc(HEIGHT), 'next_id': next_id, 'backgrounds': [table, plain], 'cards': cards,
              'icons': icons}
     return stack
 

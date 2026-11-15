@@ -65,14 +65,20 @@ const NAMES: [(&str, [u8; 3]); 21] = [
 ];
 
 /// A color as scripts write it: a name ("red"), red, green and blue from 0
-/// to 255 ("255,128,0"), or hex ("#FF8000").
+/// to 255 ("255,128,0"), or hex as in CSS ("#FF8000", or "#F80" for
+/// "#FF8800").
 pub fn parse_color(s: &str) -> Option<Rgb> {
     let s = s.trim();
     if let Some(hex) = s.strip_prefix('#') {
-        if hex.len() != 6 {
+        if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
             return None;
         }
-        let v = u32::from_str_radix(hex, 16).ok()?;
+        let hex = match hex.len() {
+            6 => hex.to_string(),
+            3 => hex.chars().flat_map(|c| [c, c]).collect(),
+            _ => return None,
+        };
+        let v = u32::from_str_radix(&hex, 16).ok()?;
         return Some([(v >> 16) as u8, (v >> 8) as u8, v as u8]);
     }
     if s.contains(',') {
@@ -97,6 +103,10 @@ mod tests {
     #[test]
     fn colors_parse() {
         assert_eq!(parse_color("Red"), Some([255, 0, 0]));
+        assert_eq!(parse_color("#FF8000"), Some([255, 128, 0]));
+        assert_eq!(parse_color("#f80"), Some([255, 136, 0]));
+        assert_eq!(parse_color("#ff80"), None);
+        assert_eq!(parse_color("#+12345"), None);
         assert_eq!(parse_color(" 10, 20 ,30 "), Some([10, 20, 30]));
         assert_eq!(parse_color("#ff8000"), Some([255, 128, 0]));
         assert_eq!(parse_color("300,0,0"), None);

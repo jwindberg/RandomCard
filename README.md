@@ -141,7 +141,9 @@ the window. Preferences are saved in `~/.config/randomcard/settings.json`.
   - Rectangle, Round Rect and Oval: the line size, Filled, Centered and
     Multiple. Regular Polygon: the line size, Filled, its sides and
     Multiple. Polygon: the line size and Filled.
-  - Brush: its 16 shapes.
+  - Brush: its 16 shapes. Spray: its size (a circle 8 to 32 pixels across)
+    and density (Light, Medium or Heavy), beyond HyperCard, whose spray was
+    always 16 pixels and Medium.
   - The line size and the sides are pull-downs showing the line and the
     polygon. Filled (Draw Filled) fills shapes with the pattern; Centered
     (Draw Centered) grows them from where you start; Multiple (Draw
@@ -151,7 +153,8 @@ the window. Preferences are saved in `~/.config/randomcard/settings.json`.
 - **Patterns**, while a paint tool is chosen:
   - **The line and fill colors**, as two overlapping squares, the line
     color in front. Click one for a color picker with red, green and blue,
-    the recent colors, and From the card, which takes a color from the
+    the color in hex as on the web (`#2C78DC`; type or paste one in, `#F80`
+    or a name like `orange` too), the recent colors, and From the card, which takes a color from the
     card. The pencil, lines, outlines and text use the line color; the
     pattern paints in the fill color.
   - **The pattern.** Click it for the 40 patterns, in the fill color, as
@@ -168,6 +171,12 @@ the window. Preferences are saved in `~/.config/randomcard/settings.json`.
   shapes and selections snap to 8 pixels) and FatBits, which magnifies the paint eight times to work pixel by pixel,
   with the same spot at actual size in a corner; Option-drag or scroll to
   move around. Command-click with the pencil turns it on too.
+
+Over the card, the pointer is the tool, as in HyperCard: the brush as its
+shape at its real size, in the fill color; the eraser's square; the spray
+can's circle; and the pencil and the bucket with their tips where paint
+lands. Lines, shapes and selecting get a crosshair, and the Text tool an
+I-beam. In FatBits they're magnified with the paint.
 
 Browse, Button and Field don't paint, so with them the palette shows only
 the tools.
@@ -189,6 +198,11 @@ of tool window`, and `show pattern window`, which shows the same palette.
 Power Keys (in Preferences) gives paint commands single keys while the
 message box is hidden: F for Fill, I for Invert, G for Grid, B and W for
 black and white, and the rest of HyperCard's.
+
+**Peeking,** as in HyperCard: hold Command-Option (Ctrl+Alt on Linux and
+Windows) to outline every button on the card, so a transparent or tiny one
+can be found, and add Shift to outline the fields too. Stacks marked Can't
+Peek don't allow it.
 
 Edit ▸ Icon… opens the icon editor, to draw a stack's icons pixel by
 pixel, in color and at any size.
@@ -276,11 +290,13 @@ Windows and "/" elsewhere, so a stack can find its own folder anywhere.
   `set the filled to true`, `drag from 10,10 to 100,80`, `click at` (a
   bucket fill, a pencil dot, or placing the text tool), and `type` with the
   text tool paints text in `the textFont`, `textSize` and `textStyle`.
-  `the brush`, `the lineSize` and `the polySides` work too.
+  `the brush`, `the lineSize` and `the polySides` work too, and beyond
+  HyperCard, `the spraySize` (pixels across) and `the sprayDensity` (dots
+  at a time).
 - Painting in color, beyond HyperCard: `the penColor` (lines, borders, the
   pencil and text) and `the brushColor` (the pattern's set bits: brush,
-  spray, bucket and filled shapes), as a name (`red`), `255,128,0` or
-  `#FF8000`. The palette's line and fill color squares are the same two
+  spray, bucket and filled shapes), as a name (`red`), `255,128,0`, or hex
+  as on the web, `#FF8000` or `#F80`. The palette's line and fill color squares are the same two
   colors, each with a picker, From the card and the recent colors.
 - Commands: put, get, set, add, subtract, multiply, divide, answer, ask
   (including password and file variants), go (including back and forth),

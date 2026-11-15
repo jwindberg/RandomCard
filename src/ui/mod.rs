@@ -46,6 +46,11 @@ struct Anim {
 }
 
 /// The palette's width, docked or in its own window.
+/// Whether peeking outlines a part: buttons always, fields with Shift.
+fn peeked(kind: PartKind, fields: bool) -> bool {
+    kind == PartKind::Button || (fields && kind == PartKind::Field)
+}
+
 /// The palette's rows and its margins.
 const PALETTE_WIDTH: f32 = painting::ROW + 22.0;
 /// The room a window keeps beside its card: for the palette when it's
@@ -2323,6 +2328,21 @@ impl App {
             }
         }
 
+        // Peeking, as in HyperCard: holding Command-Option outlines the
+        // buttons, so a transparent or tiny one can be found, and adding
+        // Shift outlines the fields too. Not in a Can't Peek stack.
+        let (peek, peek_fields) = ctx.input(|i| {
+            let m = i.modifiers;
+            (m.command && m.alt, m.command && m.alt && m.shift)
+        });
+        if peek && self.export.is_none() && !self.world().stack.protection.cant_peek {
+            for pv in live.parts.iter().filter(|p| p.part.visible) {
+                if peeked(pv.part.kind, peek_fields) {
+                    render::dashed_rect(&painter, render::part_rect(&pv.part, origin), Color32::BLACK);
+                }
+            }
+        }
+
         if let Some(until) = self.flash_until {
             if Instant::now() < until {
                 painter.rect_filled(resp.rect, 0.0, Color32::from_black_alpha(160));
@@ -2330,8 +2350,8 @@ impl App {
                 self.flash_until = None;
             }
         }
-        if tool.is_paint() || matches!(tool, Tool::Button | Tool::Field) {
-            ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
+        if (tool.is_paint() || matches!(tool, Tool::Button | Tool::Field)) && self.export.is_none() {
+            self.tool_cursor(&ctx, &painter, &resp, origin, tool);
         }
         self.last_scene = Some(shown);
     }

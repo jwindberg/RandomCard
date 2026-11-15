@@ -456,11 +456,20 @@ pub fn fill(pic: &mut Picture, x: i32, y: i32, ink: Ink) {
     }
 }
 
-pub fn spray(pic: &mut Picture, x: i32, y: i32, ink: Ink) {
-    for _ in 0..12 {
-        let dx: i32 = rand::random_range(-8..=8);
-        let dy: i32 = rand::random_range(-8..=8);
-        if dx * dx + dy * dy <= 64 {
+/// HyperCard's spray: a circle 16 pixels across, 12 dots at a time.
+pub const SPRAY_SIZE: u32 = 16;
+pub const SPRAY_DENSITY: u32 = 12;
+/// The spray sizes and densities the palette offers.
+pub const SPRAY_SIZES: [u32; 4] = [8, 16, 24, 32];
+pub const SPRAY_DENSITIES: [(u32, &str); 3] = [(4, "Light"), (12, "Medium"), (32, "Heavy")];
+
+/// Spray `density` dots at random in a circle `size` pixels across.
+pub fn spray(pic: &mut Picture, x: i32, y: i32, ink: Ink, size: u32, density: u32) {
+    let r = (size.clamp(2, 64) / 2) as i32;
+    for _ in 0..density.clamp(1, 200) {
+        let dx: i32 = rand::random_range(-r..=r);
+        let dy: i32 = rand::random_range(-r..=r);
+        if dx * dx + dy * dy <= r * r {
             // Spraying a pattern reveals its set bits dot by dot.
             if ink.covers(x + dx, y + dy) {
                 pic.set(x + dx, y + dy, ink.at(x + dx, y + dy));
@@ -654,6 +663,8 @@ pub struct Settings {
     pub pattern: [u8; 8],
     pub brush: u32,
     pub poly_sides: u32,
+    pub spray_size: u32,
+    pub spray_density: u32,
     /// Draw Centered: lines and shapes grow from where the drag started.
     pub centered: bool,
     /// The pencil, lines, shape borders and text (`the penColor`).
@@ -706,7 +717,7 @@ pub fn apply_drag(pic: &mut Picture, tool: DragTool, a: (i32, i32), b: (i32, i32
             line_with(a.0, a.1, b.0, b.1, |x, y| stamp(pic, x, y, &shape, s.ink()));
         }
         DragTool::Eraser => line(pic, a.0, a.1, b.0, b.1, 16, Pixel::CLEAR),
-        DragTool::Spray => line_with(a.0, a.1, b.0, b.1, |x, y| spray(pic, x, y, s.ink())),
+        DragTool::Spray => line_with(a.0, a.1, b.0, b.1, |x, y| spray(pic, x, y, s.ink(), s.spray_size, s.spray_density)),
         DragTool::Curve | DragTool::Line => line(pic, a.0, a.1, b.0, b.1, s.line_size, s.line_color),
         DragTool::Rect => rect(pic, a.0, a.1, b.0, b.1, s.outline(), s.fill()),
         DragTool::RoundRect => round_rect(pic, a.0, a.1, b.0, b.1, s.outline(), s.fill()),
@@ -812,7 +823,7 @@ mod tests {
         assert_eq!(brush_shape(6).len(), 4);
         assert_eq!(brush_shape(17), brush_shape(1));
         let mut p = Picture::new(20, 20);
-        let s = Settings { line_size: 1, filled: false, pattern: [0xff; 8], brush: 10, poly_sides: 4, centered: false, line_color: Pixel::BLACK, fill_color: Pixel::BLACK };
+        let s = Settings { line_size: 1, filled: false, pattern: [0xff; 8], brush: 10, poly_sides: 4, spray_size: SPRAY_SIZE, spray_density: SPRAY_DENSITY, centered: false, line_color: Pixel::BLACK, fill_color: Pixel::BLACK };
         apply_drag(&mut p, DragTool::Brush, (10, 10), (10, 10), &s);
         assert_eq!((p.get(6, 10), p.get(10, 11)), (Pixel::BLACK, Pixel::CLEAR));
     }
@@ -821,7 +832,7 @@ mod tests {
     fn painting_in_color() {
         let red = Pixel::rgba(220, 30, 30, 255);
         let blue = Pixel::rgba(30, 60, 220, 255);
-        let s = Settings { line_size: 2, filled: true, pattern: DEFAULT_PATTERNS[2], brush: 1, poly_sides: 4, centered: false, line_color: blue, fill_color: red };
+        let s = Settings { line_size: 2, filled: true, pattern: DEFAULT_PATTERNS[2], brush: 1, poly_sides: 4, spray_size: SPRAY_SIZE, spray_density: SPRAY_DENSITY, centered: false, line_color: blue, fill_color: red };
         let mut p = Picture::new(40, 40);
         apply_drag(&mut p, DragTool::Rect, (0, 0), (39, 39), &s);
         // A blue border, and the gray pattern in red and white inside.

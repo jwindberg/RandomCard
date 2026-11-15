@@ -134,6 +134,8 @@ enum ToolOption {
     Multiple,
     Sides,
     BrushShape,
+    SpraySize,
+    SprayDensity,
 }
 
 /// The options a tool understands, in the order they show.
@@ -146,6 +148,7 @@ fn tool_options(t: Tool) -> &'static [ToolOption] {
         Tool::RegularPolygon => &[LineSize, Filled, Sides, Multiple],
         Tool::Polygon => &[LineSize, Filled],
         Tool::Brush => &[BrushShape],
+        Tool::Spray => &[SpraySize, SprayDensity],
         _ => &[],
     }
 }
@@ -243,9 +246,10 @@ fn color_picker(ui: &mut egui::Ui, current: Color32) -> Option<Color32> {
     mesh_rect(ui.painter(), bar, (36, 1), &|u, _| Hsva::new(u, 1.0, 1.0, 1.0).into());
     marker(ui.painter(), Pos2::new(bar.left() + hsva.h * bar.width(), bar.center().y));
     let mut color = if hsva == before { current } else { Color32::from(hsva) };
-    // Red, green and blue, with the color itself beside them.
+    // Red, green and blue, and the color as hex, as on the web.
     let [mut r, mut g, mut b, _] = color.to_array();
-    let typed = ui
+    let hex_id = egui::Id::unique("palette-hex");
+    let (typed, hex) = ui
         .horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = GAP;
             ui.spacing_mut().interact_size.x = 0.0;
@@ -254,13 +258,31 @@ fn color_picker(ui: &mut egui::Ui, current: Color32) -> Option<Color32> {
             for (n, label) in [(&mut r, "R "), (&mut g, "G "), (&mut b, "B ")] {
                 changed |= ui.add_sized([field, 18.0], egui::DragValue::new(n).speed(0.5).prefix(label)).changed();
             }
-            let (swatch, _) = ui.allocate_exact_size(Vec2::new(field, 18.0), Sense::hover());
-            ui.painter().rect_filled(swatch, 2.0, color);
-            ui.painter().rect_stroke(swatch, 2.0, Stroke::new(1.0, Color32::GRAY), StrokeKind::Inside);
-            changed
+            // While it's being typed in, the field keeps what's typed;
+            // otherwise it shows the color.
+            let shown = format!("#{r:02X}{g:02X}{b:02X}");
+            let mut text = ui.data(|d| d.get_temp::<String>(hex_id)).unwrap_or(shown);
+            let edit = egui::TextEdit::singleline(&mut text).char_limit(7).font(egui::TextStyle::Monospace);
+            let resp = ui.add_sized([field, 18.0], edit).on_hover_text("The color as hex, as on the web: #2C78DC or #F80");
+            let hex = if resp.has_focus() {
+                ui.data_mut(|d| d.insert_temp(hex_id, text));
+                None
+            } else {
+                ui.data_mut(|d| d.remove::<String>(hex_id));
+                // Return or clicking away takes it, with or without the #,
+                // or a name such as "orange".
+                let parse = crate::model::color::parse_color;
+                let t = text.trim();
+                resp.lost_focus().then(|| parse(t).or_else(|| parse(&format!("#{t}")))).flatten()
+            };
+            (changed, hex)
         })
         .inner;
     if typed {
+        color = Color32::from_rgb(r, g, b);
+        hsva = Hsva::from(color);
+    }
+    if let Some([r, g, b]) = hex {
         color = Color32::from_rgb(r, g, b);
         hsva = Hsva::from(color);
     }
@@ -540,6 +562,14 @@ impl App {
                             self.sides_menu(ui);
                             None
                         }
+                        ToolOption::SpraySize => {
+                            self.spray_size_menu(ui);
+                            None
+                        }
+                        ToolOption::SprayDensity => {
+                            self.spray_density_buttons(ui);
+                            None
+                        }
                         ToolOption::Filled => Some(("Filled", "Draw Filled", filled, enabled[0], "Draw Filled: fill shapes with the pattern")),
                         ToolOption::Centered => {
                             Some(("Centered", "Draw Centered", centered, enabled[1], "Draw Centered: grow from where you start"))
@@ -587,6 +617,46 @@ impl App {
                 }
             }
         });
+    }
+
+    /// The spray's size as a pull-down showing its circle.
+    fn spray_size_menu(&mut self, ui: &mut egui::Ui) {
+        let current = self.world().spray_size;
+        let circle = |painter: &egui::Painter, c: Pos2, size: u32| {
+            painter.circle_stroke(c, size as f32 / 2.0, Stroke::new(1.0, Color32::from_gray(60)));
+            painter.circle_filled(c, 1.0, Color32::from_gray(60));
+        };
+        let resp = pull_down(ui, Vec2::new(72.0, 24.0), |painter, r| {
+            circle(painter, r.left_center() + Vec2::new(14.0, 0.0), current.min(20));
+            let at = r.left_center() + Vec2::new(28.0, 0.0);
+            painter.text(at, egui::Align2::LEFT_CENTER, current.to_string(), FontId::proportional(12.0), Color32::BLACK);
+        })
+        .on_hover_text("Spray size: the circle it sprays in, in pixels across");
+        egui::Popup::menu(&resp).show(|ui| {
+            for size in paint::SPRAY_SIZES {
+                let (r, item) = ui.allocate_exact_size(Vec2::new(100.0, size as f32 + 8.0), Sense::click());
+                if size == current || item.hovered() {
+                    ui.painter().rect_filled(r, 3.0, Color32::from_rgb(228, 240, 255));
+                }
+                circle(ui.painter(), r.left_center() + Vec2::new(22.0, 0.0), size);
+                let at = r.left_center() + Vec2::new(46.0, 0.0);
+                ui.painter().text(at, egui::Align2::LEFT_CENTER, format!("{size} pixels"), FontId::proportional(12.0), Color32::from_gray(40));
+                if item.clicked() {
+                    self.world().spray_size = size;
+                }
+            }
+        });
+    }
+
+    /// The spray's density: how many dots at a time.
+    fn spray_density_buttons(&mut self, ui: &mut egui::Ui) {
+        let current = self.world().spray_density;
+        for (density, name) in paint::SPRAY_DENSITIES {
+            let button = egui::Button::new(name).selected(current == density).min_size(Vec2::new(0.0, 24.0));
+            if ui.add(button).on_hover_text(format!("{name}: {density} dots at a time")).clicked() {
+                self.world().spray_density = density;
+            }
+        }
     }
 
     /// Regular Polygon's sides as a pull-down showing the polygon.
@@ -1638,6 +1708,71 @@ impl App {
         let inset = Rect::from_min_size(Pos2::new(whole.left() + 8.0, whole.bottom() - view.y - 8.0), view).round();
         painter.rect_filled(inset.expand(2.0), 0.0, Color32::BLACK);
         draw(inset);
+    }
+
+    /// The pointer over the card is the tool, as in HyperCard: the brush
+    /// as its shape at its real size, the eraser's square and the spray's
+    /// circle, and the pencil and bucket with their tips where paint
+    /// lands. Lines, shapes and selecting get a crosshair, and text an
+    /// I-beam.
+    pub(super) fn tool_cursor(&mut self, ctx: &egui::Context, painter: &egui::Painter, resp: &egui::Response, origin: Pos2, tool: Tool) {
+        let over = resp.contains_pointer() || resp.dragged();
+        let Some(at) = ctx.input(|i| i.pointer.latest_pos()).filter(|_| over) else { return };
+        let fat = self.fat;
+        let zoom = if fat.is_some() { FAT_ZOOM } else { 1.0 };
+        let (cx, cy) = to_card(fat, origin, at);
+        // A card pixel's square on the screen.
+        let cell = |x: i32, y: i32| Rect::from_min_size(to_screen(fat, origin, x as f32, y as f32), Vec2::splat(zoom));
+        let (brush, fill, spray) = {
+            let w = self.world();
+            (w.brush, w.fill_color, w.spray_size)
+        };
+        let halo = Color32::from_white_alpha(220);
+        match tool {
+            Tool::Brush => {
+                ctx.set_cursor_icon(egui::CursorIcon::None);
+                let cells: Vec<Rect> = paint::brush_shape(brush).into_iter().map(|(dx, dy)| cell(cx + dx, cy + dy)).collect();
+                // As a mesh: egui softens the edges of shapes, and a
+                // softened rectangle a pixel wide all but disappears.
+                let mut mesh = egui::Mesh::default();
+                for r in &cells {
+                    mesh.add_colored_rect(r.expand(1.0), halo);
+                }
+                for r in &cells {
+                    mesh.add_colored_rect(*r, color32(fill));
+                }
+                painter.add(mesh);
+            }
+            Tool::Eraser => {
+                // The eraser's 16 pixels square, as it erases.
+                ctx.set_cursor_icon(egui::CursorIcon::None);
+                let r = Rect::from_min_max(cell(cx - 7, cy - 7).min, cell(cx + 8, cy + 8).max);
+                painter.rect(r, 0.0, Color32::WHITE, Stroke::new(1.0, Color32::BLACK), StrokeKind::Outside);
+            }
+            Tool::Spray => {
+                ctx.set_cursor_icon(egui::CursorIcon::None);
+                let c = cell(cx, cy).center();
+                let radius = spray as f32 / 2.0 * zoom;
+                painter.circle_stroke(c, radius, Stroke::new(3.0, halo));
+                painter.circle_stroke(c, radius, Stroke::new(1.0, Color32::from_gray(40)));
+                painter.circle_filled(c, 1.5, Color32::from_gray(40));
+            }
+            Tool::Pencil | Tool::Bucket => {
+                // The tool's icon, its tip (on the drawing's 32 grid) at the
+                // pointer.
+                ctx.set_cursor_icon(egui::CursorIcon::None);
+                const SIZE: f32 = 24.0;
+                let tip = if tool == Tool::Pencil { Vec2::new(7.5, 24.5) } else { Vec2::new(5.0, 27.5) };
+                let look = super::tool_icons::Look::default();
+                if let Some(tex) = self.tool_icons.get(ctx, tool, look, SIZE) {
+                    let min = at - tip * (SIZE / 32.0);
+                    let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+                    painter.image(tex, Rect::from_min_size(min, Vec2::splat(SIZE)), uv, Color32::WHITE);
+                }
+            }
+            Tool::Text => ctx.set_cursor_icon(egui::CursorIcon::Text),
+            _ => ctx.set_cursor_icon(egui::CursorIcon::Crosshair),
+        }
     }
 
     pub(super) fn paint_overlay(&self, painter: &egui::Painter, origin: Pos2, tool: Tool, ctx: &egui::Context) {

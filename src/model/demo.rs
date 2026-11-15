@@ -784,6 +784,37 @@ on mouseUp
 end mouseUp"#,
     );
     b.card_part(c, Part { style: PartStyle::Standard, ..options });
+    // The pointer is the tool: a big brush shows its size.
+    let cursor = b.button(
+        "Brush Cursor",
+        Rect::new(196, 100, 316, 122),
+        "on mouseUp\n  choose brush tool\n  set the brush to 5\n  put \"Move over the card: the pointer is the brush, at its real size. Double-click the brush on the Tools palette for others.\" into msg\nend mouseUp",
+    );
+    b.card_part(c, Part { style: PartStyle::Standard, ..cursor });
+    // Beyond HyperCard: the spray can's size and density.
+    let spray = b.button(
+        "Spray Sizes",
+        Rect::new(372, 100, 492, 122),
+        r#"
+on mouseUp
+  put the spraySize into oldSize
+  put the sprayDensity into oldDensity
+  choose spray tool
+  set the spraySize to 8
+  set the sprayDensity to 4
+  drag from "260,300" to "330,300"
+  set the spraySize to 24
+  set the sprayDensity to 12
+  drag from "345,300" to "405,300"
+  set the spraySize to 32
+  set the sprayDensity to 32
+  drag from "425,300" to "480,300"
+  set the spraySize to oldSize
+  set the sprayDensity to oldDensity
+  put "A light mist, then bigger and heavier. Double-click the spray can on the Tools palette for its size and density." into msg
+end mouseUp"#,
+    );
+    b.card_part(c, Part { style: PartStyle::Standard, ..spray });
 
     // ----- Animation -----
     // A small state machine in the card's script: whether the ball is
@@ -1448,6 +1479,18 @@ end mouseUp"#,
         "on mouseUp\n  choose select tool\n  doMenu \"Select All\"\n  put \"All selected: the Paint menu's commands are active now. Click the card and they grey out again.\" into field \"Said\"\nend mouseUp",
     );
     b.card_part(c, menu);
+    // Peeking, as in HyperCard, finds a button you can't see.
+    let keys = if cfg!(target_os = "macos") { "Command-Option (⌘⌥)" } else { "Ctrl+Alt" };
+    let peek = b.button(
+        "Peek",
+        Rect::new(36, 186, 176, 214),
+        &format!("on mouseUp\n  put \"There's a hidden button below. Hold {keys} to outline every button, and add Shift for fields too.\" into field \"Said\"\nend mouseUp"),
+    );
+    b.card_part(c, peek);
+    let mut secret = b.button("Secret", Rect::new(300, 270, 400, 300), "on mouseUp\n  put \"You found the hidden button.\" into field \"Said\"\nend mouseUp");
+    secret.style = PartStyle::Transparent;
+    secret.show_name = false;
+    b.card_part(c, secret);
     let mut said = b.label("Said", Rect::new(36, 230, 476, 252), "", 12);
     said.text_style = "italic".into();
     b.card_part(c, said);

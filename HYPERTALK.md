@@ -417,8 +417,9 @@ on several kinds of object; `get`, `put` and `set` read and change them.
 
 **Painting:** `brush`, `centered`, `filled`, `grid`, `lineSize`,
 `multiple`, `multiSpace`, `pattern`, `polySides`, `textFont`, `textSize`,
-`textStyle`, `textAlign`, `textHeight`, and color: `penColor`,
-`brushColor`.
+`textStyle`, `textAlign`, `textHeight`, and beyond HyperCard: color
+(`penColor`, `brushColor`) and the spray can (`spraySize`,
+`sprayDensity`).
 
 **Stacks:** `name`, `size`, `freeSize`, `script`, `cantAbort`, `cantDelete`,
 `cantModify`, `cantPeek`, `privateAccess`, `userLevel`.
@@ -657,7 +658,11 @@ end sliderChanged
 
 ### Painting and pictures
 
-- `the penColor` and `the brushColor` paint in color.
+- `the penColor` and `the brushColor` paint in color: a name, `r,g,b`, or
+  hex as on the web (`#FF8000` or `#F80`).
+- `the spraySize` (the circle it sprays in, 2 to 64 pixels across; 16 in
+  HyperCard) and `the sprayDensity` (dots at a time, 1 to 200; 12 in
+  HyperCard).
 - `import paint from file` reads PNG, JPEG, GIF, BMP, MacPaint and PICT;
   `export paint to file` writes PNG.
 
