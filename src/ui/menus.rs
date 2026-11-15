@@ -29,6 +29,8 @@ pub struct MenuState {
     pub text_style: Option<(String, u32, String)>,
     /// The Options menu's settings, and the pattern chosen.
     pub paint: PaintOptions,
+    /// Whether some paint is selected, for the Paint menu's commands.
+    pub paint_selected: bool,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -44,8 +46,10 @@ pub struct PaintOptions {
 impl MenuState {
     pub fn menu_shown(&self, menu: &str) -> bool {
         match menu {
+            // As in HyperCard, while a paint tool is chosen.
+            "Paint" => self.tool.is_paint(),
             // On the Tools palette instead.
-            "Paint" | "Options" => false,
+            "Options" => false,
             "Font" | "Style" => self.text_style.is_some(),
             "Objects" => self.editing >= 4,
             _ => true,
@@ -91,6 +95,11 @@ impl MenuState {
                 self.paste.is_some()
             }
             "tools palette" => self.editing >= 3,
+            // As in HyperCard, the Paint menu's commands work on a selection.
+            "fill" | "invert" | "darken" | "lighten" | "trace edges" | "rotate left" | "rotate right" | "flip vertical"
+            | "flip horizontal" | "opaque" | "transparent" => self.paint_selected,
+            // Not in RandomCard yet.
+            "select" | "pickup" | "revert" => false,
             _ => true,
         };
         let checked = match key.as_str() {

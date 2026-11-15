@@ -22,7 +22,7 @@ fn main() -> eframe::Result {
     let mut options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("RandomCard")
-            .with_inner_size([stack.width as f32 + 220.0, stack.height as f32 + 150.0])
+            .with_inner_size([stack.width as f32 + ui::SIDE_ROOM, stack.height as f32 + 150.0])
             .with_min_inner_size([480.0, 360.0])
             .with_icon(eframe::egui::IconData { rgba: icon::rgba(128), width: 128, height: 128 }),
         ..Default::default()

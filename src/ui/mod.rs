@@ -18,6 +18,7 @@ mod recent;
 mod render;
 mod script_find;
 mod system_fonts;
+mod tool_icons;
 mod windows;
 
 use std::path::PathBuf;
@@ -45,7 +46,11 @@ struct Anim {
 }
 
 /// The palette's width, docked or in its own window.
-const PALETTE_WIDTH: f32 = 132.0;
+/// The palette's rows and its margins.
+const PALETTE_WIDTH: f32 = painting::ROW + 22.0;
+/// The room a window keeps beside its card: for the palette when it's
+/// docked, and a margin.
+pub const SIDE_ROOM: f32 = PALETTE_WIDTH + 40.0;
 
 /// A text field being edited in the browse tool.
 struct Editing {
@@ -94,6 +99,10 @@ pub struct App {
     paint_dialog: Option<crate::runtime::world::PaintDialog>,
     /// The palette swatch whose choices are unfolded below it.
     open_swatch: Option<painting::Swatch>,
+    /// The palette's tool icons, drawn.
+    tool_icons: tool_icons::ToolIcons,
+    /// A pattern being edited, in the pattern swatch's place.
+    pattern_edit: Option<painting::PatternEdit>,
     /// The height last asked of the palette's window, to fit its contents.
     palette_height: Option<f32>,
     /// Where the palette was put as it opened, while it's open.
@@ -322,6 +331,8 @@ impl App {
             debug_seen: None,
             paint_dialog: None,
             open_swatch: None,
+            tool_icons: Default::default(),
+            pattern_edit: None,
             palette_height: None,
             palette_opened_at: None,
             palette_override: None,
@@ -387,6 +398,7 @@ impl App {
                     centered: w.centered,
                     multiple: w.multiple,
                 },
+                paint_selected: false,
             };
             (w.menus.clone(), state)
         };
@@ -395,6 +407,7 @@ impl App {
             target: self.edit_target_name(),
             paste: self.paste_name().filter(|t| editing >= if matches!(*t, "Picture" | "") { 3 } else { 4 }),
             text_style: self.current_text_style(),
+            paint_selected: matches!(self.marquee, Some(painting::Marquee::Selected { .. } | painting::Marquee::Moving { .. })),
             ..state
         };
         let mut shown = Vec::new();
@@ -542,7 +555,7 @@ impl App {
         let last = match self.settings.palette_at {
             Some([x, y]) => egui::pos2(x, y),
             None => match ctx.input(|i| i.viewport().outer_rect) {
-                Some(r) if r.left() >= 150.0 => egui::pos2(r.left() - 140.0, r.top()),
+                Some(r) if r.left() >= PALETTE_WIDTH + 20.0 => egui::pos2(r.left() - PALETTE_WIDTH - 8.0, r.top()),
                 Some(r) => egui::pos2(r.left() + 8.0, r.top() + 60.0),
                 None => egui::pos2(20.0, 60.0),
             },
@@ -761,6 +774,16 @@ impl App {
                     self.settings.save();
                 }
                 // On the palette's swatch when it's showing, or else as a dialog.
+                UiRequest::EditPattern => {
+                    if self.editing_level() >= 3 {
+                        let n = self.world().pattern;
+                        self.edit_pattern(n);
+                        // It's edited on the palette, so the palette shows.
+                        if !self.tools_shown() {
+                            self.palette_override = Some(true);
+                        }
+                    }
+                }
                 UiRequest::PaintDialog(d) => {
                     if self.tools_shown() {
                         self.open_swatch = Some(painting::Swatch::Setting(d));
@@ -835,7 +858,7 @@ impl App {
             if w.window_key != 0 {
                 return;
             }
-            (w.stack.width as f32 + 220.0, w.stack.height as f32 + 150.0)
+            (w.stack.width as f32 + SIDE_ROOM, w.stack.height as f32 + 150.0)
         };
         let (inner, monitor) = ctx.input(|i| (i.viewport().inner_rect, i.viewport().monitor_size));
         let Some(inner) = inner else { return };
@@ -2264,6 +2287,8 @@ impl App {
 
         if self.eyedropper.is_some() {
             self.eyedropper_input(&resp, origin);
+        } else if self.pattern_edit.as_ref().is_some_and(|e| e.picking) {
+            self.pattern_pick_input(&resp, origin);
         } else {
             match tool {
             Tool::Browse => {

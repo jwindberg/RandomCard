@@ -2398,6 +2398,7 @@ impl Interp {
                 }
                 Ok(())
             }
+            "edit pattern" => self.request(UiRequest::EditPattern),
             "line size" => self.request(UiRequest::PaintDialog(PaintDialog::LineSize)),
             "brush shape" => self.request(UiRequest::PaintDialog(PaintDialog::BrushShape)),
             "polygon sides" => self.request(UiRequest::PaintDialog(PaintDialog::PolygonSides)),
@@ -2429,7 +2430,7 @@ impl Interp {
                 }
             }
             "icon" => self.request(UiRequest::IconEditor),
-            "print report" | "text style" | "audio" | "edit pattern" | "rotate" | "slant" | "distort" | "perspective" => {
+            "print report" | "text style" | "audio" | "rotate" | "slant" | "distort" | "perspective" => {
                 let name = item.trim().trim_end_matches('…').trim_end_matches("...");
                 self.dialog(Dialog::Answer {
                     prompt: format!("{name} isn't in RandomCard yet."),

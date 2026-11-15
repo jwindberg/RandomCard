@@ -1427,6 +1427,13 @@ end mouseUp"#,
         let p = b.button(name, Rect::new(196, y, 336, y + 28), script);
         b.card_part(c, p);
     }
+    // HyperCard's pattern editor, on the palette's pattern swatch.
+    let edit = b.button(
+        "Edit a Pattern",
+        Rect::new(346, 110, 476, 138),
+        "on mouseUp\n  choose brush tool\n  doMenu \"Edit Pattern\"\n  put \"Click squares to change the pattern, or Card… and then the card. OK keeps it with this stack. (Edit… beside the pattern on the palette does this too.)\" into field \"Said\"\nend mouseUp",
+    );
+    b.card_part(c, edit);
     let mut said = b.label("Said", Rect::new(36, 200, 476, 222), "", 12);
     said.text_style = "italic".into();
     b.card_part(c, said);

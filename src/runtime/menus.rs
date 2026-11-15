@@ -74,7 +74,7 @@ pub fn item_key(name: &str) -> String {
 /// enable, disable and delete them, as Apple's stacks do, but the menus don't
 /// show them.
 pub const SCRIPT_ONLY_ITEMS: &[&str] = &[
-    "page setup", "print report", "text style", "icon", "audio", "help", "scroll", "next window", "edit pattern",
+    "page setup", "print report", "text style", "icon", "audio", "help", "scroll", "next window",
     "rotate", "slant", "distort", "perspective",
 ];
 

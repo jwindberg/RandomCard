@@ -163,8 +163,10 @@ text, multi-level undo and redo, and script-driven painting with `drag`,
 `click at` and `type`. Code: `src/paint/` and `src/ui/painting.rs`.
 
 **Missing:**
-- **Pattern editing** (double-clicking a pattern to change it) and
-  `the pattern` affecting lines and borders, which are always solid.
+- **`the pattern` for lines and borders,** which are always solid.
+  (Pattern editing is done: Edit… beside the pattern on the palette, or
+  double-clicking the pattern, with squares to click and a pattern to take from the
+  card; the stack keeps it.)
 - **Keep and Revert.** HyperCard saved everything as you worked except
   painting: a card's or background's paint changes were held until Keep
   (Paint menu, Command-K), switching to or from the background, going to
@@ -558,8 +560,8 @@ their feedback. For now:
    palette. Small alerts and dialogs stay in the main window, as in
    HyperCard.
 7. **The rest of painting:** FatBits, the icon editor, Options, and the
-   Tools palette holding them are done. Left: editing patterns, Pickup, Scale, and
-   Keep and Revert.
+   Tools palette holding them, and pattern editing, are done. Left: Select,
+   Pickup, Scale, and Keep and Revert.
 8. **History across stacks.** (Objects in other stacks are done: `field 1 of card 2 of stack "X"`.)
 9. **Report printing, MACE sound, picture windows.**
 10. **Needs a design first:** AppleEvents (`request`, `reply`): what they

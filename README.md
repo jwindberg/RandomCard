@@ -133,12 +133,16 @@ the window. Preferences are saved in `~/.config/randomcard/settings.json`.
   Brush or Regular Polygon tool opens its setting below; double-clicking a
   shape tool switches Draw Filled; double-clicking the pencil turns on
   FatBits.
-- **Swatches** showing the pattern, the line and fill colors, the line
-  size, the brush and the polygon sides. Click one to unfold its choices
-  below it, as HyperCard's Patterns menu dropped down its patterns: the 40
-  patterns (imported stacks bring their own), a color picker with an
-  eyedropper and the recent colors, 6 line sizes, 16 brush shapes, and
-  polygons from 3 to 12 sides.
+- **The pattern**, on a row of its own with **Edit…** beside it. Click
+  the pattern to unfold the 40 patterns below it, as HyperCard's Patterns
+  menu dropped down (imported stacks bring their own). Edit… (or
+  double-clicking the pattern) opens HyperCard's pattern editor: click
+  squares to turn them on or off, or click Card… and then the card to take
+  the pattern there. OK keeps the new pattern with the stack.
+- **Swatches** showing the line and fill colors, the line size, the brush
+  and the polygon sides. Click one to unfold its choices below: a color
+  picker with red, green and blue, an eyedropper and the recent colors; 6
+  line sizes; 16 brush shapes; and polygons from 3 to 12 sides.
 - **HyperCard's Options**, as buttons that show when they're on: Draw
   Filled, Draw Centered (shapes grow from where you start), Draw Multiple
   (the shape is left behind as you drag; Option-1 to Option-9 spaces the

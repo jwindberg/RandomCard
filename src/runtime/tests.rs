@@ -550,6 +550,9 @@ fn demo_stack_runs() {
     assert_eq!(click(&mut i, "Palettes", "Move the Tools"), None);
     assert_eq!(run(&mut i, "put the loc of tool window"), "10,60");
     assert!(run(&mut i, "put field \"Said\"").contains("went from 10,60"));
+    assert_eq!(click(&mut i, "Palettes", "Edit a Pattern"), None);
+    assert_eq!(lock(&i.world).tool, crate::runtime::world::Tool::Brush);
+    run(&mut i, "choose browse tool");
     assert_eq!(click(&mut i, "Palettes", "Hide the Tools"), None);
     assert_eq!(run(&mut i, "put the visible of pattern window"), "false");
     assert_eq!(click(&mut i, "Palettes", "Show the Tools"), None);
@@ -825,6 +828,8 @@ fn paint_options() {
     run(&mut i, "set the multiple to false");
     // Line Size… asks the UI for its dialog, and Power Keys is kept in Settings.
     lock(&i.world).requests.clear();
+    i.handle_event(Event::MsgBox("doMenu \"Edit Pattern…\"".into()));
+    assert!(lock(&i.world).requests.drain(..).any(|r| matches!(r, UiRequest::EditPattern)));
     i.handle_event(Event::MsgBox("doMenu \"Line Size…\"\ndoMenu \"Power Keys\"".into()));
     let reqs = std::mem::take(&mut lock(&i.world).requests);
     assert!(

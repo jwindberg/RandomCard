@@ -27,7 +27,7 @@ pub enum ObjRef {
     HyperCard,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Tool {
     Browse,
     Button,
@@ -519,6 +519,8 @@ pub enum UiRequest {
     SaveUserLevel(u8),
     /// Keep the Power Keys option in Settings: it was chosen in the Options menu.
     SavePowerKeys(bool),
+    /// Options ▸ Edit Pattern…: edit the current pattern.
+    EditPattern,
     /// Show the Line Size, Brush Shape or Polygon Sides dialog.
     PaintDialog(PaintDialog),
     /// Ask for the user's attention while RandomCard is in the background
