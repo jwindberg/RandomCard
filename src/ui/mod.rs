@@ -555,7 +555,11 @@ impl App {
             .with_inner_size([PALETTE_WIDTH, 290.0])
             .with_min_inner_size([PALETTE_WIDTH, 120.0])
             .with_position(pos)
-            .with_window_level(egui::WindowLevel::AlwaysOnTop);
+            .with_window_level(egui::WindowLevel::AlwaysOnTop)
+            // A palette has only a close box. It sizes itself to fit.
+            .with_minimize_button(false)
+            .with_maximize_button(false)
+            .with_resizable(false);
         ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("palette"), builder, |ui, _class| {
             let vctx = ui.ctx().clone();
             if vctx.input(|i| i.viewport().close_requested()) {
