@@ -107,6 +107,36 @@ impl Swatch {
     }
 }
 
+/// The Options menu's settings that go on and off: item, icon, tip.
+const OPTION_TOGGLES: [(&str, &str, &str); 5] = [
+    ("Draw Filled", "⬤", "Draw Filled: shapes filled with the pattern"),
+    ("Draw Centered", "⊙", "Draw Centered: lines and shapes grow from where you start"),
+    ("Draw Multiple", "❐", "Draw Multiple: leave the shape behind as you drag (Option-1 to 9 spaces them)"),
+    ("Grid", "#", "Grid: lines, shapes and selections snap to 8 pixels"),
+    ("FatBits", "🔍", "FatBits: magnify to paint pixel by pixel"),
+];
+
+/// The Paint menu's commands: item (also the tip) and icon.
+const PAINT_BUTTONS: [(&str, &str); 12] = [
+    ("Select All", "▣"),
+    ("Fill", "▦"),
+    ("Invert", "◑"),
+    ("Darken", "▼"),
+    ("Lighten", "△"),
+    ("Trace Edges", "◌"),
+    ("Rotate Left", "↺"),
+    ("Rotate Right", "↻"),
+    ("Opaque", "■"),
+    ("Flip Horizontal", "⇆"),
+    ("Flip Vertical", "⇅"),
+    ("Transparent", "□"),
+];
+
+/// Whether a stack has left one of RandomCard's menu items enabled.
+fn menu_item_enabled(w: &crate::runtime::world::World, item: &str) -> bool {
+    crate::runtime::menus::find_item(&w.menus, item).is_none_or(|i| i.enabled)
+}
+
 /// The recent colors before any are chosen: black, white and a rainbow.
 pub const STARTING_COLORS: [Pixel; 10] = [
     Pixel::BLACK,
@@ -225,9 +255,61 @@ impl App {
                     self.open_swatch = None;
                 }
             }
+            ui.separator();
+            self.option_toggles(ui);
+            ui.separator();
+            egui::CollapsingHeader::new("Paint").id_salt("paint-ops").default_open(false).show_unindented(ui, |ui| {
+                self.paint_buttons(ui);
+            });
             height = ui.min_rect().height();
         });
         height
+    }
+
+    /// The Options menu's settings that go on and off, as buttons that show
+    /// whether they're on. Each chooses its menu item, so scripts' doMenu
+    /// handlers see it, and a menu item a stack disables disables its button.
+    fn option_toggles(&mut self, ui: &mut egui::Ui) {
+        let (filled, centered, multiple, grid, enabled) = {
+            let w = self.world();
+            let enabled: Vec<bool> = OPTION_TOGGLES.iter().map(|(item, _, _)| menu_item_enabled(&w, item)).collect();
+            (w.fill_shapes, w.centered, w.multiple, w.grid, enabled)
+        };
+        let fat = self.fat.is_some();
+        let on = [filled, centered, multiple, grid, fat];
+        egui::Grid::new("option-toggles").spacing([2.0, 2.0]).min_col_width(0.0).show(ui, |ui| {
+            for (i, (item, icon, tip)) in OPTION_TOGGLES.iter().enumerate() {
+                let button = egui::Button::selectable(on[i], RichText::new(*icon).size(15.0));
+                let resp = ui.add_enabled_ui(enabled[i], |ui| ui.add_sized([36.0, 24.0], button)).inner;
+                if resp.on_hover_text(*tip).clicked() {
+                    self.do_menu(item);
+                }
+                if i % 3 == 2 {
+                    ui.end_row();
+                }
+            }
+        });
+    }
+
+    /// The Paint menu's commands, as buttons: on the selection, or the
+    /// whole picture when nothing is selected.
+    fn paint_buttons(&mut self, ui: &mut egui::Ui) {
+        let enabled: Vec<bool> = {
+            let w = self.world();
+            PAINT_BUTTONS.iter().map(|(item, _)| menu_item_enabled(&w, item)).collect()
+        };
+        egui::Grid::new("paint-buttons").spacing([2.0, 2.0]).min_col_width(0.0).show(ui, |ui| {
+            for (i, (item, icon)) in PAINT_BUTTONS.iter().enumerate() {
+                let button = egui::Button::new(RichText::new(*icon).size(15.0));
+                let resp = ui.add_enabled_ui(enabled[i], |ui| ui.add_sized([36.0, 24.0], button)).inner;
+                if resp.on_hover_text(*item).clicked() {
+                    self.do_menu(item);
+                }
+                if i % 3 == 2 {
+                    ui.end_row();
+                }
+            }
+        });
     }
 
     /// One of the palette's swatches: what's chosen now, drawn. Clicking it
