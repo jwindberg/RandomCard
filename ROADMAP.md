@@ -328,6 +328,10 @@ Stack (⌘W) or `close window` closes one.
 ## Editing and the UI
 
 **Missing:**
+- **Shrinking cards to fit the window,** for small screens such as a
+  720×720 HackberryPi: a stack whose cards are bigger than the screen
+  (Solitaire's are 840×600) shows them scaled down to fit, and clicks,
+  drags and `the mouseLoc` still use the card's own coordinates.
 - **Peeking at buttons and fields.** In HyperCard, holding Command-Option
   outlined every button on the card, and Command-Shift-Option outlined
   the fields too, so a hidden, transparent or tiny one could be found
