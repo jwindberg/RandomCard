@@ -19,6 +19,7 @@ pub struct MenuState {
     pub can_undo: bool,
     pub can_redo: bool,
     pub tools_shown: bool,
+    pub patterns_shown: bool,
     pub message_watcher: bool,
     pub variable_watcher: bool,
     /// What Cut, Copy and Clear act on ("Button", "Picture"…).
@@ -27,12 +28,24 @@ pub struct MenuState {
     pub paste: Option<&'static str>,
     /// Font, size and style of the selected text, while editing text.
     pub text_style: Option<(String, u32, String)>,
+    /// The Options menu's settings, and the pattern chosen.
+    pub paint: PaintOptions,
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct PaintOptions {
+    pub grid: bool,
+    pub fat_bits: bool,
+    pub power_keys: bool,
+    pub filled: bool,
+    pub centered: bool,
+    pub multiple: bool,
 }
 
 impl MenuState {
     pub fn menu_shown(&self, menu: &str) -> bool {
         match menu {
-            "Paint" => self.tool.is_paint(),
+            "Paint" | "Options" => self.tool.is_paint(),
             "Font" | "Style" => self.text_style.is_some(),
             "Objects" => self.editing >= 4,
             _ => true,
@@ -77,15 +90,22 @@ impl MenuState {
                 }
                 self.paste.is_some()
             }
-            "tool panel" => self.editing >= 3,
+            "tools palette" | "patterns palette" => self.editing >= 3,
             _ => true,
         };
         let checked = match key.as_str() {
             "background" => self.edit_bg,
             "message" | "message box" => self.msg_visible,
-            "tool panel" => self.tools_shown,
+            "tools palette" => self.tools_shown,
+            "patterns palette" => self.patterns_shown,
             "message watcher" => self.message_watcher,
             "variable watcher" => self.variable_watcher,
+            "grid" => self.paint.grid,
+            "fatbits" => self.paint.fat_bits,
+            "power keys" => self.paint.power_keys,
+            "draw filled" => self.paint.filled,
+            "draw centered" => self.paint.centered,
+            "draw multiple" => self.paint.multiple,
             _ => match &self.text_style {
                 Some((font, size, style)) => {
                     font.eq_ignore_ascii_case(&key)
@@ -171,7 +191,7 @@ pub fn builtin_key(item: &str) -> Option<&'static str> {
         "recent" => "r",
         "quit randomcard" => "q",
         "save stack" => "s",
-        "tool panel" => "t",
+        "tools palette" => "t",
         _ => return None,
     })
 }

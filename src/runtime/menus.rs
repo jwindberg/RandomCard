@@ -74,7 +74,8 @@ pub fn item_key(name: &str) -> String {
 /// enable, disable and delete them, as Apple's stacks do, but the menus don't
 /// show them.
 pub const SCRIPT_ONLY_ITEMS: &[&str] = &[
-    "page setup", "print report", "text style", "icon", "audio", "help", "scroll", "next window",
+    "page setup", "print report", "text style", "icon", "audio", "help", "scroll", "next window", "edit pattern",
+    "rotate", "slant", "distort", "perspective",
 ];
 
 /// RandomCard's standard menu bar, in HyperCard's order.
@@ -87,7 +88,7 @@ pub fn standard_menus() -> Vec<Menu> {
     style.extend(["-".into(), "Text Color…".into()]);
     let style: Vec<&str> = style.iter().map(String::as_str).collect();
     let paint: Vec<&str> =
-        ["Select All", "FatBits", "-"].into_iter().chain(crate::paint::PaintOp::ALL.iter().map(|op| op.name())).collect();
+        ["Select All", "-"].into_iter().chain(crate::paint::PaintOp::ALL.iter().map(|op| op.name())).collect();
     vec![
         Menu::builtin(
             "File",
@@ -143,10 +144,32 @@ pub fn standard_menus() -> Vec<Menu> {
             "Go",
             &["Back", "Home", "Help", "Recent", "-", "First", "Prev", "Next", "Last", "-", "Find…", "Message", "Scroll", "Next Window"],
         ),
-        Menu::builtin("View", &["Tool Panel", "Message Box", "-", "Message Watcher", "Variable Watcher"]),
+        Menu::builtin("View", &["Tools Palette", "Patterns Palette", "Message Box", "-", "Message Watcher", "Variable Watcher"]),
         Menu::builtin("Font", &fonts),
         Menu::builtin("Style", &style),
         Menu::builtin("Paint", &paint),
+        Menu::builtin(
+            "Options",
+            &[
+                "Grid",
+                "FatBits",
+                "Power Keys",
+                "-",
+                "Line Size…",
+                "Brush Shape…",
+                "Edit Pattern…",
+                "Polygon Sides…",
+                "-",
+                "Draw Filled",
+                "Draw Centered",
+                "Draw Multiple",
+                "-",
+                "Rotate",
+                "Slant",
+                "Distort",
+                "Perspective",
+            ],
+        ),
         Menu::builtin(
             "Objects",
             &[

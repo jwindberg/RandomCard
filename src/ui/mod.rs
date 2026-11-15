@@ -30,7 +30,7 @@ use eframe::egui::{
 
 use crate::model::styles;
 use crate::model::{Layer, Part, PartKind, PartStyle, Rect as CardRect, Stack};
-use crate::runtime::world::{Event, FieldRange, KeyAction, ObjRef, Tool, UiRequest, World, line_at, lock, word_at};
+use crate::runtime::world::{Event, FieldRange, KeyAction, ObjRef, Palette, Tool, UiRequest, World, line_at, lock, word_at};
 use crate::runtime::{self, Runtime};
 use render::{Scene, Textures};
 use windows::{ErrorAlert, InfoTarget, InfoWindow, ScriptEditor};
@@ -87,6 +87,14 @@ pub struct App {
     last_scene: Option<Scene>,
     /// The icon editor, while it's open.
     icon_editor: Option<icon_editor::IconEditor>,
+    /// The Options menu's Line Size, Brush Shape or Polygon Sides dialog.
+    paint_dialog: Option<crate::runtime::world::PaintDialog>,
+    /// Where each palette was put as it opened, while it's open.
+    palette_opened_at: [Option<egui::Pos2>; 2],
+    /// A script's `show` or `hide` of each palette, until the user changes it.
+    palette_override: [Option<bool>; 2],
+    /// A palette moved: when to save where it is.
+    palette_save_due: Option<Instant>,
     /// FatBits, while it's on.
     fat: Option<painting::FatBits>,
     /// The card window in front (0 is this, the first).
@@ -116,9 +124,6 @@ pub struct App {
     stroke: Option<PaintStroke>,
     clipboard: Option<Clip>,
     settings: Settings,
-    /// A stack's `show`/`hide tool window`, over the preference until the
-    /// user toggles the panel themselves.
-    tools_by_script: Option<bool>,
     /// Where the card's top left corner was on screen last frame, and the
     /// window's outer top left, for moving the window when a script asks.
     card_on_screen: Option<(egui::Pos2, egui::Pos2)>,
@@ -232,10 +237,9 @@ impl App {
             }));
             rx
         };
-        App {
+        let app = App {
             rt: runtime::start(stack, open, settings.user_level, runtime::settings::home_path()),
             settings,
-            tools_by_script: None,
             card_on_screen: None,
             card_origin: egui::Pos2::ZERO,
             export: None,
@@ -312,7 +316,13 @@ impl App {
             variable_watcher: false,
             var_edit: None,
             debug_seen: None,
-        }
+            paint_dialog: None,
+            palette_opened_at: [None, None],
+            palette_override: [None, None],
+            palette_save_due: None,
+        };
+        app.world().power_keys = app.settings.power_keys;
+        app
     }
 
     fn world(&self) -> std::sync::MutexGuard<'_, World> {
@@ -344,6 +354,8 @@ impl App {
     /// user level and tool allow them, as HyperCard showed only what each
     /// level unlocks.
     fn shown_menus(&self) -> Vec<menus::ShownMenu> {
+        // Asked first: each looks at the world itself.
+        let (tools_shown, patterns_shown) = (self.tools_shown(), self.palette_shown(Palette::Patterns));
         let (all, state) = {
             let w = self.world();
             let state = MenuState {
@@ -355,12 +367,21 @@ impl App {
                 cant_modify: w.stack.cant_modify,
                 can_undo: !w.undo.is_empty(),
                 can_redo: !w.redo.is_empty(),
-                tools_shown: self.tools_shown(),
+                tools_shown,
+                patterns_shown,
                 message_watcher: self.message_watcher,
                 variable_watcher: self.variable_watcher,
                 target: None,
                 paste: None,
                 text_style: None,
+                paint: menus::PaintOptions {
+                    grid: w.grid,
+                    fat_bits: self.fat.is_some(),
+                    power_keys: w.power_keys,
+                    filled: w.fill_shapes,
+                    centered: w.centered,
+                    multiple: w.multiple,
+                },
             };
             (w.menus.clone(), state)
         };
@@ -473,16 +494,126 @@ impl App {
         Some((s.font.unwrap_or_else(|| part.text_font.clone()), s.size.unwrap_or(part.text_size), style))
     }
 
-    fn toggle_tool_panel(&mut self) {
-        self.settings.show_tools = !self.tools_shown();
-        self.tools_by_script = None;
+    /// Whether a palette is showing: the Tools palette as the user
+    /// prefers, the Patterns palette while a paint tool is chosen. A
+    /// script's `show` or `hide` holds until the user chooses otherwise.
+    /// Neither shows below the Painting level.
+    fn palette_shown(&self, p: Palette) -> bool {
+        if self.editing_level() < 3 {
+            return false;
+        }
+        self.palette_override[p.index()].unwrap_or_else(|| match p {
+            Palette::Tools => self.settings.show_tools,
+            Palette::Patterns => self.settings.show_patterns && self.world().tool.is_paint(),
+        })
+    }
+
+    fn tools_shown(&self) -> bool {
+        self.palette_shown(Palette::Tools)
+    }
+
+    /// View ▸ Tools Palette or Patterns Palette, Command-T, or a palette's
+    /// close box.
+    fn toggle_palette(&mut self, p: Palette) {
+        let show = !self.palette_shown(p);
+        match p {
+            Palette::Tools => {
+                self.settings.show_tools = show;
+                self.palette_override[0] = None;
+            }
+            Palette::Patterns => {
+                self.settings.show_patterns = show;
+                // Shown without a paint tool, it stays until it's hidden.
+                let paint = self.world().tool.is_paint();
+                self.palette_override[1] = (show && !paint).then_some(true);
+            }
+        }
         self.settings.save();
     }
 
-    /// Whether the tool panel is showing: as a stack last set it, or else as
-    /// the user prefers.
-    fn tools_shown(&self) -> bool {
-        self.tools_by_script.unwrap_or(self.settings.show_tools)
+    /// The palettes, each frame: docked in a panel at the window's left, or
+    /// each in a window of its own.
+    fn palettes(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        let shown = Palette::ALL.map(|p| self.palette_shown(p));
+        let docked = self.settings.dock_palettes;
+        for p in Palette::ALL {
+            if !shown[p.index()] || docked {
+                self.palette_opened_at[p.index()] = None;
+            }
+        }
+        if docked {
+            if shown.contains(&true) {
+                egui::Panel::left("palette")
+                    .resizable(false)
+                    .exact_size(140.0)
+                    .show(ui, |ui| self.palette(ui, shown[0], shown[1], true));
+            }
+        } else {
+            for p in Palette::ALL.into_iter().filter(|p| shown[p.index()]) {
+                self.floating_palette(ctx, p);
+            }
+        }
+        let mut w = self.world();
+        for p in Palette::ALL {
+            w.palettes[p.index()].visible = shown[p.index()];
+        }
+        drop(w);
+        if self.palette_save_due.is_some_and(|due| Instant::now() >= due) {
+            self.palette_save_due = None;
+            self.settings.save();
+        }
+    }
+
+    /// A palette in a window of its own, kept above the stack windows and
+    /// acting on whichever stack is in front. The first time, the Tools
+    /// palette opens beside the main window's left edge with the Patterns
+    /// palette below it; after that each opens wherever it was last.
+    fn floating_palette(&mut self, ctx: &egui::Context, p: Palette) {
+        let i = p.index();
+        let last = match self.settings.palette_at[i] {
+            Some([x, y]) => egui::pos2(x, y),
+            None => {
+                let below = if p == Palette::Patterns { 240.0 } else { 0.0 };
+                match ctx.input(|i| i.viewport().outer_rect) {
+                    Some(r) if r.left() >= 160.0 => egui::pos2(r.left() - 150.0, r.top() + below),
+                    Some(r) => egui::pos2(r.left() + 8.0, r.top() + 60.0 + below),
+                    None => egui::pos2(20.0, 60.0 + below),
+                }
+            }
+        };
+        // Placed once as it opens: asking again every frame would chase the
+        // position the window manager reports, which can be a little off.
+        let pos = *self.palette_opened_at[i].get_or_insert(last);
+        let size = match p {
+            Palette::Tools => [136.0, 196.0],
+            Palette::Patterns => [150.0, 330.0],
+        };
+        let builder = egui::ViewportBuilder::default()
+            .with_title(p.title())
+            .with_inner_size(size)
+            .with_min_inner_size([136.0, 120.0])
+            .with_position(pos)
+            .with_window_level(egui::WindowLevel::AlwaysOnTop);
+        ctx.show_viewport_immediate(egui::ViewportId::from_hash_of(("palette", i)), builder, |ui, _class| {
+            let vctx = ui.ctx().clone();
+            if vctx.input(|i| i.viewport().close_requested()) {
+                self.toggle_palette(p);
+            }
+            // Wherever it's moved to is where it opens next time, and what
+            // scripts read as its loc.
+            if let Some(r) = vctx.input(|i| i.viewport().outer_rect) {
+                let at = [r.min.x.round(), r.min.y.round()];
+                if self.settings.palette_at[i] != Some(at) {
+                    self.settings.palette_at[i] = Some(at);
+                    self.palette_save_due = Some(Instant::now() + Duration::from_secs(1));
+                }
+                let rect = crate::model::Rect::new(r.min.x as i32, r.min.y as i32, r.max.x as i32, r.max.y as i32);
+                self.world().palettes[i].rect = rect;
+            }
+            // Keys typed with a palette in front still reach the card.
+            self.shortcuts(&vctx);
+            egui::CentralPanel::default().show(ui, |ui| self.palette(ui, p == Palette::Tools, p == Palette::Patterns, false));
+        });
     }
 
     fn choose_tool(&mut self, t: Tool) {
@@ -652,6 +783,11 @@ impl App {
                 UiRequest::Attention => {
                     ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
                 }
+                UiRequest::SavePowerKeys(on) => {
+                    self.settings.power_keys = on;
+                    self.settings.save();
+                }
+                UiRequest::PaintDialog(d) => self.paint_dialog = Some(d),
                 UiRequest::SaveUserLevel(level) => {
                     self.settings.user_level = level;
                     self.settings.save();
@@ -659,7 +795,13 @@ impl App {
                 UiRequest::MessageWatcher(show) => self.show_message_watcher(show),
                 // A stack showing or hiding the tools doesn't change the
                 // preference, only what's on screen now.
-                UiRequest::ToolWindow(show) => self.tools_by_script = Some(show),
+                UiRequest::ShowPalette(p, show) => self.palette_override[p.index()] = Some(show),
+                UiRequest::MovePalette(p, x, y) => {
+                    let at = egui::pos2(x as f32, y as f32);
+                    self.settings.palette_at[p.index()] = Some([at.x, at.y]);
+                    self.palette_opened_at[p.index()] = Some(at);
+                    self.palette_save_due = Some(Instant::now());
+                }
                 // Put the card's corner where the script said. Some window
                 // systems (Wayland) don't let programs move windows; then
                 // scripts still read back the place they set.
@@ -682,9 +824,9 @@ impl App {
                     self.msg_cursor = Some(at);
                     self.focus_msg_box = true;
                 }
-                UiRequest::ToggleToolPanel => {
+                UiRequest::TogglePalette(p) => {
                     if self.editing_level() >= 3 {
-                        self.toggle_tool_panel();
+                        self.toggle_palette(p);
                     }
                 }
             }
@@ -1005,7 +1147,7 @@ impl App {
             }
         }
         if editing >= 3 && ctx.input_mut(|i| i.consume_shortcut(&cmd(Key::T))) {
-            self.toggle_tool_panel();
+            self.toggle_palette(Palette::Tools);
         }
         for (shortcut, ch, action, allowed) in command_keys {
             if allowed && ctx.input_mut(|i| i.consume_shortcut(&shortcut)) {
@@ -1063,6 +1205,9 @@ impl App {
                 self.push_undo();
                 self.with_picture(|p| region.lift(p));
             }
+        }
+        if tool.is_paint() && tool != Tool::Text {
+            self.power_keys(ctx);
         }
         if ctx.input(|i| i.key_pressed(Key::Escape)) {
             self.commit_marquee();
@@ -2480,10 +2625,8 @@ impl eframe::App for App {
             }
             self.status_bar(ui);
         });
-        // The tool panel, when shown and the level allows tools.
-        if self.tools_shown() && self.editing_level() >= 3 {
-            egui::Panel::left("palette").resizable(false).exact_size(140.0).show(ui, |ui| self.palette(ui));
-        }
+        // The palettes, when shown and the level allows tools.
+        self.palettes(&ctx, ui);
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(Color32::from_gray(200))).show(ui, |ui| {
             if self.front_key == 0 {
                 self.canvas(ui);
@@ -2508,6 +2651,7 @@ impl eframe::App for App {
         self.show_dialog(&ctx);
         self.show_error(&ctx);
         self.show_preferences(&ctx);
+        self.show_paint_dialog(&ctx);
         self.text_color_window(&ctx);
         self.show_protect_stack(&ctx);
         self.show_password_prompt(&ctx);

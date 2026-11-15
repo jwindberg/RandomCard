@@ -232,6 +232,24 @@ impl Interp {
                 if arg(1).trim().eq_ignore_ascii_case("scroll") && arg(0).eq_ignore_ascii_case("visible") {
                     return Ok("false".into());
                 }
+                if let Some(palette) = super::world::Palette::named(&arg(1)) {
+                    let p = self.w().palettes[palette.index()];
+                    let r = p.rect;
+                    return Ok(match arg(0).trim().to_ascii_lowercase().as_str() {
+                        "visible" => bool_str(p.visible),
+                        "loc" | "location" | "topleft" => format!("{},{}", r.left, r.top),
+                        "rect" | "rectangle" => format!("{},{},{},{}", r.left, r.top, r.right, r.bottom),
+                        "left" => r.left.to_string(),
+                        "top" => r.top.to_string(),
+                        "right" => r.right.to_string(),
+                        "bottom" => r.bottom.to_string(),
+                        "width" => r.width().to_string(),
+                        "height" => (r.bottom - r.top).to_string(),
+                        "botright" | "bottomright" => format!("{},{}", r.right, r.bottom),
+                        "name" => palette.title().into(),
+                        other => return err(format!("Windows have no property \"{other}\"")),
+                    });
+                }
                 let w = self.w();
                 let Some(t) = w
                     .script_windows

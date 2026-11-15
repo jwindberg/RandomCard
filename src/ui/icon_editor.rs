@@ -37,7 +37,7 @@ impl App {
     pub(super) fn icon_editor_window(&mut self, ctx: &egui::Context) {
         let Some(mut ed) = self.icon_editor.take() else { return };
         let mut open = true;
-        windows::tool_window(ctx, egui::Id::unique("icon editor"), "Icon Editor", [480.0, 600.0], &mut open, |ui| {
+        windows::editor_window(ctx, egui::Id::unique("icon editor"), "Icon Editor", [480.0, 600.0], &mut open, |ui| {
             self.icon_editor_ui(ui, &mut ed);
         });
         if open {

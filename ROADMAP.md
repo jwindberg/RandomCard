@@ -62,7 +62,7 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 | HyperTalk commands and functions | Most; gaps below |
 | System messages | Mouse, navigation, keyboard, `idle`, `doMenu`; all commands interceptable |
 | Browse, Button and Field tools | Working, with clipboard and undo |
-| Paint tools | All 18 tools, patterns, Paint menu, FatBits |
+| Paint tools | All 18 tools, the Tools and Patterns palettes, the Paint and Options menus, FatBits |
 | Fields | Styled text, the selection, click functions, list fields |
 | Visual effects | Complete |
 | Sound | `play`, notes, `dial`, `beep`; no MACE |
@@ -87,7 +87,7 @@ same.
 | --- | --- | --- |
 | 1 | Browsing | Clicking buttons and navigating; fields can't be typed in |
 | 2 | Typing | Typing and editing text in fields |
-| 3 | Painting | The paint tools, and the Paint, Options and Patterns menus |
+| 3 | Painting | The paint tools and palettes, and the Paint and Options menus |
 | 4 | Authoring | The Button and Field tools, the Objects menu and Info dialogs |
 | 5 | Scripting | Opening and editing scripts |
 
@@ -103,9 +103,16 @@ menu bar or replace HyperCard's menus with their own.
 **Decisions:**
 - RandomCard behaves like the purchased HyperCard: it runs at Scripting
   level by default, and otherwise stacks behave as they did in HyperCard.
-- The tool panel stays docked on the left. It can be shown or hidden (View ▸
-  Tool Panel, Ctrl+T, or Preferences), and it only appears at levels that
-  allow tools. There are no tear-off palettes and no Tools menu.
+- The Tools and Patterns palettes are small windows of their own, as in
+  HyperCard, kept in front and acting on whichever stack is in front. The
+  Tools palette is shown or hidden with View ▸ Tools Palette, Ctrl+T or
+  Preferences; the Patterns palette opens while a paint tool is chosen.
+  Each opens where it was last. They only appear at levels that allow
+  tools. Preferences can dock both at the window's left instead, for
+  desktops that can't keep a window in front and for small screens. There
+  is no Tools menu. The palettes hold what you paint with (tools,
+  patterns, colors); the Options menu holds how it's drawn (Draw Filled,
+  Line Size, Brush Shape, Polygon Sides, Grid…), so each has one place.
 - The message box stays at the bottom of the window. Screens are bigger now,
   so RandomCard can take the space.
 
@@ -116,8 +123,8 @@ menu bar or replace HyperCard's menus with their own.
   Imported HyperCard stacks keep their level limit, password and flags.
   Private-access stacks ask for their password and are decrypted (ported
   from HyperCardPreview, MIT licensed).
-- **The interface follows the level.** Below Painting there is no tool
-  panel and no Paint or Objects menu. Below Typing, fields can't be edited.
+- **The interface follows the level.** Below Painting there are no
+  palettes and no Paint, Options or Objects menu. Below Typing, fields can't be edited.
   Script buttons, script shortcuts and the error alert's Script button need
   Scripting. A Can't Modify stack is browsed at Browsing level, and its
   changes aren't saved.
@@ -132,13 +139,13 @@ menu bar or replace HyperCard's menus with their own.
   so a stack can't lock its author out.
 - **Preferences** (File menu): RandomCard's own user level, capped by the
   stack's limit, with "Unlock with Password…" to lift the limit for the
-  session, and whether the tool panel is shown. Settings are saved in
+  session, whether the Tools palette is shown, whether the palettes are
+  docked, and Power Keys. Settings are saved in
   `~/.config/randomcard/settings.json`.
 - The demo Address Book sets Typing level on `openBackground` and restores
   the level when you leave.
 
-**Still to do:**
-- Options and Patterns as menus.
+- **The Options menu** while a paint tool is chosen, as in HyperCard.
 
 **What protection can and can't do.** It keeps a stack's users from
 changing it by accident or casually. It isn't security: a `.rcstack` file
@@ -162,11 +169,18 @@ text, multi-level undo and redo, and script-driven painting with `drag`,
   another card, or quitting; until then Revert threw them all away
   (unlike Undo, which takes back only the last change). RandomCard saves
   paint changes as they're made, so it has neither yet.
-- **Paint menu:** Pickup and Scale; `the grid`, `centered` and
-  `multiple` options (`the multiSpace` is kept, but nothing is drawn
-  multiple yet). (Shift-constrained drawing is done: straight
-  strokes, lines and polygon sides at multiples of 15°, squares and
-  circles, straight moves of a selection, and `drag … with shiftKey`.)
+- **Paint menu:** Pickup and Scale. (Shift-constrained drawing is done:
+  straight strokes, lines and polygon sides at multiples of 15°, squares
+  and circles, straight moves of a selection, and `drag … with shiftKey`.
+  So are the Options menu's Grid, Draw Centered, Draw Multiple and Power
+  Keys, and `the grid`, `centered`, `multiple`, `multiSpace` and
+  `powerKeys`.)
+- **The Options menu's Rotate, Slant, Distort and Perspective,** which
+  reshape a selection by dragging its corners. Scripts can choose them;
+  they say they aren't in RandomCard yet.
+- **Power keys for Select, Pickup and Revert** (S, P and R), which come with
+  those commands. How far apart Draw Multiple's copies are for each
+  `multiSpace` is a guess, still to check in HyperCard 2.4.1.
 
 ## Fields and text
 
@@ -383,7 +397,7 @@ together, and black on white is just the default.
    picture is kept at one byte a pixel and saved exactly as before; one
    with color is saved as a PNG. Printing shows colors as the nearer of
    black and white until step 5.
-2. ~~**The color palette.**~~ Done: in the tool panel under the
+2. ~~**The color palette.**~~ Done: in the Patterns palette under the
    patterns, Line and Fill swatches with a picker and an eyedropper each,
    and recent colors that set whichever of Line or Fill is chosen. A
    pattern's set bits paint in the fill color and its clear bits white;
@@ -535,12 +549,13 @@ their feedback. For now:
 5. **The card window:** global rect and loc, scrolling (hBarLoc, vBarLoc),
    zoom, `moveWindow` and `sizeWindow`, and card size changes.
 6. **Multiple windows.** Done: stack windows (`go to stack … in a new
-   window`, `the stacks`, suspendStack and resumeStack), and the tool
+   window`, `the stacks`, suspendStack and resumeStack); the editor
    windows (script editors, the Variable and Message Watchers, and Info
-   windows), each a real window of its own beside the card. Small alerts
+   windows), each a real window of its own beside the card; and the Tools
+   and Patterns palettes. Small alerts
    and dialogs stay in the main window, as in HyperCard.
-7. **The rest of painting:** FatBits and the icon editor are done. Left:
-   the Options and Patterns menus, editing patterns, Pickup, Scale, and
+7. **The rest of painting:** FatBits, the icon editor, the Options menu
+   and the two palettes are done. Left: editing patterns, Pickup, Scale, and
    Keep and Revert.
 8. **History across stacks.** (Objects in other stacks are done: `field 1 of card 2 of stack "X"`.)
 9. **Report printing, MACE sound, picture windows.**

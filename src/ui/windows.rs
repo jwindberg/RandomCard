@@ -103,11 +103,11 @@ fn line_rows(galley: &egui::Galley) -> Vec<egui::Rect> {
     lines
 }
 
-/// A tool window (a script editor, an Info window, a watcher) as a real
+/// An editor window (a script editor, an Info window, a watcher) as a real
 /// window of its own, so it can sit beside the card it's about instead of
 /// over it. Its close box clears `open`. Small alerts and dialogs stay in
 /// the main window, as in HyperCard.
-pub(super) fn tool_window<R>(
+pub(super) fn editor_window<R>(
     ctx: &egui::Context,
     id: egui::Id,
     title: &str,
@@ -255,7 +255,7 @@ impl App {
                 }
             };
             let id = egui::Id::unique(("info", info_key(win.target)));
-            tool_window(ctx, id, &title, [380.0, 420.0], &mut open, |ui| {
+            editor_window(ctx, id, &title, [380.0, 420.0], &mut open, |ui| {
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                     if let Some(obj) = self.info_contents(ui, win.target) {
                         open_script = Some(obj);
@@ -666,7 +666,7 @@ impl App {
         let mut decided = None;
         let mut keyboard = false;
         let title = format!("Script of {}", ed.title);
-        tool_window(ctx, id, &title, [600.0, 460.0], &mut open, |ui| {
+        editor_window(ctx, id, &title, [600.0, 460.0], &mut open, |ui| {
                 // The editor's own Command keys are typed in its window.
                 self.shortcuts(&ui.ctx().clone());
                 ui.horizontal(|ui| {

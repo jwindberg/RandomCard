@@ -198,9 +198,23 @@ impl App {
             }
             ui.separator();
             let mut show = self.tools_shown();
-            if ui.checkbox(&mut show, format!("Show the tool panel ({})", shortcut("T"))).changed() {
-                self.settings.show_tools = show;
-                self.tools_by_script = None;
+            if ui.checkbox(&mut show, format!("Show the Tools palette ({})", shortcut("T"))).changed() {
+                self.toggle_palette(crate::runtime::world::Palette::Tools);
+            }
+            let mut docked = self.settings.dock_palettes;
+            if ui
+                .checkbox(&mut docked, "Dock the palettes in the window")
+                .on_hover_text("For desktops that can't keep the palettes in front, and small screens")
+                .changed()
+            {
+                self.settings.dock_palettes = docked;
+                self.settings.save();
+            }
+            // As on HyperCard's Preferences card, and in the Options menu.
+            let mut power = self.world().power_keys;
+            if ui.checkbox(&mut power, "Power Keys").on_hover_text("Single keys for paint commands, such as F for Fill").changed() {
+                self.world().power_keys = power;
+                self.settings.power_keys = power;
                 self.settings.save();
             }
         });

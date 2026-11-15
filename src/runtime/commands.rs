@@ -12,7 +12,7 @@ use super::dates;
 use super::interp::{Ctl, Interp, OpenFile, R, err, to_int, to_number};
 use super::menus;
 use super::undo::UndoEntry;
-use super::world::{Dialog, DialogReply, EditOp, FieldRange, ObjRef, TextClip, Tool, Transition, UiRequest};
+use super::world::{Dialog, DialogReply, EditOp, PaintDialog, Palette, FieldRange, ObjRef, TextClip, Tool, Transition, UiRequest};
 
 impl Interp {
     pub fn command(&mut self, c: &Cmd) -> R<()> {
@@ -419,14 +419,9 @@ impl Interp {
             } => {
                 let name = self.eval(window)?;
                 let value = self.eval(value)?;
-                // The tools and patterns are one panel, which `show tool
-                // window` shows.
-                if matches!(name.trim().to_ascii_lowercase().as_str(), "tool window" | "pattern window" | "patterns window")
-                    && prop.eq_ignore_ascii_case("visible")
-                {
-                    let show = value.trim().eq_ignore_ascii_case("true");
-                    self.w().requests.push(UiRequest::ToolWindow(show));
-                    return Ok(());
+                // The palettes: shown or hidden, and moved.
+                if let Some(palette) = Palette::named(&name) {
+                    return self.set_palette_prop(palette, prop, &value);
                 }
                 let mut w = self.w();
                 let Some(win) = w
@@ -598,12 +593,38 @@ impl Interp {
                 };
                 let mut w = self.w();
                 if let Some(tool) = w.tool.drag_tool() {
+                    use crate::paint::{multiple_due, shape_tool, snap_grid};
+                    let shape = shape_tool(tool);
+                    let mut a = a;
+                    if w.grid && shape {
+                        (a, b) = (snap_grid(a), snap_grid(b));
+                    }
                     if keys.iter().any(|k| k.trim_end_matches("key") == "shift") {
                         b = crate::paint::constrain(tool, a, b);
+                        if w.grid && shape {
+                            b = snap_grid(b);
+                        }
                     }
                     let settings = w.paint_settings();
+                    // Draw Multiple leaves the shape behind along the way,
+                    // as the mouse goes from one point to the other.
+                    let mut ends = Vec::new();
+                    if w.multiple && shape {
+                        let steps = (b.0 - a.0).abs().max((b.1 - a.1).abs());
+                        let mut last = a;
+                        for i in 1..steps {
+                            let q = (a.0 + (b.0 - a.0) * i / steps, a.1 + (b.1 - a.1) * i / steps);
+                            if multiple_due(last, q, w.multi_space) {
+                                ends.push(q);
+                                last = q;
+                            }
+                        }
+                    }
+                    ends.push(b);
                     if let Some(pic) = w.layer_picture_mut() {
-                        crate::paint::apply_drag(pic, tool, a, b, &settings);
+                        for end in ends {
+                            crate::paint::apply_drag(pic, tool, a, end, &settings);
+                        }
                     }
                     w.picture_rev += 1;
                     w.dirty = true;
@@ -796,6 +817,44 @@ impl Interp {
         Ok(())
     }
 
+    /// `show tool window at 10,40`, `hide pattern window`.
+    fn show_palette(&mut self, palette: Palette, show: bool, at: Option<String>) -> R<()> {
+        if let Some(at) = at {
+            self.set_palette_prop(palette, "loc", &at)?;
+        }
+        let mut w = self.w();
+        w.palettes[palette.index()].visible = show;
+        w.requests.push(UiRequest::ShowPalette(palette, show));
+        Ok(())
+    }
+
+    /// `set the visible of tool window`, `set the loc of pattern window`. A
+    /// palette is the size its contents need, so its rect only moves it.
+    fn set_palette_prop(&mut self, palette: Palette, prop: &str, v: &str) -> R<()> {
+        let prop = prop.to_ascii_lowercase();
+        if prop == "visible" {
+            return self.show_palette(palette, super::interp::to_bool(v)?, None);
+        }
+        let r = self.w().palettes[palette.index()].rect;
+        let (x, y) = match prop.as_str() {
+            "loc" | "location" | "topleft" => parse_point(v),
+            "rect" | "rectangle" => crate::hypertalk::value::parse_rect(v).map(|(l, t, _, _)| (l, t)),
+            "left" => to_int(v).ok().map(|l| (l as i32, r.top)),
+            "top" => to_int(v).ok().map(|t| (r.left, t as i32)),
+            _ => return err(format!("Can't set the {prop} of the {} palette", palette.title())),
+        }
+        .ok_or_else(|| super::interp::Ctl::Error(super::interp::ScriptError {
+            msg: format!("Expected a point, not \"{v}\""),
+            obj: None,
+            line: None,
+        }))?;
+        let mut w = self.w();
+        let rect = &mut w.palettes[palette.index()].rect;
+        *rect = Rect::new(x, y, x + rect.width(), y + (rect.bottom - rect.top));
+        w.requests.push(UiRequest::MovePalette(palette, x, y));
+        Ok(())
+    }
+
     fn show_hide(&mut self, what: &ShowHide, show: bool, at: Option<String>) -> R<()> {
         match what {
             ShowHide::MsgBox => {
@@ -814,14 +873,8 @@ impl Interp {
                 {
                     return self.show_hide(&ShowHide::MsgBox, show, at);
                 }
-                if ["tool", "tools", "tool window"]
-                    .iter()
-                    .any(|m| m.eq_ignore_ascii_case(name))
-                {
-                    return self.show_hide(&ShowHide::ToolWindow, show, at);
-                }
-                if ["patterns", "pattern window"].iter().any(|m| m.eq_ignore_ascii_case(name)) {
-                    return self.show_hide(&ShowHide::PatternWindow, show, at);
+                if let Some(palette) = Palette::named(name) {
+                    return self.show_palette(palette, show, at);
                 }
                 // HyperCard 2's Scroll palette: RandomCard scrolls a big card
                 // with the window's own scroll bars, so it has none to show.
@@ -845,14 +898,8 @@ impl Interp {
                     win.set_property("loc", &at).or_else(err)?;
                 }
             }
-            ShowHide::ToolWindow => self.w().requests.push(UiRequest::ToolWindow(show)),
-            // Showing the patterns shows the tool panel they're in; hiding
-            // them leaves the tools alone.
-            ShowHide::PatternWindow => {
-                if show {
-                    self.w().requests.push(UiRequest::ToolWindow(true));
-                }
-            }
+            ShowHide::ToolWindow => return self.show_palette(Palette::Tools, show, at),
+            ShowHide::PatternWindow => return self.show_palette(Palette::Patterns, show, at),
             ShowHide::VariableWatcher => self.w().requests.push(UiRequest::VariableWatcher(show)),
             ShowHide::ScrollWindow | ShowHide::Groups => {}
             ShowHide::MenuBar => self.w().menubar_visible = show,
@@ -2127,7 +2174,9 @@ impl Interp {
             "protect stack" => self.request(UiRequest::ProtectStack),
             "text color" => self.request(UiRequest::TextColor),
             "preferences" => self.request(UiRequest::Preferences),
-            "tool panel" => self.request(UiRequest::ToggleToolPanel),
+            // "Tool Panel" was RandomCard's name before the palettes.
+            "tools palette" | "tool panel" => self.request(UiRequest::TogglePalette(Palette::Tools)),
+            "patterns palette" => self.request(UiRequest::TogglePalette(Palette::Patterns)),
             "print card" => {
                 let id = self.w().card_id;
                 self.print_cards(vec![id], true)
@@ -2330,6 +2379,27 @@ impl Interp {
             }
             "select all" => self.request(UiRequest::SelectAll),
             "fatbits" => self.request(UiRequest::FatBits),
+            // The Options menu's settings go on and off.
+            "grid" | "draw centered" | "draw multiple" | "draw filled" | "power keys" => {
+                let mut w = self.w();
+                let on = match key.as_str() {
+                    "grid" => &mut w.grid,
+                    "draw centered" => &mut w.centered,
+                    "draw multiple" => &mut w.multiple,
+                    "draw filled" => &mut w.fill_shapes,
+                    _ => &mut w.power_keys,
+                };
+                *on = !*on;
+                let on = *on;
+                // HyperCard kept Power Keys on Home's Preferences card.
+                if key == "power keys" {
+                    w.requests.push(UiRequest::SavePowerKeys(on));
+                }
+                Ok(())
+            }
+            "line size" => self.request(UiRequest::PaintDialog(PaintDialog::LineSize)),
+            "brush shape" => self.request(UiRequest::PaintDialog(PaintDialog::BrushShape)),
+            "polygon sides" => self.request(UiRequest::PaintDialog(PaintDialog::PolygonSides)),
             _ if crate::paint::PaintOp::parse(&key).is_some() => {
                 self.request(UiRequest::PaintOp(crate::paint::PaintOp::parse(&key).unwrap()))
             }
@@ -2358,7 +2428,7 @@ impl Interp {
                 }
             }
             "icon" => self.request(UiRequest::IconEditor),
-            "print report" | "text style" | "audio" => {
+            "print report" | "text style" | "audio" | "edit pattern" | "rotate" | "slant" | "distort" | "perspective" => {
                 let name = item.trim().trim_end_matches('…').trim_end_matches("...");
                 self.dialog(Dialog::Answer {
                     prompt: format!("{name} isn't in RandomCard yet."),

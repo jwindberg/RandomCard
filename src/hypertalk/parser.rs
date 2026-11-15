@@ -1600,7 +1600,7 @@ impl Parser {
             return Ok(ShowHide::ScrollWindow);
         }
         if self.is("pattern") && self.is_at(1, "window") {
-            // The patterns are in the tool panel, which `tool window` shows.
+            // The Patterns palette.
             self.pos += 2;
             return Ok(ShowHide::PatternWindow);
         }
@@ -2272,6 +2272,12 @@ impl Parser {
             if self.is("the") && self.is_at(1, "target") {
                 self.pos += 2;
                 return Ok(Expr::Property { name, length, obj: Some(Box::new(ObjSpec::Target)) });
+            }
+            // A palette: `the loc of tool window`, `the visible of pattern window`.
+            if matches!(self.word(), Some("tool" | "pattern" | "patterns")) && self.is_at(1, "window") {
+                let window = format!("{} window", self.word().unwrap_or_default());
+                self.pos += 2;
+                return Ok(Expr::Call("__windowprop".into(), vec![Expr::Lit(name), Expr::Lit(window)]));
             }
             // A window a script opened: `the text of window "Notes"`.
             if self.is("window") && self.starts_term_at(1) {
