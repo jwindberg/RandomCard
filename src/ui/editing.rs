@@ -3,7 +3,7 @@
 
 use crate::model::styles::StyleRun;
 use crate::model::{Layer, Part, PartKind, Picture};
-use crate::paint::{self, Region};
+use crate::paint::Region;
 use crate::runtime::world::{EditOp, ObjRef, Tool};
 
 use super::App;
@@ -129,7 +129,7 @@ impl App {
             self.delete_part(obj);
         } else if let Some(region) = self.paint_selection() {
             self.push_undo();
-            self.with_picture(|pic| region.lift(pic));
+            self.lift_selection(&region);
             self.marquee = None;
         }
     }
@@ -152,9 +152,10 @@ impl App {
                 }
                 self.commit_marquee();
                 self.push_undo();
-                self.with_picture(|pic| paint::paste(pic, &pixels, rect.0, rect.1));
-                // The pasted pixels stay selected, ready to drag into place.
-                self.marquee = Some(Marquee::Selected { region: Region { rect, lasso: None } });
+                // The pasted pixels float, selected, ready to drag into place.
+                let region = Region::new(rect);
+                self.float_selection(&region, &pixels);
+                self.marquee = Some(Marquee::Selected { region });
             }
             None => {}
         }

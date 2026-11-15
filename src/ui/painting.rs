@@ -60,6 +60,78 @@ pub enum Marquee {
     Selected { region: Region },
     /// A selection lifted off the picture and being dragged.
     Moving { region: Region, pixels: Picture, press: (i32, i32), offset: (i32, i32), tex: TextureHandle },
+    /// A selection being stretched or shrunk by Command-dragging an edge or
+    /// corner: which edges move, and the rectangle so far.
+    Scaling { region: Region, pixels: Picture, edges: Edges, press: (i32, i32), rect: (i32, i32, i32, i32), tex: TextureHandle },
+    /// Rotate, Slant, Distort or Perspective: the selection's pixels, the
+    /// picture without them, its corners now, and the corner being
+    /// dragged (with the corners and the point it started from).
+    Reshaping { mode: paint::Reshape, pixels: Picture, base: Picture, corners: Corners, drag: Option<CornerDrag> },
+}
+
+/// A shape's four corners: top left, top right, bottom right, bottom left.
+type Corners = [(f32, f32); 4];
+
+/// A corner being dragged: which, the corners when it started, and where.
+type CornerDrag = (usize, Corners, (i32, i32));
+
+/// The edges a Command-drag moves: -1 the left or top, 1 the right or
+/// bottom, 0 neither.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Edges {
+    x: i32,
+    y: i32,
+}
+
+impl Edges {
+    /// The edge or corner nearest a point in a rectangle: its outer thirds.
+    fn at(rect: (i32, i32, i32, i32), p: (i32, i32)) -> Edges {
+        let (l, t, r, b) = rect;
+        let third = |lo: i32, hi: i32, v: i32| {
+            let span = (hi - lo).max(1);
+            if (v - lo) * 3 < span {
+                -1
+            } else if (v - lo) * 3 >= span * 2 {
+                1
+            } else {
+                0
+            }
+        };
+        let e = Edges { x: third(l, r, p.0), y: third(t, b, p.1) };
+        // From the middle, the bottom right corner.
+        if e == (Edges { x: 0, y: 0 }) { Edges { x: 1, y: 1 } } else { e }
+    }
+
+    /// The rectangle with its edges moved by (dx, dy); with `keep`, a
+    /// corner drag keeps the width and height in proportion.
+    fn moved(self, rect: (i32, i32, i32, i32), dx: i32, dy: i32, keep: bool) -> (i32, i32, i32, i32) {
+        let (mut l, mut t, mut r, mut b) = rect;
+        let (w0, h0) = ((rect.2 - rect.0).max(1), (rect.3 - rect.1).max(1));
+        let (mut dx, mut dy) = (dx * self.x, dy * self.y);
+        if keep && self.x != 0 && self.y != 0 {
+            // The larger change sets the scale for both.
+            let s = ((w0 + dx) as f32 / w0 as f32).max((h0 + dy) as f32 / h0 as f32);
+            dx = (w0 as f32 * s) as i32 - w0;
+            dy = (h0 as f32 * s) as i32 - h0;
+        }
+        match self.x {
+            -1 => l = (l - dx).min(r - 1),
+            1 => r = (r + dx).max(l + 1),
+            _ => {}
+        }
+        match self.y {
+            -1 => t = (t - dy).min(b - 1),
+            1 => b = (b + dy).max(t + 1),
+            _ => {}
+        }
+        (l, t, r, b)
+    }
+}
+
+/// A moved selection floats over the picture until it's let go: what was
+/// under it, so moving it again puts that back, and Pickup can take it.
+pub struct Floating {
+    under: Picture,
 }
 
 pub struct TextEntry {
@@ -328,11 +400,20 @@ fn pixel(c: Color32) -> Pixel {
 }
 
 fn translated(region: &Region, dx: i32, dy: i32) -> Region {
-    let (l, t, r, b) = region.rect;
-    Region {
-        rect: (l + dx, t + dy, r + dx, b + dy),
-        lasso: region.lasso.as_ref().map(|pts| pts.iter().map(|(x, y)| (x + dx, y + dy)).collect()),
+    region.translated(dx, dy)
+}
+
+/// A selection's pixels stretched to a new rectangle, and the region they
+/// fill there.
+fn scale_selection(region: &Region, pixels: &Picture, rect: (i32, i32, i32, i32)) -> (Region, Picture) {
+    let (w, h) = ((rect.2 - rect.0).max(1) as u32, (rect.3 - rect.1).max(1) as u32);
+    let out = paint::scaled(pixels, w, h);
+    if region.lasso.is_none() && region.mask.is_none() {
+        return (Region::new(rect), out);
     }
+    // A lasso's or a tight selection's shape stretches with it.
+    let mask: Vec<bool> = (0..h as i32).flat_map(|y| (0..w as i32).map(move |x| (x, y))).map(|(x, y)| out.get(x, y) != Pixel::CLEAR).collect();
+    (Region { rect, lasso: None, mask: Some(std::sync::Arc::new(mask)) }, out)
 }
 
 /// Tools that paint continuously as the mouse moves.
@@ -390,6 +471,11 @@ impl App {
                 self.patterns_section(ui, tool);
                 ui.separator();
                 self.option_toggles(ui);
+                // With the Select tool: Options' Rotate, Slant, Distort and
+                // Perspective, for a rectangular selection.
+                if tool == Tool::Select {
+                    self.reshape_row(ui);
+                }
             }
             height = ui.min_rect().height();
         });
@@ -708,6 +794,36 @@ impl App {
     /// The Options menu's settings that go on and off, as buttons that show
     /// whether they're on. Each chooses its menu item, so scripts' doMenu
     /// handlers see it, and a menu item a stack disables disables its button.
+    fn reshape_row(&mut self, ui: &mut egui::Ui) {
+        let (on, can) = match &self.marquee {
+            Some(Marquee::Reshaping { mode, .. }) => (Some(*mode), true),
+            Some(Marquee::Selected { region }) => (None, region.lasso.is_none() && region.mask.is_none()),
+            _ => (None, false),
+        };
+        let enabled: Vec<bool> = {
+            let w = self.world();
+            paint::Reshape::ALL.iter().map(|r| menu_item_enabled(&w, r.name())).collect()
+        };
+        ui.add_space(2.0);
+        let size = cell_size(paint::Reshape::ALL.len(), 24.0);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = GAP;
+            for (i, r) in paint::Reshape::ALL.into_iter().enumerate() {
+                let button = egui::Button::new(RichText::new(r.name()).size(12.0)).selected(on == Some(r));
+                let resp = ui.add_enabled_ui(can && enabled[i], |ui| ui.add_sized(size, button)).inner;
+                let tip = match r {
+                    paint::Reshape::Rotate => "Rotate: drag a corner to turn the selection (Shift: by 15°)",
+                    paint::Reshape::Slant => "Slant: drag a corner to slide its edge and lean the sides",
+                    paint::Reshape::Distort => "Distort: drag each corner anywhere",
+                    paint::Reshape::Perspective => "Perspective: drag a corner to widen or narrow its edge, for depth",
+                };
+                if resp.on_hover_text(tip).on_disabled_hover_text("Select a rectangle with the Select tool first").clicked() {
+                    self.do_menu(r.name());
+                }
+            }
+        });
+    }
+
     fn option_toggles(&mut self, ui: &mut egui::Ui) {
         let (grid, enabled) = {
             let w = self.world();
@@ -1114,6 +1230,9 @@ impl App {
                 'l' => "Lighten",
                 'm' => "Draw Multiple",
                 'o' => "Opaque",
+                'p' => "Pickup",
+                'r' => "Revert",
+                's' => "Select",
                 't' => "Transparent",
                 'v' => "Flip Vertical",
                 '[' => "Rotate Left",
@@ -1294,6 +1413,7 @@ impl App {
         if resp.drag_started_by(PointerButton::Primary) || resp.clicked() && self.stroke.is_none() {
             let start = snap(resp.interact_pointer_pos().map(to_card).unwrap_or(p));
             self.push_undo();
+            self.world().begin_painting();
             self.remember_used(tool, &settings);
             if tool == Tool::Bucket {
                 self.with_picture(|pic| paint::fill(pic, start.0, start.1, settings.ink()));
@@ -1373,18 +1493,45 @@ impl App {
     }
 
     /// The select and lasso tools: drag out a selection, or drag inside one
-    /// to move it.
+    /// to move it. As in HyperCard: Command-drag a selection's edge or
+    /// corner to stretch it (with Shift, in proportion); Command-drag with
+    /// Select for a rectangle tight around what's painted, Option-drag for
+    /// just what's painted; the lasso hugs what's painted unless
+    /// Option-dragged, and Command-clicking with it takes a whole shape.
     fn selection_input(&mut self, ctx: &egui::Context, resp: &egui::Response, p: Option<(i32, i32)>, tool: Tool) {
         let Some(p) = p else { return };
         // Grid: selection rectangles and moves go by 8 pixels.
         let grid = self.world().grid;
         let p = if grid && tool == Tool::Select { paint::snap_grid(p) } else { p };
+        let (command, option, shift) = ctx.input(|i| (i.modifiers.command, i.modifiers.alt, i.modifiers.shift));
+        if resp.drag_started_by(PointerButton::Primary) || resp.clicked() {
+            // A press on the card ends the new element.
+            self.world().painted_from = None;
+        }
+        if matches!(self.marquee, Some(Marquee::Reshaping { .. })) && self.reshape_input(ctx, resp, p, shift) {
+            return;
+        }
         if resp.drag_started_by(PointerButton::Primary) {
+            // Where the button went down, not where the drag was noticed.
+            let (fat, origin) = (self.fat, self.card_origin);
+            let p = ctx.input(|i| i.pointer.press_origin()).map(|q| to_card(fat, origin, q)).unwrap_or(p);
+            let p = if grid && tool == Tool::Select { paint::snap_grid(p) } else { p };
             let inside = matches!(&self.marquee, Some(Marquee::Selected { region }) if region.contains(p.0, p.1));
-            if inside {
+            let on_rect = matches!(&self.marquee, Some(Marquee::Selected { region }) if {
+                let (l, t, r, b) = region.rect;
+                p.0 >= l - 2 && p.0 <= r + 2 && p.1 >= t - 2 && p.1 <= b + 2
+            });
+            if command && on_rect {
                 let Some(Marquee::Selected { region }) = self.marquee.take() else { return };
                 self.push_undo();
-                let pixels = self.with_picture(|pic| region.lift(pic)).unwrap_or_default();
+                let pixels = self.lift_selection(&region);
+                let tex = ctx.load_texture("floating", render::picture_image(&pixels), egui::TextureOptions::NEAREST);
+                let edges = Edges::at(region.rect, p);
+                self.marquee = Some(Marquee::Scaling { rect: region.rect, region, pixels, edges, press: p, tex });
+            } else if inside {
+                let Some(Marquee::Selected { region }) = self.marquee.take() else { return };
+                self.push_undo();
+                let pixels = self.lift_selection(&region);
                 let tex = ctx.load_texture("floating", render::picture_image(&pixels), egui::TextureOptions::NEAREST);
                 self.marquee = Some(Marquee::Moving { region, pixels, press: p, offset: (0, 0), tex });
             } else {
@@ -1404,14 +1551,15 @@ impl App {
                 Some(Marquee::Moving { press, offset, .. }) => {
                     *offset = (p.0 - press.0, p.1 - press.1);
                     // Shift moves it straight across or straight up and down.
-                    if ctx.input(|i| i.modifiers.shift)
-                        && let Some(axis) = paint::Axis::of((0, 0), *offset)
-                    {
+                    if shift && let Some(axis) = paint::Axis::of((0, 0), *offset) {
                         *offset = axis.keep((0, 0), *offset);
                     }
                     if grid {
                         *offset = paint::snap_grid(*offset);
                     }
+                }
+                Some(Marquee::Scaling { region, edges, press, rect, .. }) => {
+                    *rect = edges.moved(region.rect, p.0 - press.0, p.1 - press.1, shift);
                 }
                 _ => {}
             }
@@ -1421,7 +1569,20 @@ impl App {
                 Some(Marquee::Selecting { start, end }) => {
                     let rect = (start.0.min(end.0), start.1.min(end.1), start.0.max(end.0), start.1.max(end.1));
                     if rect.2 - rect.0 > 1 && rect.3 - rect.1 > 1 {
-                        self.marquee = Some(Marquee::Selected { region: Region { rect, lasso: None } });
+                        let region = Region::new(rect);
+                        let pic = self.world().layer_picture().map(|l| l.picture);
+                        self.marquee = match pic {
+                            // Option: just what's painted, with the lasso.
+                            Some(pic) if option => paint::tighten(&pic, &region).map(|r| {
+                                self.world().tool = Tool::Lasso;
+                                Marquee::Selected { region: r }
+                            }),
+                            // Command: the rectangle around what's painted.
+                            Some(pic) if command => {
+                                paint::painted_bounds(&pic, rect).map(|r| Marquee::Selected { region: Region::new(r) })
+                            }
+                            _ => Some(Marquee::Selected { region }),
+                        };
                     }
                 }
                 Some(Marquee::Lassoing { points }) if points.len() >= 3 => {
@@ -1429,12 +1590,22 @@ impl App {
                     let t = points.iter().map(|p| p.1).min().unwrap_or(0);
                     let r = points.iter().map(|p| p.0).max().unwrap_or(0) + 1;
                     let b = points.iter().map(|p| p.1).max().unwrap_or(0) + 1;
-                    self.marquee = Some(Marquee::Selected { region: Region { rect: (l, t, r, b), lasso: Some(points) } });
+                    let region = Region { rect: (l, t, r, b), lasso: Some(points), mask: None };
+                    // The lasso hugs what's painted; Option takes all it went around.
+                    let tight = if option { None } else { self.world().layer_picture().and_then(|l| paint::tighten(&l.picture, &region)) };
+                    if option || tight.is_some() {
+                        self.marquee = Some(Marquee::Selected { region: tight.unwrap_or(region) });
+                    }
                 }
                 Some(Marquee::Moving { region, pixels, offset, .. }) => {
-                    let (l, t, _, _) = region.rect;
-                    self.with_picture(|pic| paint::paste(pic, &pixels, l + offset.0, t + offset.1));
-                    self.marquee = Some(Marquee::Selected { region: translated(&region, offset.0, offset.1) });
+                    let moved = translated(&region, offset.0, offset.1);
+                    self.float_selection(&moved, &pixels);
+                    self.marquee = Some(Marquee::Selected { region: moved });
+                }
+                Some(Marquee::Scaling { region, pixels, rect, .. }) => {
+                    let scaled = scale_selection(&region, &pixels, rect);
+                    self.float_selection(&scaled.0, &scaled.1);
+                    self.marquee = Some(Marquee::Selected { region: scaled.0 });
                 }
                 Some(Marquee::Lassoing { .. }) => {}
                 other => self.marquee = other,
@@ -1443,18 +1614,139 @@ impl App {
         if resp.clicked() {
             self.commit_marquee();
             self.marquee = None;
+            // Command-click with the lasso: the whole shape there.
+            if tool == Tool::Lasso && command {
+                let pic = self.world().layer_picture().map(|l| l.picture);
+                self.marquee = pic.and_then(|pic| paint::shape_at(&pic, p.0, p.1)).map(|region| Marquee::Selected { region });
+            }
         }
+    }
+
+    /// Options' Rotate, Slant, Distort and Perspective: handles on a
+    /// rectangular selection's corners (a lasso's doesn't work, as in
+    /// HyperCard). Choosing another while one is on switches to it.
+    pub(super) fn start_reshape(&mut self, mode: paint::Reshape) {
+        if let Some(Marquee::Reshaping { mode: m, .. }) = &mut self.marquee {
+            *m = mode;
+            return;
+        }
+        self.commit_marquee();
+        let Some(Marquee::Selected { region }) = &self.marquee else { return };
+        if region.lasso.is_some() || region.mask.is_some() {
+            return;
+        }
+        let region = region.clone();
+        self.push_undo();
+        let pixels = self.lift_selection(&region);
+        let Some(base) = self.world().layer_picture().map(|l| l.picture) else { return };
+        let (l, t, r, b) = region.rect;
+        let (l, t, r, b) = (l as f32, t as f32, r as f32, b as f32);
+        let corners = [(l, t), (r, t), (r, b), (l, b)];
+        self.marquee = Some(Marquee::Reshaping { mode, pixels, base, corners, drag: None });
+        self.draw_reshaped();
+    }
+
+    /// The picture with the reshaped selection drawn into its corners.
+    fn draw_reshaped(&self) {
+        let Some(Marquee::Reshaping { pixels, base, corners, .. }) = &self.marquee else { return };
+        let (shaped, (x, y)) = paint::warp(pixels, *corners);
+        self.with_picture(|pic| {
+            *pic = base.clone();
+            paint::paste(pic, &shaped, x, y);
+        });
+    }
+
+    /// Dragging a reshaping selection's corners; a press away from it ends
+    /// reshaping (and goes on to be an ordinary press). True when the
+    /// input was the reshaping's.
+    fn reshape_input(&mut self, ctx: &egui::Context, resp: &egui::Response, p: (i32, i32), shift: bool) -> bool {
+        let Some(Marquee::Reshaping { mode, corners, drag, .. }) = &mut self.marquee else { return false };
+        let (fat, origin) = (self.fat, self.card_origin);
+        let press = ctx.input(|i| i.pointer.press_origin()).map(|q| to_card(fat, origin, q)).unwrap_or(p);
+        // Handles take a few pixels' slack, more when they're small on screen.
+        let reach = if fat.is_some() { 2.0 } else { 6.0 };
+        let near = |c: &[(f32, f32); 4], q: (i32, i32)| {
+            c.iter().position(|&(x, y)| (x - q.0 as f32).abs() <= reach && (y - q.1 as f32).abs() <= reach)
+        };
+        let inside = |c: &[(f32, f32); 4], q: (i32, i32)| {
+            let pts: Vec<(i32, i32)> = c.iter().map(|&(x, y)| (x.round() as i32, y.round() as i32)).collect();
+            paint::in_polygon(&pts, q.0, q.1)
+        };
+        if resp.drag_started_by(PointerButton::Primary) {
+            if let Some(i) = near(corners, press) {
+                *drag = Some((i, *corners, press));
+                return true;
+            }
+            if inside(corners, press) {
+                return true;
+            }
+        } else if resp.dragged() {
+            if let Some((i, from, start)) = *drag {
+                *corners = mode.drag(from, i, (p.0 - start.0) as f32, (p.1 - start.1) as f32, shift);
+                self.draw_reshaped();
+            }
+            return true;
+        } else if resp.drag_stopped() {
+            *drag = None;
+            return true;
+        } else if !resp.clicked() || near(corners, p).is_some() || inside(corners, p) {
+            // Nothing pressed, or a click on it.
+            return true;
+        }
+        // Pressed away from it: done.
+        self.marquee = None;
+        false
+    }
+
+    /// Lift a selection to move it. A floating one puts back what was
+    /// under it; otherwise it leaves its place clear, as in HyperCard.
+    pub(super) fn lift_selection(&mut self, region: &Region) -> Picture {
+        match self.floating.take() {
+            Some(f) => {
+                let (l, t, _, _) = region.rect;
+                self.with_picture(|pic| {
+                    let pixels = region.copy(pic);
+                    for y in 0..f.under.height as i32 {
+                        for x in 0..f.under.width as i32 {
+                            pic.set(l + x, t + y, f.under.get(x, y));
+                        }
+                    }
+                    pixels
+                })
+                .unwrap_or_default()
+            }
+            None => self.with_picture(|pic| region.lift(pic)).unwrap_or_default(),
+        }
+    }
+
+    /// Put a lifted selection down where it now is, floating: remember
+    /// what's under it first.
+    pub(super) fn float_selection(&mut self, region: &Region, pixels: &Picture) {
+        let (l, t, _, _) = region.rect;
+        let under = self.with_picture(|pic| {
+            let under = Region::new(region.rect).copy(pic);
+            paint::paste(pic, pixels, l, t);
+            under
+        });
+        self.floating = under.map(|under| Floating { under });
     }
 
     /// Drop a floating selection back onto the picture.
     pub(super) fn commit_marquee(&mut self) {
-        if !matches!(self.marquee, Some(Marquee::Moving { .. })) {
-            return;
-        }
-        if let Some(Marquee::Moving { region, pixels, offset, .. }) = self.marquee.take() {
-            let (l, t, _, _) = region.rect;
-            self.with_picture(|pic| paint::paste(pic, &pixels, l + offset.0, t + offset.1));
-            self.marquee = Some(Marquee::Selected { region: translated(&region, offset.0, offset.1) });
+        match self.marquee.take() {
+            Some(Marquee::Moving { region, pixels, offset, .. }) => {
+                let moved = translated(&region, offset.0, offset.1);
+                self.float_selection(&moved, &pixels);
+                self.marquee = Some(Marquee::Selected { region: moved });
+            }
+            Some(Marquee::Scaling { region, pixels, rect, .. }) => {
+                let (region, pixels) = scale_selection(&region, &pixels, rect);
+                self.float_selection(&region, &pixels);
+                self.marquee = Some(Marquee::Selected { region });
+            }
+            // Reshaping is finished: it's drawn already.
+            Some(Marquee::Reshaping { .. }) => {}
+            other => self.marquee = other,
         }
     }
 
@@ -1500,6 +1792,7 @@ impl App {
         }
         let s = self.world().paint_settings();
         self.push_undo();
+        self.world().begin_painting();
         self.remember_used(Tool::Polygon, &s);
         self.with_picture(|pic| {
             if closed || s.filled {
@@ -1568,6 +1861,7 @@ impl App {
             (w.paint_text_size, w.paint_font.clone(), w.paint_text_style.clone(), w.line_color)
         };
         self.push_undo();
+        self.world().begin_painting();
         self.remember_color(color);
         let how = paint::PaintText { size, font: &font, style: &style, color };
         self.with_picture(|pic| paint::draw_text(pic, entry.pos.0, entry.pos.1, &entry.text, &how));
@@ -1583,7 +1877,7 @@ impl App {
             let w = self.world();
             (w.stack.width as i32, w.stack.height as i32)
         };
-        self.marquee = Some(Marquee::Selected { region: Region { rect: (0, 0, w, h), lasso: None } });
+        self.marquee = Some(Marquee::Selected { region: Region::new((0, 0, w, h)) });
     }
 
     /// Select a rectangle of the picture, as Import Paint leaves it.
@@ -1592,7 +1886,7 @@ impl App {
             self.choose_tool(Tool::Select);
         }
         self.commit_marquee();
-        self.marquee = Some(Marquee::Selected { region: Region { rect, lasso: None } });
+        self.marquee = Some(Marquee::Selected { region: Region::new(rect) });
     }
 
     /// Export Paint, once the card has been drawn clean: ask for a
@@ -1628,18 +1922,94 @@ impl App {
             Some(Marquee::Selected { region }) => Some(region.clone()),
             _ => None,
         };
+        // With nothing selected, what was just painted, as in HyperCard;
+        // failing that (a script's doMenu), the whole picture, as old
+        // stacks expect.
+        let new_element = selection.clone().or_else(|| self.world().new_element());
         let ink = self.world().paint_settings().ink();
         self.push_undo();
         let new_rect = self.with_picture(|pic| {
-            let region = selection.clone().unwrap_or_else(|| Region::all(pic));
+            let region = new_element.unwrap_or_else(|| Region::all(pic));
             paint::apply_op(pic, &region, op, ink)
         });
         if let (Some(rect), Some(region)) = (new_rect, selection)
             && rect != region.rect
         {
-            // Rotating changes the selection's shape.
-            self.marquee = Some(Marquee::Selected { region: Region { rect, lasso: None } });
+            // Rotating changes the selection's shape, and puts it down.
+            self.floating = None;
+            let pic = self.world().layer_picture().map(|l| l.picture);
+            let turned = pic.and_then(|pic| if region.mask.is_some() || region.lasso.is_some() { paint::tighten(&pic, &Region::new(rect)) } else { None });
+            self.marquee = Some(Marquee::Selected { region: turned.unwrap_or_else(|| Region::new(rect)) });
         }
+    }
+
+    /// Paint ▸ Select: what was just painted; or else what's painted in
+    /// the selection, or in the whole layer, held tightly with the lasso.
+    pub(super) fn select_painted(&mut self) {
+        self.commit_text();
+        self.finish_polygon(false);
+        self.commit_marquee();
+        let (new, pic) = {
+            let w = self.world();
+            (w.new_element(), w.layer_picture().map(|l| l.picture))
+        };
+        let Some(pic) = pic else { return };
+        let region = new.or_else(|| {
+            let within = match &self.marquee {
+                Some(Marquee::Selected { region }) => region.clone(),
+                _ => Region::all(&pic),
+            };
+            paint::tighten(&pic, &within)
+        });
+        let Some(region) = region else { return };
+        if self.world().tool != Tool::Lasso {
+            self.choose_tool(Tool::Lasso);
+        }
+        self.floating = None;
+        self.marquee = Some(Marquee::Selected { region });
+    }
+
+    /// Paint ▸ Pickup: the selection takes on the picture under it, from
+    /// the same layer; where there's nothing, it turns white.
+    pub(super) fn pickup(&mut self) {
+        self.commit_marquee();
+        let Some(Marquee::Selected { region }) = &self.marquee else { return };
+        let region = region.clone();
+        let under = self.floating.as_ref().map(|f| f.under.clone());
+        let (l, t, _, _) = region.rect;
+        self.push_undo();
+        self.with_picture(|pic| {
+            for (x, y) in region.pixels().collect::<Vec<_>>() {
+                let p = under.as_ref().map_or_else(|| pic.get(x, y), |u| u.get(x - l, y - t));
+                pic.set(x, y, paint::paper(p));
+            }
+        });
+    }
+
+    /// Paint ▸ Revert: the layer's paint as last kept, or with a
+    /// selection, just that part of it.
+    pub(super) fn revert_paint(&mut self) {
+        self.commit_text();
+        self.commit_marquee();
+        let Some(kept) = self.world().kept_picture().cloned() else { return };
+        let selection = match &self.marquee {
+            Some(Marquee::Selected { region }) => Some(region.clone()),
+            _ => None,
+        };
+        self.push_undo();
+        self.with_picture(|pic| match &selection {
+            Some(region) => {
+                for (x, y) in region.pixels().collect::<Vec<_>>() {
+                    pic.set(x, y, kept.get(x, y));
+                }
+            }
+            None => *pic = kept.clone(),
+        });
+        if selection.is_none() {
+            self.marquee = None;
+            self.floating = None;
+        }
+        self.world().painted_from = None;
     }
 
     // ----- previews -----
@@ -1839,6 +2209,11 @@ impl App {
             Some(Marquee::Lassoing { points }) => {
                 dashed(&points.iter().map(|p| at(p.0, p.1)).collect::<Vec<_>>());
             }
+            Some(Marquee::Selected { region }) if region.mask.is_some() => {
+                for (a, b) in region.mask_edges() {
+                    dashed(&[at(a.0, a.1), at(b.0, b.1)]);
+                }
+            }
             Some(Marquee::Selected { region }) => match &region.lasso {
                 Some(points) => {
                     let mut outline: Vec<Pos2> = points.iter().map(|p| at(p.0, p.1)).collect();
@@ -1855,6 +2230,21 @@ impl App {
             Some(Marquee::Moving { region, offset: (dx, dy), tex, .. }) => {
                 let (l, t, r, b) = region.rect;
                 let rr = Rect::from_two_pos(at(l + dx, t + dy), at(r + dx, b + dy)).translate(Vec2::splat(-0.5));
+                painter.image(tex.id(), rr, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+                render::dashed_rect(painter, rr, Color32::BLACK);
+            }
+            Some(Marquee::Reshaping { corners, .. }) => {
+                let mut outline: Vec<Pos2> = corners.iter().map(|&(x, y)| to_screen(fat, origin, x, y)).collect();
+                outline.push(outline[0]);
+                dashed(&outline);
+                for &c in &outline[..4] {
+                    let r = Rect::from_center_size(c, Vec2::splat(7.0));
+                    painter.rect_filled(r, 0.0, Color32::WHITE);
+                    painter.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::BLACK), StrokeKind::Inside);
+                }
+            }
+            Some(Marquee::Scaling { rect: (l, t, r, b), tex, .. }) => {
+                let rr = Rect::from_two_pos(at(*l, *t), at(*r, *b)).translate(Vec2::splat(-0.5));
                 painter.image(tex.id(), rr, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
                 render::dashed_rect(painter, rr, Color32::BLACK);
             }

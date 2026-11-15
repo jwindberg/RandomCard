@@ -484,6 +484,17 @@ pub enum UiRequest {
     /// A Paint menu command, applied to the selection (or the whole picture).
     PaintOp(crate::paint::PaintOp),
     SelectAll,
+    /// Paint ▸ Select: the new element, or what's painted in the
+    /// selection or the layer, held tightly.
+    SelectPainted,
+    /// Paint ▸ Pickup: the selection takes the picture under it.
+    Pickup,
+    /// Options ▸ Rotate, Slant, Distort or Perspective: handles on the
+    /// rectangular selection's corners.
+    Reshape(crate::paint::Reshape),
+    /// Paint ▸ Revert: the layer's paint (or the selection's part of it)
+    /// as last kept.
+    Revert,
     /// Options ▸ FatBits: magnify the paint, or stop.
     FatBits,
     /// Edit ▸ Icon…: the icon editor, on the selected button's icon.
@@ -639,6 +650,13 @@ pub struct World {
     /// whose spray was fixed at 16 and 12.
     pub spray_size: u32,
     pub spray_density: u32,
+    /// The layer's picture before the last thing painted on it: what's
+    /// changed since is HyperCard's new element, which Select selects and
+    /// the Paint menu works on until the next press on the card.
+    pub painted_from: Option<crate::runtime::undo::LayerPicture>,
+    /// The layer's picture as last kept, for Revert. HyperCard held paint
+    /// changes until Keep, going to another card or layer, or quitting.
+    pub kept: Option<crate::runtime::undo::LayerPicture>,
     /// The space between shapes drawn with Draw Multiple (`the multiSpace`).
     pub multi_space: u32,
     /// The Options menu's settings: Grid (`the grid`), Draw Centered
@@ -874,6 +892,8 @@ impl World {
             poly_sides: 4,
             spray_size: crate::paint::SPRAY_SIZE,
             spray_density: crate::paint::SPRAY_DENSITY,
+            painted_from: None,
+            kept: None,
             multi_space: 1,
             grid: false,
             centered: false,

@@ -815,6 +815,45 @@ on mouseUp
 end mouseUp"#,
     );
     b.card_part(c, Part { style: PartStyle::Standard, ..spray });
+    // Paint ▸ Select takes just what was painted last; Keep and Revert
+    // hold the card's paint until you're happy with it.
+    let select = b.button(
+        "Select and Revert",
+        Rect::new(20, 100, 140, 122),
+        &format!(
+            r#"
+on mouseUp
+  put the filled into oldFilled
+  put the polySides into oldSides
+  -- Keep the card as it is: Revert comes back to here.
+  doMenu "Keep"
+  choose regular polygon tool
+  set the polySides to 5
+  set the filled to true
+  drag from "50,160" to "50,132"
+  set the filled to oldFilled
+  set the polySides to oldSides
+  doMenu "Select"
+  put "Select took the new shape: drag it, or {}-drag a corner. Then try Pickup and Revert." into msg
+end mouseUp"#,
+            if cfg!(target_os = "macos") { "⌘" } else { "Ctrl" }
+        ),
+    );
+    b.card_part(c, Part { style: PartStyle::Standard, ..select });
+    // Options' Rotate, Slant, Distort and Perspective: handles on the
+    // corners of a rectangular selection.
+    let reshape = b.button(
+        "Reshape",
+        Rect::new(372, 130, 492, 152),
+        r#"
+on mouseUp
+  choose select tool
+  drag from "70,130" to "230,272"
+  doMenu "Rotate"
+  put "Drag a corner to turn the house. Slant, Distort and Perspective are beside Rotate; Undo puts it back." into msg
+end mouseUp"#,
+    );
+    b.card_part(c, Part { style: PartStyle::Standard, ..reshape });
 
     // ----- Animation -----
     // A small state machine in the card's script: whether the ball is

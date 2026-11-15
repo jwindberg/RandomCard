@@ -6,7 +6,7 @@
 use eframe::egui;
 
 use crate::model::Picture;
-use crate::paint::{self, Region, image_file};
+use crate::paint::{Region, image_file};
 use crate::runtime::world::Tool;
 
 use super::App;
@@ -82,8 +82,9 @@ impl App {
         }
         self.commit_marquee();
         self.push_undo();
-        self.with_picture(|layer| paint::paste(layer, &pic, left, top));
-        self.marquee = Some(Marquee::Selected { region: Region { rect: (left, top, left + w, top + h), lasso: None } });
+        let region = Region::new((left, top, left + w, top + h));
+        self.float_selection(&region, &pic);
+        self.marquee = Some(Marquee::Selected { region });
     }
 
     /// Picture files dropped onto the window.

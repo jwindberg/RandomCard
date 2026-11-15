@@ -23,6 +23,14 @@ pub enum UndoEntry {
     CardAdded { id: Id },
 }
 
+/// A card's or background's picture at some moment.
+#[derive(Clone, Debug)]
+pub struct LayerPicture {
+    pub layer: Layer,
+    pub owner: Id,
+    pub picture: Picture,
+}
+
 #[derive(Clone, Debug)]
 pub struct CardPartState {
     card: Id,
@@ -37,6 +45,54 @@ impl World {
             Layer::Card => self.card_id,
             Layer::Background => self.bg_id(),
         }
+    }
+
+    /// The picture of the layer being painted, as it is now.
+    pub fn layer_picture(&self) -> Option<LayerPicture> {
+        let layer = self.current_layer();
+        let owner = self.owner(layer);
+        let picture = match layer {
+            Layer::Card => self.stack.card(owner)?.picture.clone(),
+            Layer::Background => self.stack.background(owner)?.picture.clone(),
+        };
+        Some(LayerPicture { layer, owner, picture })
+    }
+
+    /// Whether a remembered picture is of the layer being painted.
+    pub fn is_this_layer(&self, p: &LayerPicture) -> bool {
+        let layer = self.current_layer();
+        p.layer == layer && p.owner == self.owner(layer)
+    }
+
+    /// Something is about to be painted: remember the picture before it,
+    /// for Select, and as it was kept, for Revert.
+    pub fn begin_painting(&mut self) {
+        self.painted_from = self.layer_picture();
+        if !self.kept.as_ref().is_some_and(|k| self.is_this_layer(k)) {
+            self.kept = self.layer_picture();
+        }
+    }
+
+    /// What's been painted since `begin_painting`: HyperCard's new element.
+    pub fn new_element(&self) -> Option<crate::paint::Region> {
+        let from = self.painted_from.as_ref().filter(|p| self.is_this_layer(p))?;
+        let now = match from.layer {
+            Layer::Card => &self.stack.card(from.owner)?.picture,
+            Layer::Background => &self.stack.background(from.owner)?.picture,
+        };
+        crate::paint::changed(&from.picture, now)
+    }
+
+    /// Keep the paint: Revert goes back to here. Going to another card or
+    /// layer keeps it too.
+    pub fn keep_paint(&mut self) {
+        self.kept = None;
+        self.painted_from = None;
+    }
+
+    /// The picture as last kept, when this layer has changed since.
+    pub fn kept_picture(&self) -> Option<&Picture> {
+        self.kept.as_ref().filter(|k| self.is_this_layer(k)).map(|k| &k.picture)
     }
 
     /// Remember the current picture of the layer being painted.

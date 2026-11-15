@@ -166,6 +166,8 @@ pub struct App {
     protect_open: bool,
     password_prompt: Option<PasswordPrompt>,
     marquee: Option<Marquee>,
+    /// A moved selection, floating over what was under it.
+    floating: Option<painting::Floating>,
     /// Polygon tool: the corners placed so far.
     polygon: Option<Vec<(i32, i32)>>,
     /// Text tool: text being typed, not yet painted.
@@ -292,6 +294,7 @@ impl App {
             stroke: None,
             clipboard: None,
             marquee: None,
+            floating: None,
             polygon: None,
             text_entry: None,
             pattern_textures: None,
@@ -407,6 +410,8 @@ impl App {
                     multiple: w.multiple,
                 },
                 paint_selected: false,
+                new_element: w.painted_from.as_ref().is_some_and(|p| w.is_this_layer(p)),
+                can_revert: w.kept_picture().is_some(),
             };
             (w.menus.clone(), state)
         };
@@ -757,6 +762,10 @@ impl App {
                 UiRequest::Key(target, action) => self.key_action(ctx, target, action),
                 UiRequest::PaintOp(op) => self.apply_paint_op(op),
                 UiRequest::SelectAll => self.select_all(),
+                UiRequest::SelectPainted => self.select_painted(),
+                UiRequest::Pickup => self.pickup(),
+                UiRequest::Reshape(r) => self.start_reshape(r),
+                UiRequest::Revert => self.revert_paint(),
                 UiRequest::IconEditor => self.open_icon_editor(None),
                 UiRequest::FatBits => {
                     if self.fat.is_some() {
@@ -1138,6 +1147,7 @@ impl App {
             (cmd(Key::R), "r", menu("Recent"), true),
             (cmd(Key::Q), "q", menu("Quit RandomCard"), true),
             (cmd(Key::S), "s", menu("Save Stack"), editing >= 2),
+            (cmd(Key::K), "k", menu("Keep"), self.world().tool.is_paint()),
         ];
         // Command keys that scripts gave menu items (`the commandChar`) come
         // first, so a stack can claim keys.
@@ -1215,7 +1225,7 @@ impl App {
                 self.delete_part(obj);
             } else if let Some(Marquee::Selected { region }) = self.marquee.take() {
                 self.push_undo();
-                self.with_picture(|p| region.lift(p));
+                self.lift_selection(&region);
             }
         }
         if tool.is_paint() && tool != Tool::Text {
@@ -2588,6 +2598,10 @@ impl eframe::App for App {
             self.request_quit(&ctx);
         }
         self.handle_requests(&ctx);
+        // A selection floats only while it's selected.
+        if !matches!(self.marquee, Some(Marquee::Selected { .. } | Marquee::Moving { .. } | Marquee::Scaling { .. })) {
+            self.floating = None;
+        }
         let serial = self.world().stack_serial;
         if serial != self.stack_seen {
             self.stack_seen = serial;

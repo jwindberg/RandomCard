@@ -69,8 +69,9 @@ pub fn item_key(name: &str) -> String {
     name.trim().trim_end_matches('…').trim_end_matches("...").trim().to_ascii_lowercase()
 }
 
-/// HyperCard 2's menu items that RandomCard has nothing behind yet, or never
-/// needs. Scripts can still choose,
+/// HyperCard 2's menu items that RandomCard has nothing behind yet, never
+/// needs, or shows elsewhere (Options' Rotate, Slant, Distort and
+/// Perspective are on the Tools palette). Scripts can still choose,
 /// enable, disable and delete them, as Apple's stacks do, but the menus don't
 /// show them.
 pub const SCRIPT_ONLY_ITEMS: &[&str] = &[

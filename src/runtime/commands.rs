@@ -592,6 +592,13 @@ impl Interp {
                     return err("Expected points after drag from … to …");
                 };
                 let mut w = self.w();
+                // With the Select tool, the drag selects a rectangle.
+                if w.tool == Tool::Select {
+                    let rect = (a.0.min(b.0), a.1.min(b.1), a.0.max(b.0), a.1.max(b.1));
+                    w.painted_from = None;
+                    w.requests.push(UiRequest::SelectPaint(rect));
+                    return Ok(());
+                }
                 if let Some(tool) = w.tool.drag_tool() {
                     use crate::paint::{multiple_due, shape_tool, snap_grid};
                     let shape = shape_tool(tool);
@@ -621,6 +628,7 @@ impl Interp {
                         }
                     }
                     ends.push(b);
+                    w.begin_painting();
                     if let Some(pic) = w.layer_picture_mut() {
                         for end in ends {
                             crate::paint::apply_drag(pic, tool, a, end, &settings);
@@ -1426,6 +1434,10 @@ impl Interp {
             let mut w = self.w();
             w.card_id = id;
             w.focus = None;
+            // Leaving a card keeps its paint, as in HyperCard.
+            if old != id {
+                w.keep_paint();
+            }
             // AddColor's temporary colors and colorBackground last only
             // while the card is shown.
             w.addcolor.temp.clear();
@@ -1495,6 +1507,12 @@ impl Interp {
         use crate::paint;
         let mut w = self.w();
         let (tool, settings) = (w.tool, w.paint_settings());
+        // A press on the card ends the new element; painting starts another.
+        if matches!(tool, Tool::Select | Tool::Lasso) {
+            w.painted_from = None;
+            return;
+        }
+        w.begin_painting();
         if tool == Tool::Text {
             w.text_point = Some((x, y));
             return;
@@ -2302,6 +2320,7 @@ impl Interp {
             "background" => {
                 let mut w = self.w();
                 w.edit_bg = !w.edit_bg;
+                w.keep_paint();
                 Ok(())
             }
             "first" | "prev" | "previous" | "next" | "last" => {
@@ -2367,6 +2386,10 @@ impl Interp {
             // ("Copy Text"), keeping its styles.
             _ if edit_op(&key).is_some_and(|op| self.edit_text(op)) => Ok(()),
             _ if edit_op(&key).is_some() => self.request(UiRequest::Edit(edit_op(&key).unwrap())),
+            // The Paint menu's Select, while painting; otherwise the tool.
+            "select" if self.w().tool.is_paint() => self.request(UiRequest::SelectPainted),
+            "pickup" => self.request(UiRequest::Pickup),
+            "revert" => self.request(UiRequest::Revert),
             "browse" | "button" | "field" | "select" | "pencil" | "brush" | "eraser" | "line" | "spray"
             | "spray can" | "rectangle" | "round rect" | "bucket" | "oval" => {
                 let tool = Tool::parse(&key).unwrap_or(Tool::Browse);
@@ -2376,9 +2399,11 @@ impl Interp {
                 Ok(())
             }
             "select all" => self.request(UiRequest::SelectAll),
-            // RandomCard keeps paint changes as they're made, so there's
-            // nothing more for Keep to do. (Revert comes with held changes.)
-            "keep" => Ok(()),
+            // Paint is saved as it's made; Keep marks what Revert goes back to.
+            "keep" => {
+                self.w().keep_paint();
+                Ok(())
+            }
             "fatbits" => self.request(UiRequest::FatBits),
             // The Options menu's settings go on and off.
             "grid" | "draw centered" | "draw multiple" | "draw filled" | "power keys" => {
@@ -2430,7 +2455,12 @@ impl Interp {
                 }
             }
             "icon" => self.request(UiRequest::IconEditor),
-            "print report" | "text style" | "audio" | "rotate" | "slant" | "distort" | "perspective" => {
+            // Options' Rotate, Slant, Distort and Perspective: handles on
+            // the selection's corners.
+            _ if crate::paint::Reshape::parse(&key).is_some() => {
+                self.request(UiRequest::Reshape(crate::paint::Reshape::parse(&key).unwrap()))
+            }
+            "print report" | "text style" | "audio" => {
                 let name = item.trim().trim_end_matches('…').trim_end_matches("...");
                 self.dialog(Dialog::Answer {
                     prompt: format!("{name} isn't in RandomCard yet."),

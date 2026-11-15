@@ -181,14 +181,45 @@ I-beam. In FatBits they're magnified with the paint.
 Browse, Button and Field don't paint, so with them the palette shows only
 the tools.
 
-**The Paint menu** is in the menu bar while a paint tool is chosen: Select
-All, then Fill, Invert, Darken, Lighten, Trace Edges, Rotate Left and
-Right, Flip Vertical and Horizontal, Opaque and Transparent, and Keep. As
-in HyperCard, the commands that change the picture are greyed out until
-something is selected. Select (the last thing painted), Pickup and Revert
-are in their places, greyed out until they're in. A script's `doMenu
-"Invert"` with nothing selected still acts on the whole picture, as old
-stacks expect.
+**The Paint menu** is in the menu bar while a paint tool is chosen, as in
+HyperCard:
+- **Select** selects what you just painted (since your last click on the
+  card), held tightly with the lasso, even on top of other paint. With
+  nothing just painted, it tightens the selection, or takes everything
+  painted on the layer. **Select All** takes the whole picture.
+- **Fill, Invert, Darken, Lighten, Trace Edges, Rotate Left and Right,
+  Flip Vertical and Horizontal, Opaque and Transparent** work on the
+  selection, or on what you just painted; otherwise they're greyed out. A
+  script's `doMenu "Invert"` with neither still acts on the whole
+  picture, as old stacks expect.
+- **Pickup**: move a selection over other paint and choose Pickup, and it
+  takes on the picture under it (white where there's none). Drag it away
+  and what was under it is still there: a moved selection floats until you
+  click elsewhere.
+- **Keep** (Ctrl+K) and **Revert.** Revert puts the card's or background's
+  paint back as it was when last kept, or, with a selection, just that
+  part. Paint is kept by Keep, by switching to or from the background, and
+  by going to another card. (RandomCard still saves paint as you go;
+  Revert is how you go back.)
+
+Selecting, as in HyperCard (Command and Option are Ctrl and Alt on Linux
+and Windows): the lasso hugs what's painted, leaving out the
+blank around it (Option-drag to take all it goes around), and
+Command-clicking a shape with it takes that shape. With the Select tool,
+Command-drag for a rectangle tight around what's painted, or Option-drag
+for just what's painted. Command-drag a selection's edge or corner to
+stretch or shrink it; Command-Shift on a corner keeps its proportions.
+
+**Rotate, Slant, Distort and Perspective** (HyperCard's Options menu) are
+buttons at the bottom of the palette while the Select tool is chosen. With
+a rectangle selected (a lasso selection doesn't work, as in HyperCard),
+choose one and the selection's corners become handles: Rotate turns it
+(Shift for steps of 15°), Slant slides an edge to lean the sides, Distort
+moves each corner anywhere, and Perspective widens or narrows an edge
+about its middle. Drag the handles as often as you like, switch between
+the four, and click away from it when you're done; Undo puts it back as
+it was. Scripts choose them with `doMenu "Rotate"` and the rest, and
+`drag from … to …` with the Select tool selects a rectangle.
 
 The palette's buttons choose HyperCard's menu items, so stacks that say
 `doMenu "Draw Filled"` or `doMenu "Edit Pattern"`, or catch `doMenu`, work
@@ -196,8 +227,9 @@ as before, and an item a stack disables greys out its button. Scripts move
 and show the palette as HyperCard's: `show tool window at 20,60`, `the loc
 of tool window`, and `show pattern window`, which shows the same palette.
 Power Keys (in Preferences) gives paint commands single keys while the
-message box is hidden: F for Fill, I for Invert, G for Grid, B and W for
-black and white, and the rest of HyperCard's.
+message box is hidden: S for Select, P for Pickup, R for Revert, F for
+Fill, I for Invert, G for Grid, B and W for black and white, and the rest
+of HyperCard's.
 
 **Peeking,** as in HyperCard: hold Command-Option (Ctrl+Alt on Linux and
 Windows) to outline every button on the card, so a transparent or tiny one
@@ -400,6 +432,7 @@ screen, so hiding the menu bar (Ctrl+Space) doesn't apply.
 | Ctrl+Alt+C / B / S | Card / background / stack script (Scripting level) |
 | Ctrl+Tab | Browse tool |
 | Ctrl+T | Show or hide the Tools palette |
+| Ctrl+K | Keep the paint (Revert comes back to here) |
 | Ctrl+Z, Ctrl+Shift+Z | Undo, redo |
 | Ctrl+. | Abort running script |
 | Ctrl+D | Set or clear a checkpoint (script editor) |

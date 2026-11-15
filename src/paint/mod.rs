@@ -490,24 +490,109 @@ pub fn paste(pic: &mut Picture, src: &Picture, x: i32, y: i32) {
     }
 }
 
-/// A selected area: a rectangle, optionally narrowed by a lasso outline.
+/// A selected area: a rectangle, optionally narrowed by a lasso outline
+/// or to just the pixels of a mask.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Region {
     pub rect: (i32, i32, i32, i32),
     pub lasso: Option<Vec<(i32, i32)>>,
+    /// Which of the rectangle's pixels are in, row by row: a selection
+    /// that hugs what's painted, as the lasso and Select make.
+    pub mask: Option<std::sync::Arc<Vec<bool>>>,
 }
 
 impl Region {
+    pub fn new(rect: (i32, i32, i32, i32)) -> Region {
+        Region { rect, lasso: None, mask: None }
+    }
+
     pub fn all(pic: &Picture) -> Region {
-        Region { rect: (0, 0, pic.width as i32, pic.height as i32), lasso: None }
+        Region::new((0, 0, pic.width as i32, pic.height as i32))
+    }
+
+    pub fn width(&self) -> i32 {
+        (self.rect.2 - self.rect.0).max(0)
+    }
+
+    pub fn height(&self) -> i32 {
+        (self.rect.3 - self.rect.1).max(0)
     }
 
     pub fn contains(&self, x: i32, y: i32) -> bool {
         let (l, t, r, b) = self.rect;
-        x >= l && x < r && y >= t && y < b && self.lasso.as_ref().is_none_or(|pts| in_polygon(pts, x, y))
+        x >= l
+            && x < r
+            && y >= t
+            && y < b
+            && self.lasso.as_ref().is_none_or(|pts| in_polygon(pts, x, y))
+            && self.mask.as_ref().is_none_or(|m| m[((y - t) * (r - l) + x - l) as usize])
     }
 
-    fn pixels(&self) -> impl Iterator<Item = (i32, i32)> + '_ {
+    /// The same region moved by (dx, dy).
+    pub fn translated(&self, dx: i32, dy: i32) -> Region {
+        let (l, t, r, b) = self.rect;
+        Region {
+            rect: (l + dx, t + dy, r + dx, b + dy),
+            lasso: self.lasso.as_ref().map(|pts| pts.iter().map(|(x, y)| (x + dx, y + dy)).collect()),
+            mask: self.mask.clone(),
+        }
+    }
+
+    /// A region of just these pixels, in a rectangle that fits them.
+    pub fn from_pixels(pixels: &[(i32, i32)]) -> Option<Region> {
+        let l = pixels.iter().map(|p| p.0).min()?;
+        let t = pixels.iter().map(|p| p.1).min()?;
+        let r = pixels.iter().map(|p| p.0).max()? + 1;
+        let b = pixels.iter().map(|p| p.1).max()? + 1;
+        let mut mask = vec![false; ((r - l) * (b - t)) as usize];
+        for (x, y) in pixels {
+            mask[((y - t) * (r - l) + x - l) as usize] = true;
+        }
+        Some(Region { rect: (l, t, r, b), lasso: None, mask: Some(std::sync::Arc::new(mask)) })
+    }
+
+    /// The region's edges, for its moving dashed line: the outline of a
+    /// mask as runs between pixel corners, across and then down.
+    pub fn mask_edges(&self) -> Vec<((i32, i32), (i32, i32))> {
+        let Some(mask) = &self.mask else { return Vec::new() };
+        let (l, t, r, b) = self.rect;
+        let (w, h) = (r - l, b - t);
+        let at = |x: i32, y: i32| x >= 0 && y >= 0 && x < w && y < h && mask[(y * w + x) as usize];
+        let mut edges = Vec::new();
+        // Across: between row y-1 and row y.
+        for y in 0..=h {
+            let mut run: Option<i32> = None;
+            for x in 0..=w {
+                let edge = x < w && at(x, y - 1) != at(x, y);
+                match (edge, run) {
+                    (true, None) => run = Some(x),
+                    (false, Some(x0)) => {
+                        edges.push(((l + x0, t + y), (l + x, t + y)));
+                        run = None;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        // Down: between column x-1 and column x.
+        for x in 0..=w {
+            let mut run: Option<i32> = None;
+            for y in 0..=h {
+                let edge = y < h && at(x - 1, y) != at(x, y);
+                match (edge, run) {
+                    (true, None) => run = Some(y),
+                    (false, Some(y0)) => {
+                        edges.push(((l + x, t + y0), (l + x, t + y)));
+                        run = None;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        edges
+    }
+
+    pub fn pixels(&self) -> impl Iterator<Item = (i32, i32)> + '_ {
         let (l, t, r, b) = self.rect;
         (t..b).flat_map(move |y| (l..r).map(move |x| (x, y))).filter(|(x, y)| self.contains(*x, *y))
     }
@@ -522,6 +607,300 @@ impl Region {
         }
         out
     }
+
+    /// A copy of the selection's pixels, clear outside it.
+    pub fn copy(&self, pic: &Picture) -> Picture {
+        let (l, t, _, _) = self.rect;
+        let mut out = Picture::new(self.width() as u32, self.height() as u32);
+        for (x, y) in self.pixels() {
+            out.set(x - l, y - t, pic.get(x, y));
+        }
+        out
+    }
+}
+
+/// Whether a pixel is blank paper: white or clear.
+fn blank(p: Pixel) -> bool {
+    paper(p) == Pixel::WHITE
+}
+
+/// Tighten a selection around what's painted in it, as HyperCard's lasso
+/// does: blank pixels reached from the selection's edge without crossing
+/// paint drop out, and blank pixels inside a shape stay in. None when
+/// nothing is painted there.
+pub fn tighten(pic: &Picture, region: &Region) -> Option<Region> {
+    let (l, t, r, b) = region.rect;
+    let (w, h) = (r - l, b - t);
+    if w <= 0 || h <= 0 {
+        return None;
+    }
+    let idx = |x: i32, y: i32| (y * w + x) as usize;
+    let inside = |x: i32, y: i32| region.contains(l + x, t + y);
+    // Fill the blank surroundings from every blank pixel on the edge, or
+    // next to a pixel outside the selection.
+    let mut outside = vec![false; (w * h) as usize];
+    let mut stack = Vec::new();
+    for y in 0..h {
+        for x in 0..w {
+            if !inside(x, y) {
+                outside[idx(x, y)] = true;
+                continue;
+            }
+            let at_edge = x == 0
+                || y == 0
+                || x == w - 1
+                || y == h - 1
+                || [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|(dx, dy)| !inside(x + dx, y + dy));
+            if at_edge && blank(pic.get(l + x, t + y)) {
+                stack.push((x, y));
+            }
+        }
+    }
+    let mut filled = vec![false; (w * h) as usize];
+    while let Some((x, y)) = stack.pop() {
+        if x < 0 || y < 0 || x >= w || y >= h || filled[idx(x, y)] || !inside(x, y) || !blank(pic.get(l + x, t + y)) {
+            continue;
+        }
+        filled[idx(x, y)] = true;
+        outside[idx(x, y)] = true;
+        stack.extend([(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]);
+    }
+    let kept: Vec<(i32, i32)> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| !outside[idx(x, y)]).map(|(x, y)| (l + x, t + y)).collect();
+    Region::from_pixels(&kept)
+}
+
+/// What was painted since `before`: the pixels that differ, with what
+/// they enclose, as a lasso would take an outlined shape. None when
+/// nothing changed.
+pub fn changed(before: &Picture, after: &Picture) -> Option<Region> {
+    let (w, h) = (after.width.min(before.width) as i32, after.height.min(before.height) as i32);
+    let pixels: Vec<(i32, i32)> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| before.get(x, y) != after.get(x, y)).collect();
+    let region = Region::from_pixels(&pixels)?;
+    // Fill in from the edges through what didn't change: what's left is
+    // the change and the holes it closes.
+    let (l, t, r, b) = region.rect;
+    let (rw, rh) = (r - l, b - t);
+    let mut outside = vec![false; (rw * rh) as usize];
+    let mut stack: Vec<(i32, i32)> = (0..rw).flat_map(|x| [(x, 0), (x, rh - 1)]).chain((0..rh).flat_map(|y| [(0, y), (rw - 1, y)])).collect();
+    while let Some((x, y)) = stack.pop() {
+        if x < 0 || y < 0 || x >= rw || y >= rh {
+            continue;
+        }
+        let i = (y * rw + x) as usize;
+        if outside[i] || region.contains(l + x, t + y) {
+            continue;
+        }
+        outside[i] = true;
+        stack.extend([(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]);
+    }
+    let mask: Vec<bool> = outside.iter().map(|o| !o).collect();
+    Some(Region { rect: region.rect, lasso: None, mask: Some(std::sync::Arc::new(mask)) })
+}
+
+/// The smallest rectangle around what's painted in a rectangle: the
+/// Select tool's Command-drag.
+pub fn painted_bounds(pic: &Picture, rect: (i32, i32, i32, i32)) -> Option<(i32, i32, i32, i32)> {
+    let (l, t, r, b) = rect;
+    let painted: Vec<(i32, i32)> = (t..b).flat_map(|y| (l..r).map(move |x| (x, y))).filter(|&(x, y)| !blank(pic.get(x, y))).collect();
+    let region = Region::from_pixels(&painted)?;
+    Some(region.rect)
+}
+
+/// The connected shape at (x, y): the lasso's Command-click. Paint
+/// pixels joined side by side or corner to corner, with the blank pixels
+/// they enclose.
+pub fn shape_at(pic: &Picture, x: i32, y: i32) -> Option<Region> {
+    let (w, h) = (pic.width as i32, pic.height as i32);
+    if x < 0 || y < 0 || x >= w || y >= h || blank(pic.get(x, y)) {
+        return None;
+    }
+    let mut seen = vec![false; (w * h) as usize];
+    let mut stack = vec![(x, y)];
+    let mut pixels = Vec::new();
+    while let Some((x, y)) = stack.pop() {
+        if x < 0 || y < 0 || x >= w || y >= h || seen[(y * w + x) as usize] || blank(pic.get(x, y)) {
+            continue;
+        }
+        seen[(y * w + x) as usize] = true;
+        pixels.push((x, y));
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                stack.push((x + dx, y + dy));
+            }
+        }
+    }
+    let shape = Region::from_pixels(&pixels)?;
+    // Take in the holes: tighten the shape's rectangle, minus other paint.
+    let mut whole = tighten(pic, &Region::new(shape.rect))?;
+    let (l, t, r, _) = whole.rect;
+    let mask: Vec<bool> = whole
+        .mask
+        .as_ref()?
+        .iter()
+        .enumerate()
+        .map(|(i, &on)| {
+            let (px, py) = (l + i as i32 % (r - l), t + i as i32 / (r - l));
+            on && (blank(pic.get(px, py)) || shape.contains(px, py))
+        })
+        .collect();
+    whole.mask = Some(std::sync::Arc::new(mask));
+    Some(whole)
+}
+
+/// Options' Rotate, Slant, Distort and Perspective: ways of dragging a
+/// rectangular selection's corners.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reshape {
+    Rotate,
+    Slant,
+    Distort,
+    Perspective,
+}
+
+impl Reshape {
+    pub const ALL: [Reshape; 4] = [Reshape::Rotate, Reshape::Slant, Reshape::Distort, Reshape::Perspective];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Reshape::Rotate => "Rotate",
+            Reshape::Slant => "Slant",
+            Reshape::Distort => "Distort",
+            Reshape::Perspective => "Perspective",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Reshape> {
+        Reshape::ALL.into_iter().find(|r| r.name().eq_ignore_ascii_case(s.trim()))
+    }
+
+    /// The corners after dragging corner `i` (top left, top right, bottom
+    /// right, bottom left) by (dx, dy) from where they were. `snap` turns
+    /// a rotation in steps of 15°.
+    pub fn drag(self, from: [(f32, f32); 4], i: usize, dx: f32, dy: f32, snap: bool) -> [(f32, f32); 4] {
+        let mut c = from;
+        // The corner beside it across (top or bottom edge), and up or down.
+        let across = [1, 0, 3, 2][i];
+        let down = [3, 2, 1, 0][i];
+        let sideways = dx.abs() >= dy.abs();
+        match self {
+            Reshape::Rotate => {
+                let (cx, cy) = (from.iter().map(|p| p.0).sum::<f32>() / 4.0, from.iter().map(|p| p.1).sum::<f32>() / 4.0);
+                let (px, py) = from[i];
+                let mut turn = (py + dy - cy).atan2(px + dx - cx) - (py - cy).atan2(px - cx);
+                if snap {
+                    let step = std::f32::consts::PI / 12.0;
+                    turn = (turn / step).round() * step;
+                }
+                let (sin, cos) = turn.sin_cos();
+                for (k, p) in c.iter_mut().enumerate() {
+                    let (x, y) = (from[k].0 - cx, from[k].1 - cy);
+                    *p = (cx + x * cos - y * sin, cy + x * sin + y * cos);
+                }
+            }
+            // An edge slides along itself, leaning the sides.
+            Reshape::Slant if sideways => {
+                c[i].0 += dx;
+                c[across].0 += dx;
+            }
+            Reshape::Slant => {
+                c[i].1 += dy;
+                c[down].1 += dy;
+            }
+            Reshape::Distort => c[i] = (c[i].0 + dx, c[i].1 + dy),
+            // An edge widens or narrows about its middle.
+            Reshape::Perspective if sideways => {
+                c[i].0 += dx;
+                c[across].0 -= dx;
+            }
+            Reshape::Perspective => {
+                c[i].1 += dy;
+                c[down].1 -= dy;
+            }
+        }
+        c
+    }
+}
+
+/// A picture drawn into four corners (top left, top right, bottom right,
+/// bottom left): what Rotate, Slant, Distort and Perspective do. Each row
+/// of the picture runs evenly from the left side to the right, so lines
+/// keep their spacing (a bilinear map; for Rotate and Slant, the plain
+/// turn or lean). Returns the picture and where its top left goes; pixels
+/// outside the shape are clear.
+pub fn warp(src: &Picture, corners: [(f32, f32); 4]) -> (Picture, (i32, i32)) {
+    let l = corners.iter().map(|p| p.0).fold(f32::MAX, f32::min).floor() as i32;
+    let t = corners.iter().map(|p| p.1).fold(f32::MAX, f32::min).floor() as i32;
+    let r = corners.iter().map(|p| p.0).fold(f32::MIN, f32::max).ceil() as i32;
+    let b = corners.iter().map(|p| p.1).fold(f32::MIN, f32::max).ceil() as i32;
+    let (w, h) = ((r - l).clamp(1, 8192), (b - t).clamp(1, 8192));
+    let mut out = Picture::new(w as u32, h as u32);
+    let (sw, sh) = (src.width as f32, src.height as f32);
+    for y in 0..h {
+        for x in 0..w {
+            // The pixel's center, back in the source.
+            let q = ((l + x) as f32 + 0.5, (t + y) as f32 + 0.5);
+            if let Some((u, v)) = inverse_bilinear(q, corners)
+                && (0.0..1.0).contains(&u)
+                && (0.0..1.0).contains(&v)
+            {
+                out.set(x, y, src.get((u * sw) as i32, (v * sh) as i32));
+            }
+        }
+    }
+    (out, (l, t))
+}
+
+/// Where a point falls in a four-cornered shape, as (across, down) from
+/// 0 to 1: the inverse of the bilinear map (after Inigo Quilez), in f64
+/// and with the stable form of the quadratic, since a turned rectangle
+/// leaves its squared term all but zero.
+fn inverse_bilinear(p: (f32, f32), corners: [(f32, f32); 4]) -> Option<(f32, f32)> {
+    let [a, b, c, d] = corners.map(|(x, y)| (x as f64, y as f64));
+    let p = (p.0 as f64, p.1 as f64);
+    let cross = |p: (f64, f64), q: (f64, f64)| p.0 * q.1 - p.1 * q.0;
+    let e = (b.0 - a.0, b.1 - a.1);
+    let f = (d.0 - a.0, d.1 - a.1);
+    let g = (a.0 - b.0 + c.0 - d.0, a.1 - b.1 + c.1 - d.1);
+    let h = (p.0 - a.0, p.1 - a.1);
+    let (k2, k1, k0) = (cross(g, f), cross(e, f) + cross(h, g), cross(h, e));
+    // Across, given down, from whichever axis is steadier.
+    let across = |v: f64| {
+        let (dx, dy) = (e.0 + g.0 * v, e.1 + g.1 * v);
+        if dx.abs() >= dy.abs() { (h.0 - f.0 * v) / dx } else { (h.1 - f.1 * v) / dy }
+    };
+    let inside = |u: f64, v: f64| (0.0..1.0).contains(&u) && (0.0..1.0).contains(&v);
+    let disc = k1 * k1 - 4.0 * k0 * k2;
+    if disc < 0.0 {
+        return None;
+    }
+    // The roots as q / k2 and k0 / q, so neither subtracts near equals.
+    let q = -0.5 * (k1 + k1.signum() * disc.sqrt());
+    let roots = [if q != 0.0 { k0 / q } else { f64::NAN }, if k2 != 0.0 { q / k2 } else { f64::NAN }];
+    let mut best = None;
+    for v in roots.into_iter().filter(|v| v.is_finite()) {
+        let u = across(v);
+        if inside(u, v) {
+            return Some((u as f32, v as f32));
+        }
+        best.get_or_insert((u as f32, v as f32));
+    }
+    best
+}
+
+/// A picture stretched or shrunk to a new size, pixel by pixel.
+pub fn scaled(src: &Picture, w: u32, h: u32) -> Picture {
+    let mut out = Picture::new(w, h);
+    if src.width == 0 || src.height == 0 {
+        return out;
+    }
+    for y in 0..h {
+        for x in 0..w {
+            let sx = (x as u64 * src.width as u64 / w as u64) as i32;
+            let sy = (y as u64 * src.height as u64 / h as u64) as i32;
+            out.set(x as i32, y as i32, src.get(sx, sy));
+        }
+    }
+    out
 }
 
 /// The Paint menu's transformations.
@@ -812,10 +1191,93 @@ mod tests {
         assert_eq!(p.get(3, 0), Pixel::WHITE);
         let mut q = Picture::new(4, 4);
         q.set(3, 0, Pixel::BLACK);
-        let rect = apply_op(&mut q, &Region { rect: (0, 0, 4, 1), lasso: None }, PaintOp::RotateRight, Ink::Solid(Pixel::BLACK));
+        let rect = apply_op(&mut q, &Region::new((0, 0, 4, 1)), PaintOp::RotateRight, Ink::Solid(Pixel::BLACK));
         assert_eq!(rect, (0, 0, 1, 4));
         assert_eq!(q.get(0, 3), Pixel::BLACK);
         assert_eq!(PaintOp::parse("trace edges"), Some(PaintOp::TraceEdges));
+    }
+
+    #[test]
+    fn tight_selections() {
+        // A 10×10 outlined square with a dot inside, on a 40×40 picture.
+        let mut p = Picture::new(40, 40);
+        rect(&mut p, 10, 10, 20, 20, Outline::black(1), None);
+        p.set(15, 15, Pixel::BLACK);
+        // Tightened from the whole picture: the square and what's inside
+        // it, but not the blank around it.
+        let r = tighten(&p, &Region::all(&p)).unwrap();
+        assert_eq!(r.rect, (10, 10, 21, 21));
+        assert!(r.contains(12, 12) && r.contains(15, 15) && !r.contains(5, 5));
+        // Nothing painted: nothing to select.
+        assert!(tighten(&Picture::new(8, 8), &Region::new((0, 0, 8, 8))).is_none());
+        // The rectangle around what's painted.
+        assert_eq!(painted_bounds(&p, (0, 0, 40, 40)), Some((10, 10, 21, 21)));
+        // A shape on its own: the square and the blank inside it, but not
+        // the separate dot in it, nor a second shape beside it.
+        rect(&mut p, 25, 25, 30, 30, Outline::black(1), None);
+        let shape = shape_at(&p, 10, 12).unwrap();
+        assert_eq!(shape.rect, (10, 10, 21, 21));
+        assert!(shape.contains(12, 12) && !shape.contains(15, 15) && !shape.contains(26, 25));
+        assert!(shape_at(&p, 5, 5).is_none());
+        // Its outline is the square's four sides.
+        let edges = shape.mask_edges();
+        assert!(edges.contains(&((10, 10), (21, 10))) && edges.contains(&((21, 10), (21, 21))), "{edges:?}");
+    }
+
+    #[test]
+    fn new_element_and_scaling() {
+        let before = Picture::new(20, 20);
+        let mut after = before.clone();
+        line(&mut after, 2, 3, 8, 3, 1, Pixel::BLACK);
+        let r = changed(&before, &after).unwrap();
+        assert_eq!(r.rect, (2, 3, 9, 4));
+        // An outlined square's inside comes with it.
+        let mut boxed = before.clone();
+        rect(&mut boxed, 5, 5, 10, 10, Outline::black(1), None);
+        assert!(changed(&before, &boxed).unwrap().contains(7, 7));
+        assert!(changed(&before, &before).is_none());
+        // Moving the region keeps its mask.
+        assert!(r.translated(10, 10).contains(14, 13));
+        // Twice the size, and back.
+        let mut q = Picture::new(2, 1);
+        q.set(0, 0, Pixel::BLACK);
+        let big = scaled(&q, 4, 2);
+        assert_eq!((big.get(1, 1), big.get(2, 0)), (Pixel::BLACK, Pixel::CLEAR));
+        assert_eq!(scaled(&big, 2, 1), q);
+    }
+
+    #[test]
+    fn reshaping() {
+        // A 4×2 picture, black on the left half.
+        let mut p = Picture::new(4, 2);
+        for y in 0..2 {
+            for x in 0..2 {
+                p.set(x, y, Pixel::BLACK);
+            }
+        }
+        let rect = [(10.0, 10.0), (14.0, 10.0), (14.0, 12.0), (10.0, 12.0)];
+        // Into its own rectangle: unchanged.
+        let (same, at) = warp(&p, rect);
+        assert_eq!((same, at), (p.clone(), (10, 10)));
+        // Twice as wide, as a distortion of the right-hand corners.
+        let wide = Reshape::Distort.drag(Reshape::Distort.drag(rect, 1, 4.0, 0.0, false), 2, 4.0, 0.0, false);
+        let (out, _) = warp(&p, wide);
+        assert_eq!((out.width, out.get(3, 0), out.get(4, 0)), (8, Pixel::BLACK, Pixel::CLEAR));
+        // A little turn keeps nearly everything (a near-zero squared term).
+        let tilted = Reshape::Rotate.drag(rect, 1, 0.0, 1.0, false);
+        let (out, _) = warp(&p, tilted);
+        let inked = (0..out.height as i32).flat_map(|y| (0..out.width as i32).map(move |x| (x, y))).filter(|&(x, y)| out.get(x, y) == Pixel::BLACK).count();
+        assert!(inked >= 3, "{inked}");
+        // Rotated half a turn: black on the right.
+        let turned = Reshape::Rotate.drag(rect, 0, 4.0, 2.0, false);
+        let (out, _) = warp(&p, turned);
+        assert_eq!((out.get(0, 0), out.get(3, 1)), (Pixel::CLEAR, Pixel::BLACK));
+        // Slant moves the edge; perspective widens it both ways.
+        let s = Reshape::Slant.drag(rect, 0, 3.0, 0.0, false);
+        assert_eq!((s[0].0, s[1].0, s[3].0), (13.0, 17.0, 10.0));
+        let q = Reshape::Perspective.drag(rect, 1, 2.0, 0.0, false);
+        assert_eq!((q[0].0, q[1].0), (8.0, 16.0));
+        assert_eq!(Reshape::parse("perspective"), Some(Reshape::Perspective));
     }
 
     #[test]

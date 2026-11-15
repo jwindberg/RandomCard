@@ -62,7 +62,7 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 | HyperTalk commands and functions | Most; gaps below |
 | System messages | Mouse, navigation, keyboard, `idle`, `doMenu`; all commands interceptable |
 | Browse, Button and Field tools | Working, with clipboard and undo |
-| Paint tools | All 18 tools, the Tools palette with drawn icons, patterns, colors and Options, the Paint menu, and FatBits |
+| Paint tools | All 18 tools, the Tools palette with drawn icons, patterns, colors and Options, the Paint menu with Select, Pickup, Keep and Revert, scaling, Rotate, Slant, Distort and Perspective, and FatBits |
 | Fields | Styled text, the selection, click functions, list fields |
 | Visual effects | Complete |
 | Sound | `play`, notes, `dial`, `beep`; no MACE |
@@ -169,6 +169,25 @@ menu bar or replace HyperCard's menus with their own.
   picture with nothing selected. HyperCard's Options menu is on the Tools
   palette as buttons; it's still a menu behind the scenes, for scripts'
   `doMenu` and stacks that change it.
+- **Select, Pickup, Scale, Keep and Revert,** as HyperCard 2.4.1's manual
+  describes them. Select takes the new element (what's changed since the
+  last press on the card, with what it encloses), else tightens the
+  selection or the layer; the Paint menu's commands work on the new
+  element too. A moved or pasted selection floats over what was under it
+  until you click elsewhere, so Pickup can take that and moving it again
+  puts it back. Command-drag a selection's edge or corner to scale it
+  (Shift on a corner keeps its proportions). The lasso hugs what's
+  painted (Option-drag for all of it; Command-click for one shape), and
+  the Select tool's Command- and Option-drags select tightly. Keep
+  (Ctrl+K), switching layers and going to another card set what Revert
+  goes back to; Revert with a selection restores only that part. Paint is
+  still saved as you go, unlike HyperCard, which held it until Keep. Power
+  keys S, P and R.
+- **Rotate, Slant, Distort and Perspective,** as buttons under Grid and
+  FatBits while the Select tool is chosen: handles on a rectangular
+  selection's corners, dragged as often as you like until you click away;
+  Undo goes back to before. `doMenu "Rotate"` and the rest choose them,
+  and a script's `drag` with the Select tool selects a rectangle.
 
 **What protection can and can't do.** It keeps a stack's users from
 changing it by accident or casually. It isn't security: a `.rcstack` file
@@ -188,29 +207,19 @@ text, multi-level undo and redo, and script-driven painting with `drag`,
   (Pattern editing is done: Edit… beside the pattern on the palette, or
   double-clicking the pattern, with squares to click and a pattern to take from the
   card; the stack keeps it.)
-- **Keep and Revert.** HyperCard saved everything as you worked except
-  painting: a card's or background's paint changes were held until Keep
-  (Paint menu, Command-K), switching to or from the background, going to
-  another card, or quitting; until then Revert threw them all away
-  (unlike Undo, which takes back only the last change). RandomCard saves
-  paint changes as they're made, so it has neither yet.
-- **Paint:** Select (the last thing painted, selected tightly), Pickup and
-  Scale; Select and Pickup are in the Paint menu, greyed out until then.
-  Options' Rotate, Slant, Distort and Perspective: in HyperCard each turns
-  a selection's four corners into handles to drag (any angle; leaning;
-  each corner on its own; one edge widening as its partner narrows),
-  until you click elsewhere.
-  (Shift-constrained drawing is done: straight strokes, lines and polygon
+- (Done: Shift-constrained drawing, with straight strokes, lines and polygon
   sides at multiples of 15°, squares and circles, straight moves of a
   selection, and `drag … with shiftKey`. So are Options' Grid, Draw
   Centered, Draw Multiple and Power Keys, and `the grid`, `centered`,
   `multiple`, `multiSpace` and `powerKeys`.)
-- **Options' Rotate, Slant, Distort and Perspective,** which
-  reshape a selection by dragging its corners. Scripts can choose them;
-  they say they aren't in RandomCard yet.
-- **Power keys for Select, Pickup and Revert** (S, P and R), which come with
-  those commands. How far apart Draw Multiple's copies are for each
-  `multiSpace` is a guess, still to check in HyperCard 2.4.1.
+- **Dragging Rotate's and the others' handles from a script:** `doMenu
+  "Rotate"` puts the handles on, but only the mouse drags them. How far
+  apart Draw Multiple's copies are for each `multiSpace` is a guess, still
+  to check in HyperCard 2.4.1. So is exactly how HyperCard's Perspective
+  and Distort fill the shape; RandomCard keeps each row evenly spaced (a
+  bilinear map), so lines survive.
+- **Command-S for Select:** HyperCard's, but it's Save Stack in
+  RandomCard, so Select has the menu and the S power key.
 
 ## Fields and text
 
@@ -599,9 +608,9 @@ their feedback. For now:
    HyperCard.
 7. **The rest of painting:** FatBits, the icon editor, Options, pattern
    editing, and the Tools palette with drawn icons, tool groups and
-   Patterns are done, and the Paint menu is back in the menu bar. Left:
-   Select, Pickup, Scale, Rotate, Slant, Distort and Perspective, and Keep
-   and Revert.
+   Patterns are done, the Paint menu is back in the menu bar, and so are
+   Select, Pickup, Scale, Keep and Revert, and Rotate, Slant, Distort and
+   Perspective.
 8. **History across stacks.** (Objects in other stacks are done: `field 1 of card 2 of stack "X"`.)
 9. **Report printing, MACE sound, picture windows.**
 10. **Needs a design first:** AppleEvents (`request`, `reply`): what they

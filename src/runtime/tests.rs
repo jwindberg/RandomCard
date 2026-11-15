@@ -420,6 +420,25 @@ fn demo_stack_runs() {
         let w = lock(&i.world);
         (w.spray_size, w.spray_density)
     };
+    // Select and Revert: a shape painted after Keep, then selected.
+    lock(&i.world).requests.clear();
+    assert_eq!(click(&mut i, "Drawing", "Select and Revert"), None);
+    {
+        let w = lock(&i.world);
+        let shape = w.new_element().expect("the shape is the new element");
+        assert!(shape.contains(50, 150), "{:?}", shape.rect);
+        assert!(w.kept_picture().is_some_and(|k| k.get(50, 150) != w.stack.card(w.card_id).unwrap().picture.get(50, 150)));
+    }
+    run(&mut i, "choose browse tool");
+    // Reshape: a rectangle around the house, then Rotate's handles.
+    lock(&i.world).requests.clear();
+    i.handle_event(Event::MsgBox("send mouseUp to card button \"Reshape\" of card \"Drawing\"".into()));
+    let asked = std::mem::take(&mut lock(&i.world).requests);
+    assert!(
+        matches!(asked.as_slice(), [UiRequest::SelectPaint((70, 130, 230, 272)), UiRequest::Reshape(crate::paint::Reshape::Rotate)]),
+        "{asked:?}"
+    );
+    run(&mut i, "choose browse tool");
     assert_eq!(click(&mut i, "Drawing", "Spray Sizes"), None);
     {
         let w = lock(&i.world);
@@ -828,6 +847,39 @@ fn script_painting() {
     drop(w);
     assert_eq!(run(&mut i, "put the pattern & \",\" & the textSize & \",\" & the tool"), "1,24,text tool");
     assert_eq!(run(&mut i, "set the polySides to 6\nset the brush to 9\nput the polySides && the brush"), "6 9");
+}
+
+#[test]
+fn keep_and_new_element() {
+    let mut i = interp_with(stack());
+    // What a drag paints is the new element; Select works on it.
+    run(&mut i, "choose line tool\ndrag from 10,10 to 50,10");
+    let r = lock(&i.world).new_element().unwrap();
+    assert_eq!(r.rect, (10, 10, 51, 11));
+    // A second drag is a new element of its own.
+    run(&mut i, "drag from 10,30 to 20,30");
+    let r = lock(&i.world).new_element().unwrap();
+    assert_eq!(r.rect.1, 30);
+    // Revert would go back to before the first drag: an empty picture.
+    let kept = lock(&i.world).kept_picture().cloned().unwrap();
+    assert_eq!(kept.get(30, 10), crate::model::Pixel::CLEAR);
+    // Keep forgets it, and so does going to another card.
+    run(&mut i, "doMenu \"Keep\"");
+    assert!(lock(&i.world).kept_picture().is_none());
+    run(&mut i, "drag from 10,50 to 20,50");
+    assert!(lock(&i.world).kept_picture().is_some());
+    run(&mut i, "doMenu \"New Card\"");
+    let w = lock(&i.world);
+    assert!(w.kept_picture().is_none() && w.new_element().is_none());
+    drop(w);
+    // With a paint tool, doMenu "Select", "Pickup" and "Revert" go to the
+    // Paint menu; with the browse tool, "select" still chooses the tool.
+    lock(&i.world).requests.clear();
+    i.handle_event(Event::MsgBox("doMenu \"Select\"\ndoMenu \"Pickup\"\ndoMenu \"Revert\"".into()));
+    let asked = lock(&i.world).requests.clone();
+    assert!(matches!(asked.as_slice(), [UiRequest::SelectPainted, UiRequest::Pickup, UiRequest::Revert]), "{asked:?}");
+    run(&mut i, "choose browse tool\ndoMenu \"Select\"");
+    assert_eq!(lock(&i.world).tool, super::world::Tool::Select);
 }
 
 #[test]

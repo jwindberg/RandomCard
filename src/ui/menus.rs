@@ -31,6 +31,11 @@ pub struct MenuState {
     pub paint: PaintOptions,
     /// Whether some paint is selected, for the Paint menu's commands.
     pub paint_selected: bool,
+    /// Whether something's just been painted (HyperCard's new element),
+    /// which the Paint menu's commands work on too.
+    pub new_element: bool,
+    /// Whether the layer's paint has changed since it was kept.
+    pub can_revert: bool,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -95,11 +100,12 @@ impl MenuState {
                 self.paste.is_some()
             }
             "tools palette" => self.editing >= 3,
-            // As in HyperCard, the Paint menu's commands work on a selection.
+            // As in HyperCard, the Paint menu's commands work on a
+            // selection, or on what was just painted.
             "fill" | "invert" | "darken" | "lighten" | "trace edges" | "rotate left" | "rotate right" | "flip vertical"
-            | "flip horizontal" | "opaque" | "transparent" => self.paint_selected,
-            // Not in RandomCard yet.
-            "select" | "pickup" | "revert" => false,
+            | "flip horizontal" | "opaque" | "transparent" => self.paint_selected || self.new_element,
+            "pickup" => self.paint_selected,
+            "revert" => self.can_revert,
             _ => true,
         };
         let checked = match key.as_str() {
@@ -200,6 +206,8 @@ pub fn builtin_key(item: &str) -> Option<&'static str> {
         "quit randomcard" => "q",
         "save stack" => "s",
         "tools palette" => "t",
+        // HyperCard's Command-K. (Its Command-S for Select is Save Stack here.)
+        "keep" => "k",
         _ => return None,
     })
 }
