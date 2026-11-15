@@ -853,10 +853,10 @@ impl App {
                 edit.painting = None;
             }
             let painter = ui.painter();
-            for y in 0..8 {
+            for (y, row) in edit.bits.iter().enumerate() {
                 for x in 0..8 {
                     let r = Rect::from_min_size(rect.min + Vec2::new(x as f32 * CELL, y as f32 * CELL), Vec2::splat(CELL));
-                    let on = edit.bits[y] & (0x80 >> x) != 0;
+                    let on = row & (0x80 >> x) != 0;
                     painter.rect_filled(r.shrink(0.5), 0.0, if on { Color32::BLACK } else { Color32::WHITE });
                 }
             }
