@@ -62,7 +62,7 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 | HyperTalk commands and functions | Most; gaps below |
 | System messages | Mouse, navigation, keyboard, `idle`, `doMenu`; all commands interceptable |
 | Browse, Button and Field tools | Working, with clipboard and undo |
-| Paint tools | All 18 tools, and the Tools palette with HyperCard's patterns, Paint and Options, and FatBits |
+| Paint tools | All 18 tools, the Tools palette with drawn icons, patterns, colors and Options, the Paint menu, and FatBits |
 | Fields | Styled text, the selection, click functions, list fields |
 | Visual effects | Complete |
 | Sound | `play`, notes, `dial`, `beep`; no MACE |
@@ -104,10 +104,13 @@ menu bar or replace HyperCard's menus with their own.
 - RandomCard behaves like the purchased HyperCard: it runs at Scripting
   level by default, and otherwise stacks behave as they did in HyperCard.
 - The Tools palette is a small window of its own, kept in front and
-  acting on whichever stack is in front. It holds the tools and swatches
-  for the pattern, the line and fill colors, the line size, the brush and
-  the polygon sides, each popping up its choices (as HyperCard's Patterns
-  menu did). HyperCard's `tool window` and `pattern window` both name it.
+  acting on whichever stack is in front. It holds the tools in labeled
+  groups, each icon showing its tool's setting (line size, polygon sides,
+  Draw Filled); a tool's choices open under its row on a double-click.
+  Below them, Patterns: the line and fill colors, the pattern and Edit…,
+  each unfolding its choices (as HyperCard's Patterns menu dropped down);
+  what the chosen tool doesn't use is greyed out. HyperCard's `tool
+  window` and `pattern window` both name it.
   It's shown or hidden with View ▸ Tools Palette, Ctrl+T or Preferences,
   opens where it was last, and only appears at levels that allow tools.
   Preferences can dock it at the window's left instead, for desktops that
@@ -145,9 +148,12 @@ menu bar or replace HyperCard's menus with their own.
 - The demo Address Book sets Typing level on `openBackground` and restores
   the level when you leave.
 
-- **HyperCard's Paint and Options menus on the Tools palette,** so the
-  menu bar doesn't change with the tool. They're still menus behind the
-  scenes, for scripts' `doMenu` and stacks that change them.
+- **The Paint menu in the menu bar** while a paint tool is chosen, as in
+  HyperCard, its picture commands greyed out until something is selected
+  (checked in HyperCard 2.4.1). A script's `doMenu` still acts on the whole
+  picture with nothing selected. HyperCard's Options menu is on the Tools
+  palette as buttons; it's still a menu behind the scenes, for scripts'
+  `doMenu` and stacks that change it.
 
 **What protection can and can't do.** It keeps a stack's users from
 changing it by accident or casually. It isn't security: a `.rcstack` file
@@ -174,7 +180,11 @@ text, multi-level undo and redo, and script-driven painting with `drag`,
   (unlike Undo, which takes back only the last change). RandomCard saves
   paint changes as they're made, so it has neither yet.
 - **Paint:** Select (the last thing painted, selected tightly), Pickup and
-  Scale; their buttons on the palette are greyed out until then.
+  Scale; Select and Pickup are in the Paint menu, greyed out until then.
+  Options' Rotate, Slant, Distort and Perspective: in HyperCard each turns
+  a selection's four corners into handles to drag (any angle; leaning;
+  each corner on its own; one edge widening as its partner narrows),
+  until you click elsewhere.
   (Shift-constrained drawing is done: straight strokes, lines and polygon
   sides at multiples of 15°, squares and circles, straight moves of a
   selection, and `drag … with shiftKey`. So are Options' Grid, Draw
@@ -402,8 +412,8 @@ together, and black on white is just the default.
    picture is kept at one byte a pixel and saved exactly as before; one
    with color is saved as a PNG. Printing shows colors as the nearer of
    black and white until step 5.
-2. ~~**The color palette.**~~ Done: the Tools palette's Line and Fill
-   swatches, each popping up a picker, an eyedropper and the recent
+2. ~~**The color palette.**~~ Done: the Tools palette's line and fill
+   color squares, each opening a picker, From the card and the recent
    colors. A
    pattern's set bits paint in the fill color and its clear bits white;
    the pencil, lines, borders and text use the line color. Scripts use
@@ -559,9 +569,11 @@ their feedback. For now:
    windows), each a real window of its own beside the card; and the Tools
    palette. Small alerts and dialogs stay in the main window, as in
    HyperCard.
-7. **The rest of painting:** FatBits, the icon editor, Options, and the
-   Tools palette holding them, and pattern editing, are done. Left: Select,
-   Pickup, Scale, and Keep and Revert.
+7. **The rest of painting:** FatBits, the icon editor, Options, pattern
+   editing, and the Tools palette with drawn icons, tool groups and
+   Patterns are done, and the Paint menu is back in the menu bar. Left:
+   Select, Pickup, Scale, Rotate, Slant, Distort and Perspective, and Keep
+   and Revert.
 8. **History across stacks.** (Objects in other stacks are done: `field 1 of card 2 of stack "X"`.)
 9. **Report printing, MACE sound, picture windows.**
 10. **Needs a design first:** AppleEvents (`request`, `reply`): what they

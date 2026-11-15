@@ -119,30 +119,41 @@ limit. Protection stops casual changes. It isn't encryption.
 
 At Painting level and above, the **Tools palette** is a small window of
 its own that stays in front and acts on whichever stack is in front. It
-holds everything for painting, so the menu bar stays the same whichever
-tool you choose. Show or hide it with View ▸ Tools Palette or Ctrl+T; it
+holds the tools and what they paint with; the Paint menu joins the menu
+bar while a paint tool is chosen, as in HyperCard. Show or hide it with View ▸ Tools Palette or Ctrl+T; it
 opens again where you last put it. On desktops that can't keep a window in
 front (some Wayland desktops), or on a small screen, Preferences can dock
 it at the window's left instead. The message box opens at the bottom of
 the window. Preferences are saved in `~/.config/randomcard/settings.json`.
 
 **The Tools palette**, from the top:
-- **Tools.** Browse, Button, Field, and HyperCard's paint tools: Select,
-  Lasso, Pencil, Brush, Eraser, Line, Spray, Rect, Round Rect, Bucket,
-  Oval, Curve, Text, Regular Polygon and Polygon. Double-clicking the Line,
-  Brush or Regular Polygon tool opens its setting below; double-clicking a
-  shape tool switches Draw Filled; double-clicking the pencil turns on
-  FatBits.
-- **The pattern**, on a row of its own with **Edit…** beside it. Click
-  the pattern to unfold the 40 patterns below it, as HyperCard's Patterns
-  menu dropped down (imported stacks bring their own). Edit… (or
-  double-clicking the pattern) opens HyperCard's pattern editor: click
-  squares to turn them on or off, or click Card… and then the card to take
-  the pattern there. OK keeps the new pattern with the stack.
-- **Swatches** showing the line and fill colors, the line size, the brush
-  and the polygon sides. Click one to unfold its choices below: a color
-  picker with red, green and blue, an eyedropper and the recent colors; 6
-  line sizes; 16 brush shapes; and polygons from 3 to 12 sides.
+- **Tools**, in groups: Card (Browse, Button, Field), Select (Select,
+  Lasso), Paint (Pencil, Brush, Spray, Eraser, Bucket, Text), Lines (Line,
+  Curve) and Shapes (Rectangle, Round Rect, Oval, Regular Polygon,
+  Polygon). Each icon shows its tool's setting: the Line tool its
+  thickness, Regular Polygon its number of sides, and the shapes the
+  pattern they're filled with when Draw Filled is on. A small corner mark
+  means double-clicking the tool does more:
+  - Line, Brush and Regular Polygon open their choices under their row: 6
+    line sizes, 16 brush shapes, or polygons from 3 to 12 sides.
+    Double-clicking again, or choosing one, closes them.
+  - A shape tool switches Draw Filled; the pencil turns on FatBits.
+- **Patterns**, while a paint tool is chosen:
+  - **The line and fill colors**, as two overlapping squares, the line
+    color in front. Click one for a color picker with red, green and blue,
+    the recent colors, and From the card, which takes a color from the
+    card. The pencil, lines, outlines and text use the line color; the
+    pattern paints in the fill color.
+  - **The pattern.** Click it for the 40 patterns, in the fill color, as
+    HyperCard's Patterns menu dropped them down (imported stacks bring
+    their own).
+  - **Edit…**, beside the pattern, opens HyperCard's pattern editor: click
+    squares to turn them on or off, Invert, or click Card… and then the
+    card to take the pattern there. OK keeps the new pattern with the
+    stack. Double-clicking the pattern does the same.
+  - What the chosen tool doesn't use is greyed out: the pencil uses only
+    the line color, the brush only the pattern, and the shapes use the
+    pattern only with Draw Filled.
 - **HyperCard's Options**, as buttons that show when they're on: Draw
   Filled, Draw Centered (shapes grow from where you start), Draw Multiple
   (the shape is left behind as you drag; Option-1 to Option-9 spaces the
@@ -150,15 +161,22 @@ the window. Preferences are saved in `~/.config/randomcard/settings.json`.
   FatBits, which magnifies the paint eight times to work pixel by pixel,
   with the same spot at actual size in a corner; Option-drag or scroll to
   move around. Command-click with the pencil turns it on too.
-- **Paint**, folded until you open it: HyperCard's Paint menu as buttons in
-  its groups, applied to the selection or the whole picture. Select All,
-  Fill, Invert, Darken, Lighten, Trace Edges, Rotate Left and Right, Flip
-  Vertical and Horizontal, Opaque and Transparent work; Select, Pickup,
-  Keep and Revert are in their places, greyed out until they're in.
+
+Browse, Button and Field don't paint, so with them the palette shows only
+the tools.
+
+**The Paint menu** is in the menu bar while a paint tool is chosen: Select
+All, then Fill, Invert, Darken, Lighten, Trace Edges, Rotate Left and
+Right, Flip Vertical and Horizontal, Opaque and Transparent, and Keep. As
+in HyperCard, the commands that change the picture are greyed out until
+something is selected. Select (the last thing painted), Pickup and Revert
+are in their places, greyed out until they're in. A script's `doMenu
+"Invert"` with nothing selected still acts on the whole picture, as old
+stacks expect.
 
 The palette's buttons choose HyperCard's menu items, so stacks that say
-`doMenu "Fill"` or `doMenu "Draw Filled"`, or catch `doMenu`, work as
-before, and an item a stack disables greys out its button. Scripts move
+`doMenu "Draw Filled"` or `doMenu "Edit Pattern"`, or catch `doMenu`, work
+as before, and an item a stack disables greys out its button. Scripts move
 and show the palette as HyperCard's: `show tool window at 20,60`, `the loc
 of tool window`, and `show pattern window`, which shows the same palette.
 Power Keys (in Preferences) gives paint commands single keys while the
@@ -255,8 +273,8 @@ Windows and "/" elsewhere, so a stack can find its own folder anywhere.
 - Painting in color, beyond HyperCard: `the penColor` (lines, borders, the
   pencil and text) and `the brushColor` (the pattern's set bits: brush,
   spray, bucket and filled shapes), as a name (`red`), `255,128,0` or
-  `#FF8000`. The palette's line and fill swatches have the same two
-  colors, each with a picker, an eyedropper and the recent colors.
+  `#FF8000`. The palette's line and fill color squares are the same two
+  colors, each with a picker, From the card and the recent colors.
 - Commands: put, get, set, add, subtract, multiply, divide, answer, ask
   (including password and file variants), go (including back and forth),
   find (normal, whole, word, chars and string), sort (lines, items or cards,

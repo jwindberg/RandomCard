@@ -780,7 +780,7 @@ on mouseUp
   set the lineSize to oldSize
   set the filled to oldFilled
   choose oval tool
-  put "Draw Multiple, Draw Centered and Grid are buttons on the Tools palette, under the swatches. With Power Keys on, M, C and G turn them on and off." into msg
+  put "Draw Multiple, Draw Centered and Grid are buttons at the bottom of the Tools palette. With Power Keys on, M, C and G turn them on and off." into msg
 end mouseUp"#,
     );
     b.card_part(c, Part { style: PartStyle::Standard, ..options });
@@ -1427,14 +1427,28 @@ end mouseUp"#,
         let p = b.button(name, Rect::new(196, y, 336, y + 28), script);
         b.card_part(c, p);
     }
-    // HyperCard's pattern editor, on the palette's pattern swatch.
+    // HyperCard's pattern editor, from Edit… beside the palette's pattern.
     let edit = b.button(
         "Edit a Pattern",
         Rect::new(346, 110, 476, 138),
         "on mouseUp\n  choose brush tool\n  doMenu \"Edit Pattern\"\n  put \"Click squares to change the pattern, or Card… and then the card. OK keeps it with this stack. (Edit… beside the pattern on the palette does this too.)\" into field \"Said\"\nend mouseUp",
     );
     b.card_part(c, edit);
-    let mut said = b.label("Said", Rect::new(36, 200, 476, 222), "", 12);
+    // The tools' icons show their settings.
+    let icons = b.button(
+        "Tool Icons",
+        Rect::new(346, 148, 476, 176),
+        "on mouseUp\n  choose regular polygon tool\n  put the polySides into oldSides\n  repeat with i = 1 to 6\n    set the polySides to item i of \"3,4,5,6,8,12\"\n    put \"Regular Polygon:\" && the polySides && \"sides. Watch its icon on the Tools palette.\" into field \"Said\"\n    wait 30 ticks\n  end repeat\n  set the polySides to oldSides\n  put \"Each tool's icon shows its setting. Double-click a tool with a corner mark for its choices.\" into field \"Said\"\nend mouseUp",
+    );
+    b.card_part(c, icons);
+    // As in HyperCard, the Paint menu's commands need a selection.
+    let menu = b.button(
+        "Paint Menu",
+        Rect::new(346, 186, 476, 214),
+        "on mouseUp\n  choose select tool\n  doMenu \"Select All\"\n  put \"All selected: the Paint menu's commands are active now. Click the card and they grey out again.\" into field \"Said\"\nend mouseUp",
+    );
+    b.card_part(c, menu);
+    let mut said = b.label("Said", Rect::new(36, 230, 476, 252), "", 12);
     said.text_style = "italic".into();
     b.card_part(c, said);
     b.stack.cards[c].script = "on openPalette name, id\n  put \"openPalette\" && name && id into field \"Said\"\nend openPalette\n\non closePalette name\n  put \"closePalette\" && name into field \"Said\"\nend closePalette".into();

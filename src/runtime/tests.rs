@@ -552,6 +552,13 @@ fn demo_stack_runs() {
     assert!(run(&mut i, "put field \"Said\"").contains("went from 10,60"));
     assert_eq!(click(&mut i, "Palettes", "Edit a Pattern"), None);
     assert_eq!(lock(&i.world).tool, crate::runtime::world::Tool::Brush);
+    // The Regular Polygon's sides go round and come back.
+    let sides = lock(&i.world).poly_sides;
+    assert_eq!(click(&mut i, "Palettes", "Tool Icons"), None);
+    assert_eq!(lock(&i.world).poly_sides, sides);
+    assert!(run(&mut i, "put field \"Said\"").contains("icon shows its setting"));
+    assert_eq!(click(&mut i, "Palettes", "Paint Menu"), None);
+    assert_eq!(lock(&i.world).tool, crate::runtime::world::Tool::Select);
     run(&mut i, "choose browse tool");
     assert_eq!(click(&mut i, "Palettes", "Hide the Tools"), None);
     assert_eq!(run(&mut i, "put the visible of pattern window"), "false");
