@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.jwindberg.RandomCard</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <name>RandomCard</name>
+  <summary>Apple's HyperCard, re-created</summary>
+  <description>
+    <p>
+      RandomCard re-creates Apple's HyperCard: stacks of cards with buttons and
+      fields, MacPaint-style painting, and HyperTalk scripts.
+    </p>
+    <p>
+      It opens HyperCard stacks from the classic Mac and saves its own. Stacks can
+      be in color, with icons of any size, and each can open in a window of its own.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.jwindberg.RandomCard.desktop</launchable>
+  <developer id="io.github.jwindberg">
+    <name>John Windberg</name>
+  </developer>
+  <url type="homepage">https://github.com/jwindberg/RandomCard</url>
+  <url type="bugtracker">https://github.com/jwindberg/RandomCard/issues</url>
+  <categories>
+    <category>Development</category>
+  </categories>
+  <provides>
+    <binary>randomcard</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.5.0" date="2026-11-14"/>
+  </releases>
+</component>
