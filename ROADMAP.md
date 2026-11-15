@@ -169,6 +169,25 @@ text, multi-level undo and redo, and script-driven painting with `drag`,
 `click at` and `type`. Code: `src/paint/` and `src/ui/painting.rs`.
 
 **Missing:**
+- **Tool options, the same way for every tool.** Every tool with options
+  gets a corner mark; double-clicking anywhere on it opens them under its
+  row, and again closes them. Each shows only the options it understands:
+  Line and Curve the line size (a compact pull-down), Centered and
+  Multiple; the shapes those and Filled; Regular Polygon those and its
+  sides; the Brush its shape; the Spray its size and density. The bottom
+  row keeps only Grid and FatBits. (Today Line, Brush and Regular Polygon
+  open choices, but the other shapes' double-click just switches Draw
+  Filled, and the line size shows only under Line.)
+- **Cursors that are the tools.** Today every paint tool shows a
+  crosshair. Drawn over the card: the Brush as its shape at its real size,
+  the Eraser its square, the Spray its circle, and the Pencil and Bucket
+  as small icons with the tip where paint lands; the system's crosshair
+  for lines, shapes and selecting, and its I-beam for Text.
+- **Spray size and density,** beyond HyperCard, whose spray was fixed: a
+  circle 8 to 32 pixels across, from a light mist to a heavy coat.
+- **Hex colors in the color picker:** a field beside Red, Green and Blue
+  showing the color as `#2C78DC`, to type or paste into (`#F80` too), as
+  scripts already accept.
 - **`the pattern` for lines and borders,** which are always solid.
   (Pattern editing is done: Edit… beside the pattern on the palette, or
   double-clicking the pattern, with squares to click and a pattern to take from the
@@ -309,6 +328,11 @@ Stack (⌘W) or `close window` closes one.
 ## Editing and the UI
 
 **Missing:**
+- **Peeking at buttons and fields.** In HyperCard, holding Command-Option
+  outlined every button on the card, and Command-Shift-Option outlined
+  the fields too, so a hidden, transparent or tiny one could be found
+  without changing tools. (Today only the Button and Field tools outline
+  them.) Not in a Can't Peek stack.
 - **Native menus on macOS: what's left.** Keys are native (⌘ on a Mac,
   Ctrl elsewhere) and the Mac's menus are native, at the top of the screen,
   rebuilt as scripts change them. Still to do: Mac alternatives for Home
