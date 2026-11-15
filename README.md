@@ -132,12 +132,22 @@ the window. Preferences are saved in `~/.config/randomcard/settings.json`.
   Curve) and Shapes (Rectangle, Round Rect, Oval, Regular Polygon,
   Polygon). Each icon shows its tool's setting: the Line tool its
   thickness, Regular Polygon its number of sides, and the shapes the
-  pattern they're filled with when Draw Filled is on. A small corner mark
-  means double-clicking the tool does more:
-  - Line, Brush and Regular Polygon open their choices under their row: 6
-    line sizes, 16 brush shapes, or polygons from 3 to 12 sides.
-    Double-clicking again, or choosing one, closes them.
-  - A shape tool switches Draw Filled; the pencil turns on FatBits.
+  pattern they're filled with when Draw Filled is on.
+- **Tool options.** A small corner mark means the tool has options:
+  double-click anywhere on it to open them under its row, and again to
+  close them. Each tool shows only the options it understands, and they're
+  shared, so the oval's line size is the rectangle's too:
+  - Line: the line size, Centered and Multiple. Curve: the line size.
+  - Rectangle, Round Rect and Oval: the line size, Filled, Centered and
+    Multiple. Regular Polygon: the line size, Filled, its sides and
+    Multiple. Polygon: the line size and Filled.
+  - Brush: its 16 shapes.
+  - The line size and the sides are pull-downs showing the line and the
+    polygon. Filled (Draw Filled) fills shapes with the pattern; Centered
+    (Draw Centered) grows them from where you start; Multiple (Draw
+    Multiple) leaves the shape behind as you drag, Option-1 to Option-9
+    spacing the copies.
+  - Double-clicking the pencil turns on FatBits, as in HyperCard.
 - **Patterns**, while a paint tool is chosen:
   - **The line and fill colors**, as two overlapping squares, the line
     color in front. Click one for a color picker with red, green and blue,
@@ -154,11 +164,8 @@ the window. Preferences are saved in `~/.config/randomcard/settings.json`.
   - What the chosen tool doesn't use is greyed out: the pencil uses only
     the line color, the brush only the pattern, and the shapes use the
     pattern only with Draw Filled.
-- **HyperCard's Options**, as buttons that show when they're on: Draw
-  Filled, Draw Centered (shapes grow from where you start), Draw Multiple
-  (the shape is left behind as you drag; Option-1 to Option-9 spaces the
-  copies), Grid (lines, shapes and selections snap to 8 pixels) and
-  FatBits, which magnifies the paint eight times to work pixel by pixel,
+- **Grid and FatBits**, as buttons that show when they're on: Grid (lines,
+  shapes and selections snap to 8 pixels) and FatBits, which magnifies the paint eight times to work pixel by pixel,
   with the same spot at actual size in a corner; Option-drag or scroll to
   move around. Command-click with the pencil turns it on too.
 

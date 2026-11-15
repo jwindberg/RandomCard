@@ -148,6 +148,11 @@ menu bar or replace HyperCard's menus with their own.
 - The demo Address Book sets Typing level on `openBackground` and restores
   the level when you leave.
 
+- **Tool options, the same way for every tool.** Every tool with options
+  has a corner mark; double-clicking anywhere on it opens them under its
+  row, and again closes them. Each shows only the options it understands
+  (the line size as a pull-down, Filled, Centered, Multiple, the sides,
+  the brush), and the bottom row keeps only Grid and FatBits.
 - **The Paint menu in the menu bar** while a paint tool is chosen, as in
   HyperCard, its picture commands greyed out until something is selected
   (checked in HyperCard 2.4.1). A script's `doMenu` still acts on the whole
@@ -169,15 +174,6 @@ text, multi-level undo and redo, and script-driven painting with `drag`,
 `click at` and `type`. Code: `src/paint/` and `src/ui/painting.rs`.
 
 **Missing:**
-- **Tool options, the same way for every tool.** Every tool with options
-  gets a corner mark; double-clicking anywhere on it opens them under its
-  row, and again closes them. Each shows only the options it understands:
-  Line and Curve the line size (a compact pull-down), Centered and
-  Multiple; the shapes those and Filled; Regular Polygon those and its
-  sides; the Brush its shape; the Spray its size and density. The bottom
-  row keeps only Grid and FatBits. (Today Line, Brush and Regular Polygon
-  open choices, but the other shapes' double-click just switches Draw
-  Filled, and the line size shows only under Line.)
 - **Cursors that are the tools.** Today every paint tool shows a
   crosshair. Drawn over the card: the Brush as its shape at its real size,
   the Eraser its square, the Spray its circle, and the Pencil and Bucket

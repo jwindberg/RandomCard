@@ -101,6 +101,8 @@ pub struct App {
     open_swatch: Option<painting::Swatch>,
     /// The palette's tool icons, drawn.
     tool_icons: tool_icons::ToolIcons,
+    /// The tool whose options are open on the palette, under its row.
+    tool_options: Option<Tool>,
     /// A pattern being edited, in the pattern swatch's place.
     pattern_edit: Option<painting::PatternEdit>,
     /// The height last asked of the palette's window, to fit its contents.
@@ -332,6 +334,7 @@ impl App {
             paint_dialog: None,
             open_swatch: None,
             tool_icons: Default::default(),
+            tool_options: None,
             pattern_edit: None,
             palette_height: None,
             palette_opened_at: None,
@@ -786,7 +789,8 @@ impl App {
                 }
                 UiRequest::PaintDialog(d) => {
                     if self.tools_shown() {
-                        self.open_swatch = Some(painting::Swatch::Setting(d));
+                        let tool = self.world().tool;
+                        self.tool_options = Some(painting::options_tool(tool, d));
                     } else {
                         self.paint_dialog = Some(d);
                     }

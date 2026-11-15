@@ -93,7 +93,6 @@ pub struct PatternEdit {
 pub enum Swatch {
     Pattern,
     Color(ColorSlot),
-    Setting(PaintDialog),
 }
 
 impl Swatch {
@@ -102,9 +101,6 @@ impl Swatch {
             Swatch::Pattern => "Pattern: for the brush, spray, bucket and filled shapes. Double-click to edit it.",
             Swatch::Color(ColorSlot::Line) => "Line color: lines, borders, the pencil and text",
             Swatch::Color(ColorSlot::Fill) => "Fill color: the pattern's color",
-            Swatch::Setting(PaintDialog::LineSize) => "Line size",
-            Swatch::Setting(PaintDialog::BrushShape) => "Brush shape",
-            Swatch::Setting(PaintDialog::PolygonSides) => "Polygon sides",
         }
     }
 }
@@ -129,14 +125,52 @@ const TOOL_SIZE: f32 = 38.0;
 const TOOL_GAP: f32 = 4.0;
 const GROUP_GAP: f32 = 12.0;
 
-/// The choices a tool's double-click opens.
-fn tool_setting(t: Tool) -> Option<PaintDialog> {
+/// A paint option a tool can show.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ToolOption {
+    LineSize,
+    Filled,
+    Centered,
+    Multiple,
+    Sides,
+    BrushShape,
+}
+
+/// The options a tool understands, in the order they show.
+fn tool_options(t: Tool) -> &'static [ToolOption] {
+    use ToolOption::*;
     match t {
-        Tool::Line => Some(PaintDialog::LineSize),
-        Tool::Brush => Some(PaintDialog::BrushShape),
-        Tool::RegularPolygon => Some(PaintDialog::PolygonSides),
-        _ => None,
+        Tool::Line => &[LineSize, Centered, Multiple],
+        Tool::Curve => &[LineSize],
+        Tool::Rect | Tool::RoundRect | Tool::Oval => &[LineSize, Filled, Centered, Multiple],
+        Tool::RegularPolygon => &[LineSize, Filled, Sides, Multiple],
+        Tool::Polygon => &[LineSize, Filled],
+        Tool::Brush => &[BrushShape],
+        _ => &[],
     }
+}
+
+/// The tool whose options hold one of the Options menu's settings: the
+/// chosen tool when it has it, else the tool it's best known for.
+pub(super) fn options_tool(chosen: Tool, d: PaintDialog) -> Tool {
+    let (option, usual) = match d {
+        PaintDialog::LineSize => (ToolOption::LineSize, Tool::Line),
+        PaintDialog::BrushShape => (ToolOption::BrushShape, Tool::Brush),
+        PaintDialog::PolygonSides => (ToolOption::Sides, Tool::RegularPolygon),
+    };
+    if tool_options(chosen).contains(&option) { chosen } else { usual }
+}
+
+/// A pull-down's button: what's chosen, drawn by `draw`, and a ▾.
+fn pull_down(ui: &mut egui::Ui, size: Vec2, draw: impl FnOnce(&egui::Painter, Rect)) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let edge = if resp.hovered() { Color32::from_gray(150) } else { Color32::from_gray(200) };
+    ui.painter().rect(rect, 5.0, Color32::WHITE, Stroke::new(1.0, edge), StrokeKind::Inside);
+    draw(ui.painter(), rect.with_max_x(rect.max.x - 16.0));
+    let arrow = rect.right_center() - Vec2::new(9.0, 0.0);
+    let down = vec![arrow + Vec2::new(-4.0, -2.0), arrow + Vec2::new(4.0, -2.0), arrow + Vec2::new(0.0, 3.0)];
+    ui.painter().add(egui::Shape::convex_polygon(down, Color32::from_gray(80), Stroke::NONE));
+    resp
 }
 
 /// Which paint a tool uses: (the line color, the pattern in the fill color).
@@ -149,11 +183,6 @@ fn uses_paint(t: Tool, filled: bool) -> (bool, bool) {
         Tool::Rect | Tool::RoundRect | Tool::Oval | Tool::RegularPolygon | Tool::Polygon => (true, filled),
         Tool::Eraser | Tool::Browse | Tool::Button | Tool::Field => (false, false),
     }
-}
-
-/// Whether double-clicking a tool does something, so it gets a mark.
-fn has_double_click(t: Tool) -> bool {
-    tool_setting(t).is_some() || matches!(t, Tool::Rect | Tool::RoundRect | Tool::Oval | Tool::Polygon)
 }
 
 /// The size of each of `n` buttons sharing a palette row.
@@ -240,10 +269,7 @@ fn color_picker(ui: &mut egui::Ui, current: Color32) -> Option<Color32> {
 }
 
 /// The Options menu's settings that go on and off: item, icon, tip.
-const OPTION_TOGGLES: [(&str, &str, &str); 5] = [
-    ("Draw Filled", "⬤", "Draw Filled: shapes filled with the pattern"),
-    ("Draw Centered", "⊙", "Draw Centered: lines and shapes grow from where you start"),
-    ("Draw Multiple", "❐", "Draw Multiple: leave the shape behind as you drag (Option-1 to 9 spaces them)"),
+const OPTION_TOGGLES: [(&str, &str, &str); 2] = [
     ("Grid", "#", "Grid: lines, shapes and selections snap to 8 pixels"),
     ("FatBits", "🔍", "FatBits: magnify to paint pixel by pixel"),
 ];
@@ -329,13 +355,12 @@ impl App {
                         });
                     }
                 });
-                // A tool's choices unfold under its own row.
-                let settings: Vec<Swatch> = groups
-                    .iter()
-                    .flat_map(|(_, tools)| tools.iter().filter_map(|t| tool_setting(*t)))
-                    .map(Swatch::Setting)
-                    .collect();
-                self.unfold(ui, &settings);
+                // A tool's options unfold under its own row.
+                if let Some(t) = self.tool_options
+                    && groups.iter().any(|(_, tools)| tools.contains(&t))
+                {
+                    self.tool_options_row(ui, t);
+                }
             }
             // Browse, Button and Field don't paint: nothing below applies.
             if tool.is_paint() {
@@ -438,11 +463,9 @@ impl App {
     fn tool_button(&mut self, ui: &mut egui::Ui, t: Tool, chosen: Tool, look: super::tool_icons::Look) {
         let icon = TOOL_SIZE - 12.0;
         let name = windows::capitalize(t.name());
+        let has_options = !tool_options(t).is_empty();
         let tip = match t {
-            Tool::Line => format!("{name}. Double-click for the line size."),
-            Tool::Brush => format!("{name}. Double-click for the brush shape."),
-            Tool::RegularPolygon => format!("{name}. Double-click for the number of sides."),
-            Tool::Rect | Tool::RoundRect | Tool::Oval | Tool::Polygon => format!("{name}. Double-click for Draw Filled."),
+            _ if has_options => format!("{name}. Double-click for its options."),
             Tool::Pencil => format!("{name}. Double-click for FatBits."),
             _ => name.clone(),
         };
@@ -466,34 +489,137 @@ impl App {
             }
         }
         let resp = resp.on_hover_text(tip);
-        if has_double_click(t) {
+        if has_options {
             let rb = resp.rect.right_bottom() + Vec2::new(-3.0, -3.0);
             let mark = vec![rb, rb + Vec2::new(-6.0, 0.0), rb + Vec2::new(0.0, -6.0)];
             ui.painter().add(egui::Shape::convex_polygon(mark, Color32::from_gray(100), Stroke::NONE));
         }
         if resp.clicked() {
-            // Another tool's choices fold away.
-            if let Some(Swatch::Setting(d)) = self.open_swatch
-                && Some(d) != tool_setting(t)
-            {
-                self.open_swatch = None;
+            // Another tool's options fold away.
+            if self.tool_options.is_some_and(|open| open != t) {
+                self.tool_options = None;
             }
             self.choose_tool(t);
         }
-        // As in HyperCard: double-click a tool for its setting.
+        // Double-clicking a tool opens its options, and again closes them.
+        // The pencil's turns on FatBits, as in HyperCard.
         if resp.double_clicked() {
-            match tool_setting(t) {
-                Some(d) => {
-                    let which = Swatch::Setting(d);
-                    self.open_swatch = if self.open_swatch == Some(which) { None } else { Some(which) };
-                }
-                None => match t {
-                    Tool::Pencil => self.do_menu("FatBits"),
-                    Tool::Rect | Tool::RoundRect | Tool::Oval | Tool::Polygon => self.do_menu("Draw Filled"),
-                    _ => {}
-                },
+            if has_options {
+                self.tool_options = if self.tool_options == Some(t) { None } else { Some(t) };
+            } else if t == Tool::Pencil {
+                self.do_menu("FatBits");
             }
         }
+    }
+
+    /// A tool's options, under its row: only the ones it understands.
+    /// They're shared: the oval's line size is the rectangle's too.
+    fn tool_options_row(&mut self, ui: &mut egui::Ui, t: Tool) {
+        let options = tool_options(t);
+        ui.add_space(4.0);
+        egui::Frame::group(ui.style()).inner_margin(6.0).show(ui, |ui| {
+            ui.set_width(ROW - 14.0);
+            if options == [ToolOption::BrushShape] {
+                self.setting_choices(ui, PaintDialog::BrushShape);
+                return;
+            }
+            let (filled, centered, multiple, enabled) = {
+                let w = self.world();
+                let enabled = |item| menu_item_enabled(&w, item);
+                (w.fill_shapes, w.centered, w.multiple, [enabled("Draw Filled"), enabled("Draw Centered"), enabled("Draw Multiple")])
+            };
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::new(6.0, 6.0);
+                for option in options {
+                    let toggle = match option {
+                        ToolOption::LineSize => {
+                            self.line_size_menu(ui);
+                            None
+                        }
+                        ToolOption::Sides => {
+                            self.sides_menu(ui);
+                            None
+                        }
+                        ToolOption::Filled => Some(("Filled", "Draw Filled", filled, enabled[0], "Draw Filled: fill shapes with the pattern")),
+                        ToolOption::Centered => {
+                            Some(("Centered", "Draw Centered", centered, enabled[1], "Draw Centered: grow from where you start"))
+                        }
+                        ToolOption::Multiple => Some((
+                            "Multiple",
+                            "Draw Multiple",
+                            multiple,
+                            enabled[2],
+                            "Draw Multiple: leave the shape behind as you drag (Option-1 to 9 spaces them)",
+                        )),
+                        ToolOption::BrushShape => None,
+                    };
+                    if let Some((label, item, on, enabled, tip)) = toggle {
+                        let button = egui::Button::new(label).selected(on).min_size(Vec2::new(0.0, 24.0));
+                        if ui.add_enabled(enabled, button).on_hover_text(tip).clicked() {
+                            self.do_menu(item);
+                        }
+                    }
+                }
+            });
+        });
+    }
+
+    /// The line size as a pull-down showing the line itself.
+    fn line_size_menu(&mut self, ui: &mut egui::Ui) {
+        let current = self.world().line_size;
+        let sample = |painter: &egui::Painter, r: Rect, size: u32| {
+            let line = Rect::from_center_size(r.center(), Vec2::new(r.width() - 12.0, size as f32));
+            painter.rect_filled(line, 0.0, Color32::BLACK);
+        };
+        let resp = pull_down(ui, Vec2::new(84.0, 24.0), |painter, r| sample(painter, r, current))
+            .on_hover_text("Line size: lines, curves and shape outlines");
+        egui::Popup::menu(&resp).show(|ui| {
+            for size in [1u32, 2, 3, 4, 6, 8] {
+                let (r, item) = ui.allocate_exact_size(Vec2::new(120.0, 22.0), Sense::click());
+                if size == current || item.hovered() {
+                    ui.painter().rect_filled(r, 3.0, Color32::from_rgb(228, 240, 255));
+                }
+                sample(ui.painter(), r.with_max_x(r.max.x - 28.0), size);
+                let at = r.right_center() - Vec2::new(8.0, 0.0);
+                ui.painter().text(at, egui::Align2::RIGHT_CENTER, size.to_string(), FontId::proportional(11.0), Color32::from_gray(70));
+                if item.clicked() {
+                    self.world().line_size = size;
+                }
+            }
+        });
+    }
+
+    /// Regular Polygon's sides as a pull-down showing the polygon.
+    fn sides_menu(&mut self, ui: &mut egui::Ui) {
+        let current = self.world().poly_sides;
+        let shape = |painter: &egui::Painter, c: Pos2, n: u32, r: f32| {
+            // Standing on a side, like the tool's icon.
+            let tau = std::f32::consts::TAU;
+            let start = -tau / 4.0 + if n.is_multiple_of(4) { tau / (2.0 * n as f32) } else { 0.0 };
+            let mut pts: Vec<Pos2> = (0..n).map(|i| c + Vec2::angled(start + i as f32 * tau / n as f32) * r).collect();
+            pts.push(pts[0]);
+            painter.add(egui::Shape::line(pts, Stroke::new(1.5, Color32::BLACK)));
+        };
+        let resp = pull_down(ui, Vec2::new(64.0, 24.0), |painter, r| {
+            shape(painter, r.left_center() + Vec2::new(16.0, 0.0), current, 8.0);
+            let at = r.left_center() + Vec2::new(30.0, 0.0);
+            painter.text(at, egui::Align2::LEFT_CENTER, current.to_string(), FontId::proportional(12.0), Color32::BLACK);
+        })
+        .on_hover_text("Sides of the regular polygon");
+        egui::Popup::menu(&resp).show(|ui| {
+            for n in [3u32, 4, 5, 6, 8, 12] {
+                let (r, item) = ui.allocate_exact_size(Vec2::new(90.0, 26.0), Sense::click());
+                if n == current || item.hovered() {
+                    ui.painter().rect_filled(r, 3.0, Color32::from_rgb(228, 240, 255));
+                }
+                shape(ui.painter(), r.left_center() + Vec2::new(16.0, 0.0), n, 9.0);
+                let at = r.left_center() + Vec2::new(34.0, 0.0);
+                ui.painter().text(at, egui::Align2::LEFT_CENTER, format!("{n} sides"), FontId::proportional(12.0), Color32::from_gray(40));
+                if item.clicked() {
+                    self.world().poly_sides = n;
+                }
+            }
+        });
     }
 
     /// The open swatch's choices, unfolded under its row when it's one of
@@ -513,13 +639,12 @@ impl App {
     /// whether they're on. Each chooses its menu item, so scripts' doMenu
     /// handlers see it, and a menu item a stack disables disables its button.
     fn option_toggles(&mut self, ui: &mut egui::Ui) {
-        let (filled, centered, multiple, grid, enabled) = {
+        let (grid, enabled) = {
             let w = self.world();
             let enabled: Vec<bool> = OPTION_TOGGLES.iter().map(|(item, _, _)| menu_item_enabled(&w, item)).collect();
-            (w.fill_shapes, w.centered, w.multiple, w.grid, enabled)
+            (w.grid, enabled)
         };
-        let fat = self.fat.is_some();
-        let on = [filled, centered, multiple, grid, fat];
+        let on = [grid, self.fat.is_some()];
         let size = cell_size(OPTION_TOGGLES.len(), 26.0);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = GAP;
@@ -558,13 +683,12 @@ impl App {
     }
 
     fn draw_swatch(&mut self, ui: &mut egui::Ui, rect: Rect, which: Swatch) {
-        let (pattern, patterns, line_color, fill_color, line_size, brush, sides) = {
+        let (pattern, patterns, line_color, fill_color) = {
             let w = self.world();
-            (w.pattern, w.stack.patterns.clone(), w.line_color, w.fill_color, w.line_size, w.brush, w.poly_sides)
+            (w.pattern, w.stack.patterns.clone(), w.line_color, w.fill_color)
         };
         let painter = ui.painter().with_clip_rect(rect.shrink(1.0));
         painter.rect_filled(rect, 2.0, Color32::WHITE);
-        let c = rect.center();
         match which {
             Swatch::Pattern => {
                 let textures = self.pattern_textures(ui.ctx(), &patterns, fill_color);
@@ -580,25 +704,6 @@ impl App {
             Swatch::Color(ColorSlot::Fill) => {
                 painter.rect_filled(rect.shrink(4.0), 0.0, color32(fill_color));
             }
-            Swatch::Setting(PaintDialog::LineSize) => {
-                painter.rect_filled(Rect::from_center_size(c, Vec2::new(24.0, line_size as f32)), 0.0, Color32::BLACK);
-            }
-            Swatch::Setting(PaintDialog::BrushShape) => {
-                for (dx, dy) in paint::brush_shape(brush) {
-                    let at = c + Vec2::new(dx as f32, dy as f32) * 1.5;
-                    painter.rect_filled(Rect::from_min_size(at, Vec2::splat(1.5)), 0.0, Color32::BLACK);
-                }
-            }
-            Swatch::Setting(PaintDialog::PolygonSides) => {
-                let mut pts: Vec<Pos2> = paint::regular_polygon_points((0, 0), (0, -10), sides)
-                    .iter()
-                    .map(|p| c + Vec2::new(p.0 as f32, p.1 as f32 + 1.0))
-                    .collect();
-                if let Some(first) = pts.first().copied() {
-                    pts.push(first);
-                }
-                painter.add(egui::Shape::line(pts, Stroke::new(1.0, Color32::BLACK)));
-            }
         }
     }
 
@@ -608,7 +713,6 @@ impl App {
             Swatch::Pattern if self.pattern_edit.is_some() => self.pattern_editor(ui),
             Swatch::Pattern => self.pattern_choices(ui),
             Swatch::Color(slot) => self.color_choices(ui, slot),
-            Swatch::Setting(setting) => self.setting_choices(ui, setting),
         }
     }
 

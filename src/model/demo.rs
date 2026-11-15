@@ -780,7 +780,7 @@ on mouseUp
   set the lineSize to oldSize
   set the filled to oldFilled
   choose oval tool
-  put "Draw Multiple, Draw Centered and Grid are buttons at the bottom of the Tools palette. With Power Keys on, M, C and G turn them on and off." into msg
+  put "Multiple and Centered are among a shape tool's options: double-click it on the Tools palette. Grid is at the bottom. With Power Keys on, M, C and G turn them on and off." into msg
 end mouseUp"#,
     );
     b.card_part(c, Part { style: PartStyle::Standard, ..options });
