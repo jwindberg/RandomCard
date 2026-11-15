@@ -38,6 +38,13 @@ fn main() -> eframe::Result {
             descriptor
         });
     }
+    // Don't wait on vsync to present. The palette and stack windows are drawn
+    // inside the main window's frame, and on Wayland a vsynced present waits
+    // for the compositor's go-ahead, which never comes for a window it isn't
+    // showing (hidden, covered, off-screen). One such window would then stall
+    // every frame and the whole app stops answering clicks. egui only redraws
+    // when something changes, so this costs nothing while idle.
+    options.wgpu_options.surface.present_mode = eframe::wgpu::PresentMode::AutoNoVsync;
     // On a Mac, RandomCard installs its own native menus.
     #[cfg(target_os = "macos")]
     {
