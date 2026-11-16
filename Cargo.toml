@@ -51,7 +51,13 @@ libloading = "0.8.9"
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 ureq = { version = "3.5.1", default-features = false, features = ["native-tls", "gzip"] }
 
-# macOS: native menus at the top of the screen, in place of winit's default.
+# macOS: native menus at the top of the screen, in place of winit's default,
+# and AVFoundation for movies.
 [target.'cfg(target_os = "macos")'.dependencies]
 muda = "0.21"
 winit = { version = "0.30", default-features = false }
+objc2 = { version = "0.6.5", default-features = false, features = ["std"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSDictionary", "NSError", "NSObject", "NSString", "NSURL", "NSValue"] }
+objc2-av-foundation = { version = "0.3.2", default-features = false, features = ["std", "AVAsset", "AVAssetReader", "AVAssetReaderOutput", "AVAssetTrack", "AVMediaFormat", "AVQueuedSampleBufferRendering", "AVSampleBufferAudioRenderer", "AVSampleBufferRenderSynchronizer", "objc2-core-foundation", "objc2-core-media", "objc2-core-video"] }
+objc2-core-media = { version = "0.3.2", default-features = false, features = ["std", "CMSampleBuffer", "CMTime", "CMTimeRange", "objc2", "objc2-core-video"] }
+objc2-core-video = { version = "0.3.2", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn", "objc2"] }
