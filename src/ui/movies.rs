@@ -194,10 +194,13 @@ impl App {
             if v.controller {
                 let strip = Rect::from_min_max(pos2(content.min.x, content.max.y - CONTROLLER as f32), content.max);
                 self.controller(ui, id, strip, v, &mut actions);
-            } else if v.badge && v.pass_click && picture.height() > 20.0 {
-                let badge = Rect::from_min_size(pos2(picture.min.x + 4.0, picture.max.y - 16.0).max(movie_area.min), vec2(18.0, 12.0));
-                draw_badge(&painter, badge);
-                if resp.clicked() && resp.interact_pointer_pos().is_some_and(|p| badge.contains(p)) {
+            } else if v.badge && v.pass_click && picture.height() > 40.0 && picture.width() > 50.0 {
+                // In the movie's bottom left corner, where it's seen.
+                let seen = picture.intersect(movie_area);
+                let badge = Rect::from_min_size(pos2(seen.min.x + 8.0, seen.max.y - 32.0), vec2(34.0, 24.0));
+                let over = ui.interact(badge, id.with("badge"), Sense::click()).on_hover_text("Show the controller");
+                draw_badge(&painter, badge, over.hovered());
+                if over.clicked() {
                     actions.push(Action::ShowController);
                     return;
                 }
@@ -388,17 +391,25 @@ fn title_bar(painter: &egui::Painter, title: Rect, v: &View) {
     }
 }
 
-/// QuickTime's badge: a little strip of film, clicked to show the controller.
-fn draw_badge(painter: &egui::Painter, r: Rect) {
-    painter.rect_filled(r, CornerRadius::same(2), Color32::WHITE);
-    painter.rect_stroke(r, CornerRadius::same(2), Stroke::new(1.0, Color32::BLACK), StrokeKind::Inside);
-    let film = r.shrink2(vec2(4.0, 2.5));
-    painter.rect_filled(film, 0.0, Color32::BLACK);
-    for i in 0..3 {
-        let x = film.min.x + 1.5 + i as f32 * 3.5;
-        painter.rect_filled(Rect::from_min_size(pos2(x, film.min.y + 1.0), vec2(1.5, 1.0)), 0.0, Color32::WHITE);
-        painter.rect_filled(Rect::from_min_size(pos2(x, film.max.y - 2.0), vec2(1.5, 1.0)), 0.0, Color32::WHITE);
+/// The badge a movie shows while its controller is hidden, as QuickTime
+/// did: a frame of film with a play mark, clicked to show the controller.
+/// Dark and see-through, so it reads on any picture; brighter under the
+/// pointer.
+fn draw_badge(painter: &egui::Painter, r: Rect, hovered: bool) {
+    let back = Color32::from_black_alpha(if hovered { 210 } else { 150 });
+    let ink = Color32::from_white_alpha(if hovered { 255 } else { 225 });
+    painter.rect_filled(r, CornerRadius::same(5), back);
+    painter.rect_stroke(r, CornerRadius::same(5), Stroke::new(1.0, Color32::from_white_alpha(90)), StrokeKind::Inside);
+    // The film's sprocket holes, along its top and bottom.
+    for i in 0..5 {
+        let x = r.min.x + 5.0 + i as f32 * 5.5;
+        for y in [r.min.y + 3.0, r.max.y - 5.0] {
+            painter.rect_filled(Rect::from_min_size(pos2(x, y), vec2(2.5, 2.0)), CornerRadius::same(1), ink);
+        }
     }
+    // The play mark, in the frame between them.
+    let c = r.center();
+    painter.add(egui::Shape::convex_polygon(vec![c + vec2(-3.5, -5.0), c + vec2(5.0, 0.0), c + vec2(-3.5, 5.0)], ink, Stroke::NONE));
 }
 
 /// The movie textures, by movie window id.
