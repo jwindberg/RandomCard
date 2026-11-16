@@ -357,7 +357,7 @@ to the built-ins; the others are local test copies, updated by
 | MenuHandler | XCMD | Prisim games | Deleted or hid menus. | Built in | As `delete menu` | Done |
 | DeskCover | XCMD | Prisim games | Blacked out the Finder's desktop behind the card. | Not needed | The card window is all there is | Done |
 | QuitTheFinder, Shutdown | XCMD | Blah Blob | Quit the Finder, shut the Mac down (for kiosks). | Not needed | Taken out of Blah Blob's stack | Done |
-| Movie | XCMD | Lost and Found | Played QuickTime movies, here the theme songs as QuickTime music tracks. | Built in | As `Movie` with HyperCard 2.4's movie syntax, in today's formats (MOV, MP4, M4V, MPEG); not classic QuickTime codecs or music tracks, so Lost and Found's theme songs stay silent | Done (Linux) |
+| Movie | XCMD | Lost and Found | Played QuickTime movies, here the theme songs as QuickTime music tracks. | Built in | As `Movie` with HyperCard 2.4's movie syntax, in today's formats (MOV, MP4, M4V, MPEG); not classic QuickTime codecs or music tracks, so Lost and Found's theme songs stay silent | Done (macOS and Linux) |
 | InitializeProg | XFCN | Carrot Patch | Its shareware registration (Kagi). | Not needed | Off in our local copy; the service is long gone | Done |
 
 ### Serial ports
