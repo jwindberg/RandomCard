@@ -17,7 +17,7 @@ cd "$(dirname "$0")/.."
 dest="${1:-/Applications}"
 version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' Cargo.toml | head -n 1)
 
-cargo build --release
+cargo build --release --locked
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -27,7 +27,7 @@ mkdir -p "$app/MacOS" "$app/Resources"
 cp target/release/randomcard "$app/MacOS/RandomCard"
 sed "s/VERSION/$version/g" packaging/macos/Info.plist > "$app/Info.plist"
 
-cargo run --release --example make_icons -- "$work/icons"
+cargo run --release --locked --example make_icons -- "$work/icons"
 iconset="$work/RandomCard.iconset"
 mkdir "$iconset"
 for size in 16 32 128 256 512; do
