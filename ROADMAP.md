@@ -66,7 +66,7 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 | Fields | Styled text, the selection, click functions, list fields |
 | Visual effects | Complete |
 | Sound | `play`, notes, `dial`, `beep`; no MACE |
-| Movies | HyperCard 2.4's movie syntax, movie windows and controller, on Linux (GStreamer); macOS and Windows next |
+| Movies | HyperCard 2.4's movie syntax, movie windows and controller, on macOS (AVFoundation) and Linux (GStreamer); Windows next |
 | HyperCard import | 1.x and 2.x: structure, pictures, parts, text, scripts, icons, sounds, AddColor |
 | User levels and stack protection | Levels, Protect Stack, passwords, private access |
 | Script-modifiable menus | Complete, except submenus |
@@ -563,7 +563,12 @@ and has already licensed H.264 and HEVC. In the Tour's Movies card.
 
 1. **Linux** (done): GStreamer, loaded when the first movie opens, so
    RandomCard runs without it and building needs nothing of it.
-2. **macOS:** AVFoundation.
+2. **macOS** (done): AVFoundation. `AVAssetReader` decodes the frames
+   and a render synchronizer plays the sound and keeps time, so movies
+   play without the main thread's event loop, tests included. Frames
+   decode on the UI thread as they're drawn; if a large movie ever
+   stutters, decoding moves to a thread of its own. macOS no longer
+   decodes MPEG-1 or MPEG-2, or the classic QuickTime codecs.
 3. **Windows:** Media Foundation.
 4. **Classic QuickTime movies, everywhere.** The movies in old stacks are
    in QuickTime's own early codecs: Graphics (SMC), Animation (RLE),
@@ -760,7 +765,7 @@ their feedback. For now:
    released as 0.3.0), then printing in color.
 4. **HyperCard 2.4's own features:** audit them in the real HyperCard
    2.4.1 (Basilisk II, `examples/apple/emulator-2.4/run.sh`): movies
-   from HyperTalk (started: see Movies; Linux done, macOS and Windows
+   from HyperTalk (started: see Movies; macOS and Linux done, Windows
    next), URLs, the new script editor, and its menus and tools.
 5. **The card window:** global rect and loc, scrolling (hBarLoc, vBarLoc),
    zoom, `moveWindow` and `sizeWindow`, and card size changes.
