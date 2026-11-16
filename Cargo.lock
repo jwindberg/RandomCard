@@ -3540,6 +3540,7 @@ dependencies = [
  "encoding_rs",
  "epaint_default_fonts",
  "image",
+ "libloading",
  "miniz_oxide 0.8.9",
  "muda",
  "png",

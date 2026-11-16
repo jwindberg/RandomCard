@@ -4,11 +4,12 @@
 //! pictures from a color map, and filling opaque parts with their color.
 
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::Arc;
 
 use eframe::egui::Color32;
 
 use crate::model::color::{ColorItem, ColorTarget};
-use crate::model::{Id, Layer, Part, PartKind, PartStyle, Rect};
+use crate::model::{Id, Layer, Part, PartKind, PartStyle, Picture, Rect, Stack};
 use crate::runtime::world::World;
 
 #[derive(Clone, Copy, Debug, PartialEq, Hash)]
@@ -26,6 +27,30 @@ pub struct ColorShape {
     /// RGBA; transparent parts are colored at partial opacity.
     pub color: [u8; 4],
     pub bevel: i32,
+    /// A color picture stretched over the rect, in place of the color.
+    pub picture: Option<ShapePicture>,
+}
+
+/// A color picture, as the stack keeps it; the same picture is the same
+/// shape, without comparing its pixels.
+#[derive(Clone, Debug)]
+pub struct ShapePicture {
+    pub picture: Arc<Picture>,
+    /// Its white is see-through.
+    pub transparent: bool,
+}
+
+impl PartialEq for ShapePicture {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.picture, &other.picture) && self.transparent == other.transparent
+    }
+}
+
+impl Hash for ShapePicture {
+    fn hash<H: Hasher>(&self, h: &mut H) {
+        (Arc::as_ptr(&self.picture) as usize).hash(h);
+        self.transparent.hash(h);
+    }
 }
 
 /// How much color a transparent part gets, as in HyperCardPreview.
@@ -64,19 +89,22 @@ pub fn shapes(w: &World, card: Id, edit_bg: bool) -> Vec<ColorShape> {
         layers.sort_by_key(|(i, _)| matches!(i.target, ColorTarget::Button { .. } | ColorTarget::Field { .. }));
     }
     layers.extend(temp);
-    layers.into_iter().filter(|(i, _)| i.enabled).filter_map(|(item, parts)| shape(item, parts)).collect()
+    layers.into_iter().filter(|(i, _)| i.enabled).filter_map(|(item, parts)| shape(item, parts, stack)).collect()
 }
 
-fn shape(item: &ColorItem, parts: &[Part]) -> Option<ColorShape> {
+fn shape(item: &ColorItem, parts: &[Part], stack: &Stack) -> Option<ColorShape> {
     let part = |id: Id, kind: PartKind| parts.iter().find(|p| p.id == id && p.kind == kind && p.visible);
     match &item.target {
         ColorTarget::Button { id, color, bevel } => part(*id, PartKind::Button).and_then(|p| part_shape(p, *color, *bevel)),
         ColorTarget::Field { id, color, bevel } => part(*id, PartKind::Field).and_then(|p| part_shape(p, *color, *bevel)),
         ColorTarget::Rect { rect, color, bevel } => {
-            Some(ColorShape { rect: *rect, shape: Shape::Rect, color: opaque(*color), bevel: *bevel as i32 })
+            Some(ColorShape { rect: *rect, shape: Shape::Rect, color: opaque(*color), bevel: *bevel as i32, picture: None })
         }
-        // PICT pictures aren't decoded yet.
-        ColorTarget::Picture { .. } => None,
+        ColorTarget::Picture { rect, name, transparent, file } => {
+            let picture = stack.color_picture(name, *file)?.clone();
+            let picture = Some(ShapePicture { picture, transparent: *transparent });
+            Some(ColorShape { rect: *rect, shape: Shape::Rect, color: [255, 255, 255, 255], bevel: 0, picture })
+        }
     }
 }
 
@@ -101,7 +129,7 @@ fn part_shape(p: &Part, color: [u8; 3], bevel: u16) -> Option<ColorShape> {
         (PartKind::Button, PartStyle::Oval) => (r, Shape::Oval),
         _ => (r, Shape::Rect),
     };
-    Some(ColorShape { rect, shape, color, bevel: bevel as i32 })
+    Some(ColorShape { rect, shape, color, bevel: bevel as i32, picture: None })
 }
 
 fn covers(s: &ColorShape, x: i32, y: i32) -> bool {
@@ -134,6 +162,19 @@ fn mix(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
 pub fn color_at(shapes: &[ColorShape], x: i32, y: i32) -> Color32 {
     let mut c = [255.0f32; 3];
     for s in shapes.iter().filter(|s| covers(s, x, y)) {
+        if let Some(p) = &s.picture {
+            // Stretched to the rect, as AddColor drew it.
+            let r = s.rect;
+            let (w, h) = (p.picture.width as i64, p.picture.height as i64);
+            let px = ((x - r.left) as i64 * w / r.width().max(1) as i64) as i32;
+            let py = ((y - r.top) as i64 * h / r.height().max(1) as i64) as i32;
+            let [pr, pg, pb, pa] = p.picture.get(px, py).0;
+            if pa == 0 || p.transparent && [pr, pg, pb] == [255, 255, 255] {
+                continue;
+            }
+            c = mix(c, [pr as f32, pg as f32, pb as f32], pa as f32 / 255.0);
+            continue;
+        }
         let mut col = [s.color[0] as f32, s.color[1] as f32, s.color[2] as f32];
         if s.bevel > 0 {
             // A raised edge: lighter at the top and left, darker at the bottom and right.
@@ -178,7 +219,7 @@ mod tests {
 
     #[test]
     fn colors_and_bevels() {
-        let red = ColorShape { rect: Rect::new(0, 0, 10, 10), shape: Shape::Rect, color: [255, 0, 0, 255], bevel: 2 };
+        let red = ColorShape { rect: Rect::new(0, 0, 10, 10), shape: Shape::Rect, color: [255, 0, 0, 255], bevel: 2, picture: None };
         assert_eq!(color_at(std::slice::from_ref(&red), 5, 5), Color32::from_rgb(255, 0, 0));
         assert_eq!(color_at(std::slice::from_ref(&red), 0, 5), Color32::from_rgb(255, 128, 128));
         assert_eq!(color_at(std::slice::from_ref(&red), 9, 5), Color32::from_rgb(128, 0, 0));
@@ -189,5 +230,24 @@ mod tests {
         let faint = ColorShape { color: [0, 0, 255, TRANSPARENT_ALPHA], bevel: 0, ..red };
         let c = color_at(&[faint], 5, 5);
         assert!(c.b() == 255 && c.r() > 0 && c.r() < 255);
+    }
+
+    #[test]
+    fn pictures_stretch_and_see_through() {
+        use crate::model::Pixel;
+        // A 2×1 picture, red and white, stretched over 4×2.
+        let mut p = Picture::new(2, 1);
+        p.set(0, 0, Pixel([255, 0, 0, 255]));
+        p.set(1, 0, Pixel::WHITE);
+        let picture = Some(ShapePicture { picture: Arc::new(p), transparent: false });
+        let blue = ColorShape { rect: Rect::new(0, 0, 4, 2), shape: Shape::Rect, color: [0, 0, 255, 255], bevel: 0, picture: None };
+        let pict = ColorShape { picture, ..blue.clone() };
+        let shapes = [blue.clone(), pict.clone()];
+        assert_eq!(color_at(&shapes, 1, 1), Color32::from_rgb(255, 0, 0));
+        assert_eq!(color_at(&shapes, 3, 0), Color32::WHITE);
+        // Transparent, its white shows what's behind.
+        let mut see = pict;
+        see.picture.as_mut().unwrap().transparent = true;
+        assert_eq!(color_at(&[blue, see], 3, 0), Color32::from_rgb(0, 0, 255));
     }
 }

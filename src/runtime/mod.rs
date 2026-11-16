@@ -10,6 +10,7 @@ pub mod debugger;
 pub mod dates;
 pub mod interp;
 mod menu_commands;
+pub mod movies;
 pub mod menus;
 mod objects;
 pub mod paths;

@@ -153,6 +153,8 @@ pub enum Countable {
     Chunks(ChunkKind, Box<Expr>),
     Menus,
     MenuItems(Box<ChunkIndex>),
+    /// `the number of movies`: open movie windows.
+    Movies,
 }
 
 /// `menu "Edit"`, `menuItem 2 of menu "Go"`, `last menuItem of menu 3`.
@@ -348,6 +350,8 @@ pub enum Cmd {
     UnlockScreen(Option<Effect>),
     LockMessages,
     UnlockMessages,
+    /// `lock recent`, `unlock recent`: `the lockRecent`.
+    LockRecent(bool),
     VisualEffect(Effect),
     PushCard(Option<Expr>),
     PopCard(Option<(Prep, Expr)>),
@@ -377,6 +381,9 @@ pub enum Cmd {
     /// `export paint to file "Card.png"`: the card as a PNG.
     ExportPaint(Expr),
     CloseFile(Expr),
+    /// `open movie "Intro"`: open a movie file in a movie window, or ask
+    /// for one.
+    OpenMovie(Option<Expr>),
     /// `close window "Notes"`: a window a script opened.
     CloseWindow(Expr),
     /// `send "select" to window "Notes"`: a message to a window.

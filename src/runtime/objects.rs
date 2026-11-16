@@ -382,6 +382,7 @@ impl Interp {
             }
             Countable::MarkedCards => self.w().stack.cards.iter().filter(|c| c.marked).count(),
             Countable::Menus => self.w().menus.len(),
+            Countable::Movies => self.w().movies.len(),
             Countable::MenuItems(m) => self.count_menu_items(m)?,
             Countable::Backgrounds => self.w().stack.backgrounds.len(),
             Countable::Parts { kind, layer, of } => {
@@ -448,9 +449,10 @@ impl Interp {
             "grid" => bool_str(w.grid),
             "centered" => bool_str(w.centered),
             "multiple" => bool_str(w.multiple),
-            "lockrecent" | "messagewatcher" | "variablewatcher" => {
-                "false".into()
-            }
+            "lockrecent" => bool_str(w.lock_recent),
+            "dialingtime" => w.dialing_time.to_string(),
+            "dialingvolume" => w.dialing_volume.to_string(),
+            "messagewatcher" | "variablewatcher" => "false".into(),
             "language" => "English".into(),
             "tracedelay" => w.trace_delay.to_string(),
             "version" => "2.41".into(),
@@ -515,8 +517,11 @@ impl Interp {
                 }
             }
             "tracedelay" => self.w().trace_delay = to_int(v)?.clamp(0, 600) as u32,
+            "lockrecent" => self.w().lock_recent = to_bool(v)?,
+            "dialingtime" => self.w().dialing_time = to_int(v)?.max(0) as u32,
+            "dialingvolume" => self.w().dialing_volume = to_int(v)?.clamp(0, 7) as u32,
             "cursor" | "dragspeed" | "textarrows" | "blindtyping" | "usermodify"
-            | "lockrecent" | "language" | "messagewatcher"
+            | "language" | "messagewatcher"
             | "variablewatcher" | "textalign" | "textheight" | "scripttextfont" | "scripttextsize" | "debugger"
             | "scripteditor" => {}
             _ => return err(format!("No such property \"{name}\"")),
@@ -743,7 +748,14 @@ impl Interp {
                     format!("{},{},{},{}", r.left, r.top, r.right, r.bottom)
                 }
                 // A window's loc is its top left corner.
-                "loc" | "location" => format!("{},{}", w.msg_rect.left, w.msg_rect.top),
+                "loc" | "location" | "topleft" => format!("{},{}", w.msg_rect.left, w.msg_rect.top),
+                "left" => w.msg_rect.left.to_string(),
+                "top" => w.msg_rect.top.to_string(),
+                "right" => w.msg_rect.right.to_string(),
+                "bottom" => w.msg_rect.bottom.to_string(),
+                "width" => w.msg_rect.width().to_string(),
+                "height" => w.msg_rect.height().to_string(),
+                "botright" | "bottomright" => format!("{},{}", w.msg_rect.right, w.msg_rect.bottom),
                 _ => {
                     drop(w);
                     return err(format!("The message box has no property \"{name}\""));

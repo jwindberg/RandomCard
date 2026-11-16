@@ -157,6 +157,10 @@ pub struct Interp {
     pub print_job: Option<Vec<Id>>,
     /// Open printed documents in the system's viewer (not in tests).
     pub open_documents: bool,
+    /// Pauses that are only for someone watching (`wait`, visual effects,
+    /// `show cards`) don't pause: for runs with no one watching, like the
+    /// test that clicks every button of a stack.
+    pub skip_pauses: bool,
     /// startUp has gone to the first stack opened.
     sent_startup: bool,
     /// Documents printed, newest last.
@@ -201,6 +205,7 @@ impl Interp {
             paused_lines: Vec::new(),
             print_job: None,
             open_documents: false,
+            skip_pauses: false,
             sent_startup: false,
             printed: Vec::new(),
         }
@@ -315,6 +320,8 @@ impl Interp {
             Event::Key { at, .. } if self.keys_flushed.is_some_and(|f| at < f) => Ok(()),
             Event::Key { target, message, args, default, .. } => self.key_message(target, &message, args, default),
             Event::CloseWindow(name) => self.close_script_window(&name, true),
+            Event::CloseMovie(id) => self.close_movie(id),
+            Event::OpenMovie(path) => self.open_dropped_movie(&path),
             Event::PaletteButton(name, n) => {
                 let card = ObjRef::Card(self.w().card_id);
                 let message = {
@@ -360,6 +367,7 @@ impl Interp {
         self.lock_messages = false;
         let mut w = self.w();
         w.lock_screen = false;
+        w.lock_recent = false;
         w.busy = false;
     }
 
@@ -890,6 +898,9 @@ impl Interp {
                     None => vec![v],
                 }
             }
+            // The number, as Addresses dials through Phone Dialer's own
+            // dial handler: `dial phoneNumber`.
+            Cmd::Dial(e) => vec![self.eval(e)?],
             _ if args.is_empty() => Vec::new(),
             _ => vec![args.to_string()],
         };
@@ -1453,6 +1464,14 @@ impl Interp {
                 Err(_) => return Err(Ctl::ExitToHyperCard),
             }
         }
+    }
+
+    /// A pause for someone watching: none when `skip_pauses` is set.
+    pub fn watch_pause(&self, d: Duration) -> R<()> {
+        if self.skip_pauses {
+            return self.check_abort();
+        }
+        self.sleep(d)
     }
 
     pub fn sleep(&self, d: Duration) -> R<()> {

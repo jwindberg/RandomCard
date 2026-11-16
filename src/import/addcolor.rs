@@ -28,6 +28,44 @@ pub fn apply(stack: &mut Stack, resources: &[Resource], enc: TextEncoding) {
     }
 }
 
+/// Keep the color pictures the stack's AddColor items show, and those its
+/// scripts name in quotes (`addColor addPict, cd, "Sky", …`): PICT
+/// resources from its fork, and PICT files beside it.
+pub fn pictures(stack: &mut Stack, resources: &[Resource], path: &std::path::Path) {
+    let items = stack.cards.iter().flat_map(|c| &c.colors).chain(stack.backgrounds.iter().flat_map(|b| &b.colors));
+    let mut wanted: Vec<(String, bool)> = items
+        .filter_map(|i| match &i.target {
+            ColorTarget::Picture { name, file, .. } => Some((name.clone(), *file)),
+            _ => None,
+        })
+        .collect();
+    let scripts = super::all_scripts(stack).to_lowercase();
+    for r in resources.iter().filter(|r| &r.kind == b"PICT" && !r.name.is_empty()) {
+        let named = scripts.contains(&format!("\"{}\"", r.name.to_lowercase()));
+        if named || wanted.iter().any(|(n, f)| !f && n.eq_ignore_ascii_case(&r.name)) {
+            wanted.retain(|(n, f)| *f || !n.eq_ignore_ascii_case(&r.name));
+            if let Some(p) = super::pict::decode(r.data) {
+                stack.color_pictures.insert(crate::model::color_picture_key(&r.name, false), std::sync::Arc::new(p.to_color_picture()));
+            }
+        }
+    }
+    let dir = path.parent().unwrap_or(std::path::Path::new("."));
+    for (name, _) in wanted.into_iter().filter(|(_, f)| *f) {
+        if let Some(p) = picture_file(dir, &name) {
+            stack.color_pictures.insert(crate::model::color_picture_key(&name, true), std::sync::Arc::new(p));
+        }
+    }
+}
+
+/// A picture file AddColor names, beside the stack: a name, or a Mac path
+/// from the stack's folder (":Pictures:Sky") or from its disk, of which
+/// the end is tried beside the stack.
+pub fn picture_file(dir: &std::path::Path, name: &str) -> Option<crate::model::Picture> {
+    let parts: Vec<&str> = name.split(':').filter(|p| !p.is_empty()).collect();
+    let tries = (0..parts.len()).map(|from| parts[from..].iter().fold(dir.to_path_buf(), |p, part| p.join(part.replace('/', ":"))));
+    tries.chain(std::iter::once(std::path::PathBuf::from(name))).find_map(|p| crate::paint::image_file::decode(&std::fs::read(&p).ok()?).ok())
+}
+
 /// The items in one resource; a damaged or unknown item ends the list.
 pub fn items(data: &[u8], enc: TextEncoding) -> Vec<ColorItem> {
     let mut out = Vec::new();

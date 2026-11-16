@@ -17,6 +17,17 @@ pub struct Pict {
 }
 
 impl Pict {
+    /// The picture in its colors, as AddColor shows it.
+    pub fn to_color_picture(&self) -> crate::model::Picture {
+        let mut p = crate::model::Picture::new(self.width, self.height);
+        for y in 0..self.height {
+            for x in 0..self.width {
+                p.set(x as i32, y as i32, crate::model::Pixel(self.rgba[(y * self.width + x) as usize]));
+            }
+        }
+        p
+    }
+
     /// The picture in black and white, as HyperCard's paint layers hold it:
     /// dark pixels black, the rest white.
     pub fn to_picture(&self) -> crate::model::Picture {

@@ -8,7 +8,7 @@
 //! Button icons, sounds and AddColor colors come from the stack's resource
 //! fork when one can be found; other resources (XCMDs, PICTs) aren't used.
 
-mod addcolor;
+pub(crate) mod addcolor;
 pub mod fix_steps;
 pub mod pict;
 mod resources;
@@ -98,6 +98,7 @@ pub fn import_bytes(bytes: &[u8], path: &Path, password: Option<&str>) -> Result
         stack.fonts = resources::fonts(&fork, enc);
         stack.palettes = resources::palettes(&fork, enc);
         addcolor::apply(&mut stack, &resources::parse(&fork, enc), enc);
+        addcolor::pictures(&mut stack, &resources::parse(&fork, enc), path);
     }
     add_chain_resources(&mut stack, path, enc);
     stack.imported_from = Some(path.to_path_buf());

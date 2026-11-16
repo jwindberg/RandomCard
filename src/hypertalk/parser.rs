@@ -131,7 +131,7 @@ fn is_ordinal(w: &str) -> bool {
     )
 }
 
-fn ordinal_of(w: &str) -> Option<Ordinal> {
+pub(crate) fn ordinal_of(w: &str) -> Option<Ordinal> {
     Some(match w {
         "first" => Ordinal::Nth(1),
         "second" => Ordinal::Nth(2),
@@ -420,6 +420,40 @@ impl Parser {
         self.starts_term_at(0)
     }
 
+    /// Whether a movie reference starts `n` tokens on: `movie 1`, `movie
+    /// "Intro"`, `movie id 1001`, `first movie`.
+    fn movie_ref_at(&self, n: usize) -> bool {
+        self.is_at(n, "movie") && self.starts_term_at(n + 1) || self.word_at(n).is_some_and(is_ordinal) && self.is_at(n + 1, "movie")
+    }
+
+    /// A movie reference, as `__movie(how, which)`, which comes to `movie
+    /// id N`; None if there isn't one here.
+    fn movie_ref(&mut self) -> PResult<Option<Expr>> {
+        if !self.movie_ref_at(0) {
+            return Ok(None);
+        }
+        let call = |how: &str, which: Expr| Some(Expr::Call("__movie".into(), vec![Expr::Lit(how.into()), which]));
+        if self.accept("movie") {
+            if self.accept("id") {
+                return Ok(call("id", self.term()?));
+            }
+            return Ok(call("which", self.term()?));
+        }
+        let ord = self.word().unwrap_or_default().to_string();
+        self.pos += 2;
+        Ok(call("ord", Expr::Lit(ord)))
+    }
+
+    /// `controller of movie 1`: a property of the movie's controller, which
+    /// is the movie's own property with "controller" in front
+    /// (`controllerVisible`, as HyperCard first called it).
+    fn controller_of_movie(&mut self, prop: &mut String) {
+        if self.is("controller") && self.is_at(1, "of") && self.movie_ref_at(2) {
+            self.pos += 2;
+            *prop = format!("controller{prop}");
+        }
+    }
+
     // ----- scripts and statements -----
 
     fn script(&mut self, tolerant: bool) -> PResult<Script> {
@@ -599,8 +633,13 @@ impl Parser {
         let web = matches!(w.as_str(), "post" | "patch" | "query" | "request") && self.to_url_ahead()
             || w == "load" && self.is_at(1, "url")
             // `flush keys`; a stack's own `flush` handler is still a message.
-            || w == "flush" && self.is_at(1, "keys");
-        if COMMANDS.contains(&w.as_str()) || paint_file || web {
+            || w == "flush" && self.is_at(1, "keys")
+            // `pause movie 1`; a stack's own `pause` handler is still a message.
+            || matches!(w.as_str(), "pause" | "rewind") && self.movie_ref_at(1);
+        // A bare `dial` is a message for a stack's own dial handler (Phone
+        // Dialer's asks for the number); HyperCard's needs a number.
+        let bare_dial = w == "dial" && self.at_stmt_end_at(1);
+        if COMMANDS.contains(&w.as_str()) && !bare_dial || paint_file || web {
             let start = self.pos + 1;
             let cmd = self.command(&w)?;
             let args = self.source_text(start, self.pos);
@@ -747,6 +786,14 @@ impl Parser {
     fn command(&mut self, name: &str) -> PResult<Cmd> {
         self.advance();
         Ok(match name {
+            // `pause movie 1`, `rewind movie "Intro"`
+            "pause" | "rewind" => {
+                let msg = Expr::Lit(name.into());
+                match self.movie_ref()? {
+                    Some(window) => Cmd::SendToWindow { msg, window },
+                    None => return Err(self.err_here("Expected a movie")),
+                }
+            }
             "put" => {
                 let value = self.list_expr()?;
                 // `put body to url "…"`: HTTP PUT (a plain put never says `to`).
@@ -808,6 +855,14 @@ impl Parser {
                     prop = self.symbol()?;
                 }
                 let of = self.accept("of") || self.accept("in");
+                // `set the rate of movie 1 to 2`: a movie window's property.
+                if of {
+                    self.controller_of_movie(&mut prop);
+                    if let Some(movie) = self.movie_ref()? {
+                        self.expect("to")?;
+                        return Ok(Cmd::SetWindowProp { prop, window: movie, value: self.list_expr()? });
+                    }
+                }
                 // `set the visible of tool window to true`
                 if of && matches!(self.word(), Some("tool" | "pattern" | "patterns")) && self.is_at(1, "window") {
                     let name = format!("{} window", self.word().unwrap_or_default());
@@ -945,6 +1000,10 @@ impl Parser {
                     if self.accept("window") {
                         return Ok(Cmd::SendToWindow { msg, window: self.expr()? });
                     }
+                    // `send "rewind" to movie 1`
+                    if let Some(window) = self.movie_ref()? {
+                        return Ok(Cmd::SendToWindow { msg, window });
+                    }
                     Some(self.expr()?)
                 } else {
                     None
@@ -986,6 +1045,8 @@ impl Parser {
             "lock" => {
                 if self.accept("messages") {
                     Cmd::LockMessages
+                } else if self.accept("recent") {
+                    Cmd::LockRecent(true)
                 } else {
                     self.expect("screen")?;
                     Cmd::LockScreen
@@ -994,6 +1055,8 @@ impl Parser {
             "unlock" => {
                 if self.accept("messages") {
                     Cmd::UnlockMessages
+                } else if self.accept("recent") {
+                    Cmd::LockRecent(false)
                 } else {
                     self.expect("screen")?;
                     if self.accept("with") {
@@ -1142,6 +1205,10 @@ impl Parser {
             "mark" => Cmd::Mark(self.mark_what()?),
             "unmark" => Cmd::Unmark(self.mark_what()?),
             "open" => {
+                // `open movie "Intro"`: open a movie file in a movie window.
+                if self.accept("movie") {
+                    return Ok(Cmd::OpenMovie(if self.at_stmt_end() { None } else { Some(self.expr()?) }));
+                }
                 if self.accept("file") {
                     Cmd::OpenFile(self.expr()?)
                 } else if self.accept("printing") {
@@ -1168,6 +1235,8 @@ impl Parser {
                     Cmd::CloseFile(self.expr()?)
                 } else if self.accept("window") {
                     Cmd::CloseWindow(self.expr()?)
+                } else if let Some(movie) = self.movie_ref()? {
+                    Cmd::CloseWindow(movie)
                 } else if self.accept("printing") {
                     Cmd::ClosePrinting
                 } else {
@@ -1286,6 +1355,10 @@ impl Parser {
                 Cmd::Convert { value, to: words.join(" ") }
             }
             "play" => {
+                // `play movie "Intro"`
+                if let Some(window) = self.movie_ref()? {
+                    return Ok(Cmd::SendToWindow { msg: Expr::Lit("play".into()), window });
+                }
                 if self.accept("stop") {
                     let song = if self.at_stmt_end() { None } else { Some(self.expr()?) };
                     return Ok(Cmd::PlayStop(song));
@@ -1607,6 +1680,9 @@ impl Parser {
         if self.is("window") && self.starts_term_at(1) {
             self.advance();
             return Ok(ShowHide::Window(self.expr()?));
+        }
+        if let Some(movie) = self.movie_ref()? {
+            return Ok(ShowHide::Window(movie));
         }
         for (word, which) in [
             ("message", ShowHide::MessageWatcher),
@@ -2127,6 +2203,11 @@ impl Parser {
             self.advance();
             return Ok(Expr::Menu(Box::new(self.menu_ref(&w, ord)?)));
         }
+        if self.movie_ref_at(0)
+            && let Some(movie) = self.movie_ref()?
+        {
+            return Ok(movie);
+        }
         if w == "window" && self.starts_term_at(1) {
             // Palettes and other windows aren't supported either.
             self.advance();
@@ -2166,7 +2247,9 @@ impl Parser {
         let known = PROPERTIES.contains(&w) && (!self.in_chunk_index || w == "number") || ONE_ARG_FUNCS.contains(&w);
         // An external window's own property: `messageName of window wName`.
         let of_window = self.is_at(n + 1, "of") && self.is_at(n + 2, "window") && self.starts_term_at(n + 3);
-        of_window || known && (self.is_at(n + 1, "of") || w == "number" && self.is_at(n + 1, "in"))
+        // A movie's: `rate of movie 1`.
+        let of_movie = self.is_at(n + 1, "of") && (self.movie_ref_at(n + 2) || self.is_at(n + 2, "controller") && self.is_at(n + 3, "of") && self.movie_ref_at(n + 4));
+        of_window || of_movie || known && (self.is_at(n + 1, "of") || w == "number" && self.is_at(n + 1, "in"))
     }
 
     fn length_word(&self, n: usize) -> Option<NameLength> {
@@ -2273,6 +2356,13 @@ impl Parser {
                 self.pos += 2;
                 return Ok(Expr::Property { name, length, obj: Some(Box::new(ObjSpec::Target)) });
             }
+            // A movie window's: `the rate of movie 1`, `the visible of
+            // controller of movie "Intro"`.
+            let mut prop = name.clone();
+            self.controller_of_movie(&mut prop);
+            if let Some(movie) = self.movie_ref()? {
+                return Ok(Expr::Call("__windowprop".into(), vec![Expr::Lit(prop), movie]));
+            }
             // A palette: `the loc of tool window`, `the visible of pattern window`.
             if matches!(self.word(), Some("tool" | "pattern" | "patterns")) && self.is_at(1, "window") {
                 let window = format!("{} window", self.word().unwrap_or_default());
@@ -2340,6 +2430,9 @@ impl Parser {
     fn countable(&mut self) -> PResult<Option<Countable>> {
         if self.accept("menus") {
             return Ok(Some(Countable::Menus));
+        }
+        if self.accept("movies") {
+            return Ok(Some(Countable::Movies));
         }
         if self.accept_any(&["menuitems", "menuitem"]).is_some() {
             if !(self.accept("of") || self.accept("in")) {

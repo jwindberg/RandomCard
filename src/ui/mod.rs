@@ -8,6 +8,7 @@ mod icon_editor;
 mod images;
 mod text_color;
 mod menus;
+mod movies;
 mod levels;
 mod list_dialog;
 #[cfg(target_os = "macos")]
@@ -207,6 +208,9 @@ pub struct App {
     /// Palette pictures, normal and inverted, by window name, with the
     /// palette each was made from.
     palette_tex: std::collections::HashMap<String, (std::sync::Arc<crate::model::Palette>, egui::TextureHandle, egui::TextureHandle)>,
+    /// Each movie window's picture, and the movie whose slider is held.
+    movie_tex: movies::MovieTextures,
+    movie_scrub: Option<movies::Scrub>,
     /// The palette button being pressed: its window and number (from 0).
     palette_press: Option<(String, usize)>,
     /// The native menu bar, and the items chosen from it.
@@ -317,6 +321,8 @@ impl App {
             recent_open: false,
             popup: None,
             palette_tex: std::collections::HashMap::new(),
+            movie_tex: Default::default(),
+            movie_scrub: None,
             palette_press: None,
             #[cfg(target_os = "macos")]
             native_menus: native_menu::NativeMenus::new(),
@@ -2690,6 +2696,7 @@ impl eframe::App for App {
         self.recent_window(&ctx);
         self.popup_menu(&ctx);
         self.debugger(&ctx);
+        self.movie_windows(&ctx);
         self.script_windows(&ctx);
         self.show_dialog(&ctx);
         self.show_error(&ctx);

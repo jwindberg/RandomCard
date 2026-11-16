@@ -321,13 +321,13 @@ fn startup_comes_before_open_stack_once() {
 fn demo_stack_runs() {
     let mut i = interp_with(Stack::demo());
     i.handle_event(Event::Startup);
-    assert_eq!(run(&mut i, "put field \"Page\""), "Card 1 of 19");
+    assert_eq!(run(&mut i, "put field \"Page\""), "Card 1 of 20");
     let current = |i: &Interp| {
         let w = lock(&i.world);
         w.stack.card(w.card_id).unwrap().name.clone()
     };
     // The stack's own Tour menu.
-    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "18");
+    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "19");
     i.handle_event(Event::DoMenu("Dice".into()));
     assert_eq!(current(&i), "Dice");
     i.handle_event(Event::DoMenu("First".into()));
@@ -483,6 +483,21 @@ fn demo_stack_runs() {
     run(&mut i, "put 3 into button \"Volume\"\nsend \"sliderMoved\" to button \"Volume\"");
     assert_eq!(run(&mut i, "put the soundVolume && the style of button \"Volume\" && the max of button \"Volume\""), "3 slider 7");
     assert_eq!(run(&mut i, "put field \"Volume\""), "the soundVolume: 3 of 7");
+    // Movies: the Tour's own movie, opened, played and closed, when the
+    // system can play movies.
+    run(&mut i, "go to card \"Movies\"");
+    assert_eq!(click(&mut i, "Movies", "Open Movie"), None);
+    if run(&mut i, "put the number of movies") == "1" {
+        assert_eq!(run(&mut i, "put the name of window \"Card Trick\""), "Card Trick.mp4");
+        assert_eq!(run(&mut i, "put the rect of window \"Card Trick\""), "20,112,244,296");
+        for name in ["Pause", "Play", "Rewind", "Backward", "Faster", "Loop", "Controller", "Where Is It?"] {
+            assert_eq!(click(&mut i, "Movies", name), None, "{name}");
+        }
+        assert_eq!(run(&mut i, "put the loop of movie 1 && the rate of movie 1"), "true 2");
+        assert!(run(&mut i, "put field \"Movie Messages\"").starts_with("currTime "));
+        run(&mut i, "go to card \"Keys\"");
+        assert_eq!(run(&mut i, "put the number of movies"), "0");
+    }
     // More Text: the list's selection, textWidth, the selectedButton.
     run(&mut i, "go to card \"More Text\"");
     assert_eq!(run(&mut i, "put the textFont of field \"Pixel\""), "Tour Pixel");
@@ -519,7 +534,8 @@ fn demo_stack_runs() {
     run(&mut i, "go to card \"Drawing\"");
     assert_eq!(click(&mut i, "Drawing", "Color the House"), None);
     let drawing_colors = |i: &Interp| lock(&i.world).stack.cards.iter().find(|c| c.name == "Drawing").unwrap().colors.len();
-    assert_eq!(drawing_colors(&i), 3);
+    assert_eq!(drawing_colors(&i), 4);
+    assert_eq!(run(&mut i, "addColor getPictName,cd,4\nput the result"), "Rainbow");
     assert_eq!(click(&mut i, "Drawing", "Color the House"), None);
     assert_eq!(drawing_colors(&i), 0);
     let before = i.printed.len();
@@ -715,7 +731,7 @@ fn demo_stack_runs() {
     assert_eq!(run(&mut i, "put the number of cards of this background"), "4");
     i.canned_answers.push(DialogReply::Button("Delete".into()));
     assert_eq!(click(&mut i, "", "Delete"), None);
-    assert_eq!(run(&mut i, "put the number of cards"), "19");
+    assert_eq!(run(&mut i, "put the number of cards"), "20");
     assert_eq!(click(&mut i, "Grace Hopper", "Contents"), None);
     assert_eq!(current(&i), "Contents");
     assert_eq!(run(&mut i, "put the userLevel"), "5");
@@ -1669,26 +1685,26 @@ fn exercise_one(path: &std::path::Path, print: bool) -> Exercised {
     let name = stack.name.clone();
     let original = stack.clone();
     let mut i = interp_with(stack);
+    // No one is watching: effects and waits don't pause.
+    i.skip_pauses = true;
     give_home(&i);
     let abort = i.abort.clone();
     let mut seen = std::collections::BTreeMap::<String, usize>::new();
     // A click waiting on something that never comes (a loop until the user
     // types a number) is stopped after two seconds. Answers whether it was.
+    // The watchdog wakes as soon as the click is done, rather than napping
+    // through the rest of a poll.
     let with_watchdog = |abort: &Arc<AtomicBool>, f: &mut dyn FnMut()| {
-        let done = Arc::new(AtomicBool::new(false));
-        let (d, a) = (done.clone(), abort.clone());
+        let (done, wait) = std::sync::mpsc::channel::<()>();
+        let a = abort.clone();
         let watchdog = std::thread::spawn(move || {
-            for _ in 0..40 {
-                std::thread::sleep(std::time::Duration::from_millis(50));
-                if d.load(std::sync::atomic::Ordering::SeqCst) {
-                    return;
-                }
+            if wait.recv_timeout(std::time::Duration::from_secs(2)) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
+                a.store(true, std::sync::atomic::Ordering::SeqCst);
             }
-            a.store(true, std::sync::atomic::Ordering::SeqCst);
         });
         let start = std::time::Instant::now();
         f();
-        done.store(true, std::sync::atomic::Ordering::SeqCst);
+        let _ = done.send(());
         let _ = watchdog.join();
         start.elapsed() > std::time::Duration::from_secs(2)
     };
@@ -4116,4 +4132,208 @@ fn go_to_a_card_id_left_out() {
     assert!(run(&mut i, "go to cd id -- nowhere yet\nput 55").contains("No such card."));
     // A card that isn't there: the result says so, as before.
     assert_eq!(run(&mut i, "go to card id 99999\nput the result"), "No such card.");
+}
+
+/// HyperCard 2.4's movie syntax, and a movie played through it when the
+/// system can play movies (GStreamer on Linux).
+#[test]
+fn movies() {
+    let mut i = interp_with(stack());
+    let (tx, rx) = std::sync::mpsc::channel();
+    i.event_tx = Some(tx);
+    // No movies yet: references to one are errors, counting isn't.
+    assert_eq!(run(&mut i, "put the number of movies"), "0");
+    assert!(run(&mut i, "put the rate of movie 1").contains("No such movie 1"));
+    assert!(run(&mut i, "play movie \"Intro\"").contains("No such movie Intro"));
+    assert!(run(&mut i, "put the visible of controller of last movie").contains("No such movie"));
+    // A stack's own pause handler still gets `pause`.
+    run(&mut i, "put 1 into pause");
+    assert_eq!(run(&mut i, "put pause"), "1");
+    let file = concat!(env!("CARGO_MANIFEST_DIR"), "/src/model/tour_movie/Card Trick.mp4");
+    run(&mut i, &format!("Movie \"{file}\", \"rect\", \"10,20\", \"visible\""));
+    run(&mut i, "put the result");
+    let opened = lock(&i.world).msg.clone();
+    if !opened.is_empty() {
+        // No movie player here: the Movie command says so in the result.
+        eprintln!("movies skipped: {opened}");
+        assert_eq!(run(&mut i, "put the number of movies"), "0");
+        return;
+    }
+    assert_eq!(run(&mut i, "put the number of movies"), "1");
+    assert_eq!(run(&mut i, "put the rect of window \"Card Trick.mp4\""), "10,20,330,260");
+    assert_eq!(run(&mut i, "put the rect of movie 1"), "0,0,320,240");
+    // Its frames are opaque.
+    let frame = lock(&i.world).movies[0].player.frame().expect("a first frame");
+    assert!(frame.rgba.as_chunks::<4>().0.iter().all(|p| p[3] == 255));
+    assert_eq!(run(&mut i, "put the defaultRect of first movie"), "0,0,320,240");
+    assert_eq!(run(&mut i, "put the name of window \"Card Trick\""), "Card Trick.mp4");
+    let id = run(&mut i, "put the id of movie 1");
+    assert_eq!(run(&mut i, &format!("put the number of movie id {id}")), "1");
+    assert_eq!(run(&mut i, "put rate of movie 1"), "0");
+    assert_eq!(run(&mut i, "put the duration of movie 1"), "4,1.4");
+    // Times in SystemTime (seconds and ticks) or MovieTime (600 a second).
+    run(&mut i, "set the currTime of movie 1 to \"2,30\"");
+    assert_eq!(run(&mut i, "put the currTime of movie 1"), "2,30");
+    run(&mut i, "set the timeFormat of movie 1 to MovieTime");
+    assert_eq!(run(&mut i, "put the currTime of movie 1"), "1500");
+    run(&mut i, "set the timeFormat of movie 1 to SystemTime");
+    // The window's rect is the card's; the movie's is the window's.
+    run(&mut i, "set the loc of window \"Card Trick.mp4\" to 0,0");
+    assert_eq!(run(&mut i, "put the rect of window \"Card Trick.mp4\""), "0,0,320,240");
+    run(&mut i, "set the visible of controller of movie 1 to true");
+    assert_eq!(run(&mut i, "put the bottom of window \"Card Trick.mp4\""), "256");
+    assert_eq!(run(&mut i, "put the controllerVisible of movie 1"), "true");
+    // Playing, pausing and rewinding, with movieRateChanged to the card.
+    while rx.try_recv().is_ok() {}
+    run(&mut i, "play movie 1");
+    assert_eq!(run(&mut i, "put the rate of movie 1"), "1");
+    let msg = rx.try_recv().expect("movieRateChanged");
+    assert!(matches!(msg, Event::Send { ref message, ref args, .. } if message == "movieRateChanged" && args[2] == "1"));
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    run(&mut i, "pause movie 1");
+    let t = crate::runtime::movies::parse_system_time(&run(&mut i, "put the currTime of movie 1")).unwrap();
+    assert!(t > 2.6 && t < 3.5, "played on from 2.5 to {t}");
+    run(&mut i, "send \"rewind\" to movie 1");
+    assert_eq!(run(&mut i, "put the currTime of movie 1"), "0");
+    run(&mut i, "set the soundVolume of movie 1 to 100");
+    run(&mut i, "set the mute of movie 1 to true");
+    assert_eq!(run(&mut i, "put the soundVolume of movie 1"), "-100");
+    run(&mut i, "set the fastIdle of movie 1 to true");
+    assert_eq!(run(&mut i, "put the fastIdle of movie 1"), "true");
+    assert!(run(&mut i, "put the frobnitz of movie 1").contains("no property"));
+    // The end: it stops there, or loops, or closes.
+    run(&mut i, "set the endTime of movie 1 to \"0,12\"");
+    run(&mut i, "play movie 1");
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    let tick = lock(&i.world).movies[0].tick();
+    assert_eq!(tick, crate::runtime::movies::Tick::Stopped);
+    assert_eq!(run(&mut i, "put the rate of movie 1"), "0");
+    run(&mut i, "hide movie 1");
+    assert_eq!(run(&mut i, "put the visible of movie 1"), "false");
+    assert!(run(&mut i, "put the windows").contains("Card Trick.mp4"));
+    run(&mut i, "close movie 1");
+    assert_eq!(run(&mut i, "put the number of movies"), "0");
+    // Dropped on the card window, a movie opens near its corner.
+    i.handle_event(Event::OpenMovie(file.into()));
+    assert_eq!(run(&mut i, "put the rect of last movie && the layer of movie 1"), "0,0,320,240 nonFloating");
+    assert_eq!(run(&mut i, "put the rect of window \"Card Trick.mp4\""), "20,20,340,260");
+    run(&mut i, "close window \"Card Trick.mp4\"");
+    assert_eq!(run(&mut i, "put the number of movies"), "0");
+    // A movie that isn't there.
+    run(&mut i, "Movie \"No Such Movie\"");
+    run(&mut i, "put the result");
+    assert_eq!(lock(&i.world).msg, "Can't find the movie \"No Such Movie\"");
+}
+
+/// AddColor's color pictures, in HyperCard 2.4.1's own stacks (when they're
+/// here): kept with the stack as it's imported, for its items to show.
+#[test]
+fn addcolor_pictures_from_hypercard_241() {
+    let dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/examples/apple/hypercard_241_stacks"));
+    for (stack, want) in [("HyperCard Stacks/New Features", 1), ("Color Tools", 7)] {
+        let path = dir.join(stack);
+        if !path.exists() {
+            continue;
+        }
+        let s = crate::import::load_any(&path, None).unwrap();
+        let items: Vec<(usize, String, bool)> = s
+            .cards
+            .iter()
+            .enumerate()
+            .flat_map(|(n, c)| c.colors.iter().map(move |i| (n + 1, i)))
+            .chain(s.backgrounds.iter().flat_map(|b| b.colors.iter().map(|i| (0, i))))
+            .filter_map(|(n, i)| match &i.target {
+                crate::model::color::ColorTarget::Picture { name, file, .. } => Some((n, name.clone(), *file)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(items.len(), want, "{stack}: {items:?}");
+        for (card, name, file) in &items {
+            let p = s.color_picture(name, *file);
+            assert!(p.is_some() || *file, "{stack}: card {card}: {name} wasn't kept");
+        }
+    }
+}
+
+/// What the Color Tools stack (HyperCard 2.4.1's) needed: `lock recent`,
+/// Enviro, the message box as a window, and pictures placed at a point.
+#[test]
+fn color_tools_needs() {
+    let mut i = interp_with(stack());
+    // lock recent keeps cards off the Recent list, until scripts finish.
+    assert_eq!(run(&mut i, "put the lockRecent"), "false");
+    lock(&i.world).recent.clear();
+    run(&mut i, "lock recent\ngo next card\nput the lockRecent");
+    assert_eq!(lock(&i.world).msg, "true");
+    assert!(lock(&i.world).recent.is_empty());
+    assert_eq!(run(&mut i, "put the lockRecent"), "false");
+    run(&mut i, "set lockRecent to true\nunlock recent\ngo next card");
+    assert_eq!(lock(&i.world).recent.len(), 1);
+    // A bare `dial` goes to the stack's own dial handler, as Phone Dialer's.
+    set_script(&i, ObjRef::Stack, "on dial n\n  put \"asked\" && n into msg\nend dial");
+    assert_eq!(run(&mut i, "dial"), "asked ");
+    // With a number, the handler still gets it first, as any command, and
+    // gets the number itself.
+    assert_eq!(run(&mut i, "put \"555-1212\" into phoneNumber\ndial phoneNumber"), "asked 555-1212");
+    set_script(&i, ObjRef::Stack, "");
+    // Enviro: the deepest screen's colors, in bits.
+    assert_eq!(run(&mut i, "enviro GetLargestDepth\nput the result"), "32");
+    // The message box, as a window.
+    run(&mut i, "set the loc of window \"message\" to 24,293");
+    assert_eq!(run(&mut i, "put the loc of window \"Message\""), "24,293");
+    run(&mut i, "set the visible of window \"message\" to false");
+    assert_eq!(run(&mut i, "put the visible of window \"msg\""), "false");
+    // A picture at a point takes its own size.
+    let mut p = Picture::new(30, 20);
+    p.set(0, 0, crate::model::Pixel::BLACK);
+    lock(&i.world).stack.color_pictures.insert(crate::model::color_picture_key("•Horse", false), std::sync::Arc::new(p));
+    run(&mut i, "AddColor \"addPict\",\"cd\",\"•Horse\",\"43,94\",\"t\"");
+    assert_eq!(run(&mut i, "addColor getObjectBounds,cd,1\nput the result"), "43,94,73,114");
+}
+
+/// HyperCard 2.4.1's own stacks stay working: every stack listed in
+/// tests/hc241_clean.txt (written by tools/hc241.py from a full run) is
+/// opened and every scripted button on every card clicked, without a
+/// script error. The stacks are Apple's and not in git, so this runs
+/// wherever examples/apple/hypercard_241_stacks is, and passes elsewhere.
+/// Clicks stopped by the two-second limit (timed demos) aren't errors.
+/// Stacks marked `slow:` (over a minute) run with RANDOMCARD_HC241_SLOW=1.
+#[test]
+fn hypercard_241_stacks_stay_clean() {
+    let dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/examples/apple/hypercard_241_stacks"));
+    if !dir.exists() {
+        return;
+    }
+    let slow = std::env::var("RANDOMCARD_HC241_SLOW").is_ok();
+    let names: Vec<&str> = include_str!("../../tests/hc241_clean.txt")
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter_map(|l| match l.strip_prefix("slow:") {
+            Some(name) => slow.then_some(name.trim()),
+            None => Some(l),
+        })
+        .collect();
+    let threads: Vec<_> = names
+        .iter()
+        .map(|name| {
+            let path = dir.join(name);
+            let name = name.to_string();
+            std::thread::Builder::new()
+                .stack_size(super::SCRIPT_STACK)
+                .spawn(move || {
+                    let r = exercise_one(&path, false);
+                    (name, r.errors)
+                })
+                .unwrap()
+        })
+        .collect();
+    let mut broken = Vec::new();
+    for t in threads {
+        let (name, errors) = t.join().expect("a stack's run panicked");
+        if !errors.is_empty() {
+            broken.push(format!("{name}: {}", errors.join("; ")));
+        }
+    }
+    assert!(broken.is_empty(), "HyperCard 2.4.1 stacks that were clean have errors:\n{}", broken.join("\n"));
 }

@@ -3,7 +3,7 @@
 
 pub mod bitmap_font;
 pub mod color;
-mod demo;
+pub mod demo;
 pub mod home;
 pub mod metrics;
 pub mod password;
@@ -686,6 +686,11 @@ pub struct Stack {
     /// `FONT` or `NFNT` resource held it.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub fonts: Vec<StackFont>,
+    /// AddColor's color pictures, by `color_picture_key`: PICT resources
+    /// from the HyperCard stack's resource fork, and PICT files beside it,
+    /// kept in the stack so they go where it goes.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub color_pictures: BTreeMap<String, std::sync::Arc<Picture>>,
     /// The paint pattern palette: 40 patterns of 8 rows, numbered from 1.
     #[serde(default = "default_patterns")]
     pub patterns: Vec<[u8; 8]>,
@@ -694,6 +699,13 @@ pub struct Stack {
     /// The original HyperCard file this stack was imported from, until saved.
     #[serde(skip)]
     pub imported_from: Option<PathBuf>,
+}
+
+/// Where an AddColor picture is kept in `Stack::color_pictures`: its name,
+/// in lowercase as AddColor matched it, and files apart from resources.
+pub fn color_picture_key(name: &str, file: bool) -> String {
+    let name = name.trim().to_lowercase();
+    if file { format!("file:{name}") } else { name }
 }
 
 fn default_patterns() -> Vec<[u8; 8]> {
@@ -728,6 +740,7 @@ impl Stack {
             songs: BTreeMap::new(),
             fonts: Vec::new(),
             palettes: BTreeMap::new(),
+            color_pictures: BTreeMap::new(),
             patterns: default_patterns(),
             path: None,
             imported_from: None,
@@ -736,6 +749,11 @@ impl Stack {
 
     pub fn demo() -> Stack {
         demo::build()
+    }
+
+    /// An AddColor picture: a PICT resource by name, or a PICT file.
+    pub fn color_picture(&self, name: &str, file: bool) -> Option<&std::sync::Arc<Picture>> {
+        self.color_pictures.get(&color_picture_key(name, file))
     }
 
     /// A new Home stack, for the first time RandomCard runs.

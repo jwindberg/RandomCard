@@ -66,13 +66,14 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 | Fields | Styled text, the selection, click functions, list fields |
 | Visual effects | Complete |
 | Sound | `play`, notes, `dial`, `beep`; no MACE |
+| Movies | HyperCard 2.4's movie syntax, movie windows and controller, on Linux (GStreamer); macOS and Windows next |
 | HyperCard import | 1.x and 2.x: structure, pictures, parts, text, scripts, icons, sounds, AddColor |
 | User levels and stack protection | Levels, Protect Stack, passwords, private access |
 | Script-modifiable menus | Complete, except submenus |
 | Home, stacks in use, going between stacks | One stack window at a time |
 | Printing | Cards and text, as PDF; no report printing |
 | Externals (XCMDs) | The common ones built in as features ([XCMDS.md](XCMDS.md)) |
-| Color | AddColor from imported stacks, on screen only; no color painting, parts or text yet |
+| Color | Color painting, parts and text; AddColor from imported stacks, pictures included, on screen only; no Color Editor yet |
 
 ## Using and authoring stacks
 
@@ -376,9 +377,8 @@ resources) for buttons, fields and rectangles.
 - **MACE-compressed sounds** (MACE 3:1 and 6:1). The only decoders around
   are FFmpeg's (LGPL) and ports of it; using one means taking on its
   license, or writing a decoder from a description of the format.
-- **AddColor pictures** (PICT resources or files) are imported but not
-  drawn, and bevels show only on transparent parts. AddColor's changes
-  show at once, not at the next `colorCard`.
+- **AddColor:** bevels show only on transparent parts, and AddColor's
+  changes show at once, not at the next `colorCard`.
 - **XCMDs and XFCNs.** These are 68k/PowerPC code and can't run directly.
   The common ones are built in as features; see Externals below.
 - **PICT resources:** bitmaps decode (src/import/pict.rs); QuickDraw's
@@ -436,8 +436,9 @@ the AddColor XCMD laid over 1-bit cards. RandomCard aims for full color,
 as modern software has.
 
 **Today:** AddColor from HyperCard 2.x stacks (colored buttons, fields,
-rectangles and color pictures) shows on screen but doesn't print. Nothing
-else can be colored.
+rectangles, and color pictures from PICT resources and files) shows on
+screen but doesn't print. Color pictures, colored parts and colored text
+are RandomCard's own as well.
 
 **The plan, in order.** On the Mac, a pattern was a mask: its black bits
 drew in the foreground color and its white bits in the background color.
@@ -480,7 +481,12 @@ together, and black on white is just the default.
    function, on the color lists cards and backgrounds keep; the Tour's
    Color the House). AddColor stays its own layer rather than becoming
    part colors: its commands address items by their place in that list.
-5. **Printing in color**, including AddColor.
+   ~~AddColor's color pictures~~ (done: PICT resources from the stack's
+   fork and PICT files beside it are kept with the stack, stretched to
+   their rects, their white see-through when marked transparent; opaque
+   parts over a picture show it through their white, as AddColor did).
+5. **Printing in color**, including AddColor: its colored buttons,
+   fields, rectangles and pictures, laid behind the card as on screen.
 6. **Color tools in place of 1-bit ones.** Some of HyperCard's paint
    commands were the best a black-and-white screen could do, and don't
    translate to grays and colors:
@@ -526,7 +532,121 @@ together, and black on white is just the default.
    as edited patterns are. The palette's shape icons already show the
    current pattern, so they'd show color patterns too.
 
+8. **The Color Editor.** HyperCard 2.4's Color Tools stack added a Color
+   menu whose Open Coloring Tools turned HyperCard into an editor of
+   AddColor's overlays: a color palette with tools for button, field,
+   picture and rectangle overlays; Items (Place Rectangle, Place Picture
+   with a preview and importing PICT files, Item Info, forward and back);
+   Effects (color transitions for the stack, a background or a card); a
+   PICT editor with color paint tools and cropping; and adding the
+   `addColor` calls a stack needs to its scripts. RandomCard should have
+   all of it as a feature of its own (its Editor and AddColorPalette
+   XCMDs can't run), so a HyperCard color stack stays editable as one.
+   The plan: a Color mode that edits a stack's AddColor overlays with
+   RandomCard's own color palette, Info windows and paint tools, rather
+   than a copy of Apple's interface. The Color Tools stack's install
+   into Home and its On/Off button then work as they did.
+
 A new release follows steps 1 and 2.
+
+## Movies
+
+HyperCard 2.4's movie syntax, from the documentation in its QuickTime
+Tools stack: the Movie command, movie windows (`movie 1`, `window
+"Intro"`), `play`, `pause`, `rewind` and the other movie messages, the
+properties that make sense for today's movies (rate, currTime, startTime,
+endTime, loop, soundVolume, the controller and more), and the messages
+the card gets (openMovie, closeMovie, movieRateChanged, movieTimeChanged,
+mouseDownInMovie). Movies play through the system's own player, so
+RandomCard ships no codecs: the system decodes, in hardware where it can,
+and has already licensed H.264 and HEVC. In the Tour's Movies card.
+
+1. **Linux** (done): GStreamer, loaded when the first movie opens, so
+   RandomCard runs without it and building needs nothing of it.
+2. **macOS:** AVFoundation.
+3. **Windows:** Media Foundation.
+4. **Classic QuickTime movies, everywhere.** The movies in old stacks are
+   in QuickTime's own early codecs: Graphics (SMC), Animation (RLE),
+   Apple Video (road pizza) and Cinepak, often in 256 colors with a color
+   table of their own. HyperCard 2.4's Simple Movie is one. GStreamer
+   happens to decode some of them on Linux (RandomCard puts their colors
+   right, which GStreamer gets wrong); macOS and Windows don't decode them
+   at all. Decoders of our own for these simple codecs, in Rust, would play
+   them the same on every system. This reverses the earlier "no classic
+   codecs" decision for video, so it comes after steps 2 and 3. Music
+   tracks and QuickTime VR stay out.
+
+Still to come: resizing zoom windows by their grow box; `callBackTime`
+and `callBackMsg` (a message at a time in the movie); `mouseUpInMovie`
+and the other mouse messages; `the version of QuickTime`, as the movie
+player's version; a frame step that knows the movie's frame rate rather
+than assuming 30. Not coming: QuickTime VR, sprites, scenes, hotspots and
+text tracks (`findText`), exporting, and music tracks.
+
+## HyperCard 2.4.1's own stacks
+
+The stacks that came with HyperCard 2.4.1 (`examples/apple/hypercard_241_stacks`,
+from the installation disk; Apple's, so not in git) are the best test of
+RandomCard there is. [HYPERCARD_241_STACKS.md](HYPERCARD_241_STACKS.md)
+lists how each does, and the stacks that are clean stay clean: the
+`hypercard_241_stacks_stay_clean` test checks them in every `cargo test`
+wherever the stacks are. `tools/hc241.py` lists the stacks for a full
+`click_every_button` run and writes the page and that list from the
+results. They're Apple's own stacks, for the very version RandomCard
+follows, using its newest features. The first pass (2026-11-16), clicking
+every button with `click_every_button`: of 29 stacks, 10 work (the
+HyperCard Tour, Language at a Glance, Help Extras, Audio Help, both
+alternate Home stacks, Readymade Fields, Practice, About HyperCard and
+PaintTest) and 19 have errors. Two files there aren't stacks: HyperCard
+Fonts (a font suitcase) and Simple Movie (a QuickTime movie, which plays).
+
+To do, roughly in order. Most errors come from a script that doesn't
+parse, which takes all its handlers with it, so the syntax comes first.
+
+1. **HyperTalk syntax not parsed yet:**
+   - ~~`lock recent`~~ (done) and `lock error dialogs`, and its `unlock`
+     (AppleScript Library)
+   - `delete menuItem x from menu 3` (Audio Help's stack script, which
+     Home's Take the Tour goes through)
+   - `the number of bgs in this stack`
+   - button families: `cd btn i of family 1` (New Features)
+   - `selectedLine of me`, written as a property (Help stacks)
+   - `find word 1 of it in fld "X"`, `find theType theText in theField`
+   - `print (number of cards in bg "Body") cards`
+   - windows by id: `set the zoomed of window id N`, `send "x" to window id N`
+   - a property named by an expression: `set (TheProperty) of window X`
+   - ~~`dial` as Phone Dialer writes it~~ (done: a bare `dial` goes to the
+     stack's own dial handler, a handler that takes `dial` gets the number
+     itself, and `the dialingTime`, `the dialingVolume` and the message
+     box's size are in; Phone Dialer dials. Its Shrink Window waits for
+     card sizes, below)
+2. **Movies** (QuickTime Tools): `there is a movie X`, `the version of
+   QuickTime`, `the number of windows`; tracks (`track 1 of movie 1`) give
+   a clear error rather than stopping the script.
+3. **Functions and properties:** `the destination` (HyperCard Help and the
+   AppleScript Reference, on every navigation button), `the number of cd
+   btns`, `textHeight` in Graph Maker, setting `the rect of card window`
+   (Phone Dialer; see The card window in Suggested order), New Features' "The button has no line 0".
+4. **Externals:** ~~Enviro~~ (done; with `lock recent`, the message box
+   as `window "message"`, and AddColor pictures, Color Tools now runs
+   clean, its Demo included), the palettes Power Tools, Art Bits, Background Art and Stack
+   Templates use (`generalPalette`, `fieldPalette`, `hidePalette`), the
+   Navigator palette (Readymade Buttons), the `picture` command, and
+   `stackIsBeingUsed` and `tips`, which may be handlers in another stack.
+5. **AppleScript and Apple events:** `there is a scriptingLanguage
+   AppleScript`, `the version of scriptingLanguage "AppleScript"`,
+   `request … of program`, `send … to program`, `request appleEvent
+   sender`. Parsing them and answering that there's no AppleScript would
+   let most of the Apple Event Primer and the three AppleScript stacks run;
+   real support is the AppleEvents design question.
+6. **The Color Editor** (the Color Tools stack): its Editor and
+   AddColorPalette externals are HyperCard 2.4's color-editing tools, to
+   be built in as a feature of RandomCard's own (Color, step 8).
+
+Each uncertain behavior gets checked in the emulator first (what `lock
+recent` does, what `the destination` returns). The emulator's QuickTime
+is now 3.0.1, from the HyperCard 2.4.1 disk, so its movies play there to
+compare.
 
 ## The web: REST and JSON
 
@@ -640,8 +760,8 @@ their feedback. For now:
    released as 0.3.0), then printing in color.
 4. **HyperCard 2.4's own features:** audit them in the real HyperCard
    2.4.1 (Basilisk II, `examples/apple/emulator-2.4/run.sh`): movies
-   from HyperTalk (in today's video formats, .mov included, not classic QuickTime), URLs, the
-   new script editor, and its menus and tools.
+   from HyperTalk (started: see Movies; Linux done, macOS and Windows
+   next), URLs, the new script editor, and its menus and tools.
 5. **The card window:** global rect and loc, scrolling (hBarLoc, vBarLoc),
    zoom, `moveWindow` and `sizeWindow`, and card size changes.
 6. **Multiple windows.** Done: stack windows (`go to stack … in a new
@@ -708,11 +828,10 @@ first three are favorites.
   `open file`, as replacements for the XCMDs stacks used for this.
 - **Resizable cards.** Cards that grow with the window, beyond HyperCard's
   fixed card sizes.
-- **Media.** Video playback in a card region, in today's formats (MOV,
-  MP4, M4V, MPEG), recording sound (`record sound`), and playing common
-  audio files. Not classic QuickTime: its old codecs (Cinepak, Apple
-  Video, Sorenson), music tracks and QuickTime VR are as dead as the Mac
-  they ran on, so RandomCard won't read them.
+- **Media.** Recording sound (`record sound`), and playing common audio
+  files. Video is under way (see Movies, including classic QuickTime's
+  codecs). Not QuickTime's music tracks or QuickTime VR, which are as
+  dead as the Mac they ran on.
 - **More modern controls** (see the design principles). Sliders are done:
   `set the style of button "Red" to slider`, its contents its value, `the
   min`, `the max` and `the step` as HTML's range input names them, and

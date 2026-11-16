@@ -333,14 +333,14 @@ fn house(p: &mut Picture) {
 const STACK_SCRIPT: &str = r#"-- A menu of the stack's own. Its items arrive as doMenu messages.
 on openStack
   if there is no menu "Tour" then create menu "Tour"
-  put "Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,The Web,Japanese,-,Address Book" into menu "Tour"
+  put "Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Movies,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,The Web,Japanese,-,Address Book" into menu "Tour"
 end openStack
 
 on doMenu what
   if what is "Address Book" then
     visual effect zoom open
     go to first card of background "Address"
-  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,The Web,Japanese," then
+  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Movies,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,The Web,Japanese," then
     visual effect dissolve
     go to card what
   else
@@ -458,6 +458,7 @@ pub fn build() -> Stack {
         ("Draw Something", "on mouseUp\n  visual effect wipe left\n  go to card \"Drawing\"\nend mouseUp"),
         ("Animation", "on mouseUp\n  visual effect venetian blinds\n  go to card \"Animation\"\nend mouseUp"),
         ("Sound", "on mouseUp\n  visual effect barn door open\n  go to card \"Sound\"\nend mouseUp"),
+        ("Movies", "on mouseUp\n  visual effect iris open\n  go to card \"Movies\"\nend mouseUp"),
         ("Keys", "on mouseUp\n  visual effect wipe up\n  go to card \"Keys\"\nend mouseUp"),
         ("Fields & Text", "on mouseUp\n  visual effect dissolve\n  go to card \"Fields\"\nend mouseUp"),
         ("Print & Find", "on mouseUp\n  visual effect scroll left\n  go to card \"Print & Find\"\nend mouseUp"),
@@ -469,10 +470,14 @@ pub fn build() -> Stack {
         ("Japanese", "on mouseUp\n  visual effect wipe left\n  go to card \"Japanese\"\nend mouseUp"),
     ];
     for (i, (name, script)) in buttons.iter().enumerate() {
-        let (col, row) = ((i % 3) as i32, (i / 3) as i32);
+        let (mut col, row) = ((i % 3) as i32, (i / 3) as i32);
+        // A last button alone in its row goes in the middle.
+        if i == buttons.len() - 1 && col == 0 {
+            col = 1;
+        }
         let x = 36 + col * 150;
-        let y = 142 + row * 32;
-        let p = b.button(name, Rect::new(x, y, x + 140, y + 26), script);
+        let y = 138 + row * 28;
+        let p = b.button(name, Rect::new(x, y, x + 140, y + 24), script);
         b.card_part(c, p);
     }
 
@@ -733,10 +738,11 @@ on mouseUp
     addColor addRect,cd,"0,96,512,261","42000,54000,65535",0,-1 -- sky
     addColor addRect,cd,"90,191,210,261","65535,60000,42000",3,-1 -- walls
     addColor addRect,cd,"0,262,512,304","30000,52000,30000",0,-1 -- grass
+    addColor addPict,cd,"Rainbow","352,170,500,250",t,-1 -- a color picture, its white see-through
     addColor colorCard,dissolve,30
-    put "AddColor colors the white of the picture; the black lines stay black."
+    put "AddColor colors the white of the picture; the black lines stay black. The rainbow is a color picture."
   else
-    repeat 3 times
+    repeat 4 times
       addColor removeObject,cd,1
     end repeat
     addColor colorCard,dissolve,30
@@ -745,6 +751,7 @@ on mouseUp
 end mouseUp"#,
     );
     b.card_part(c, Part { style: PartStyle::Standard, ..addcolor });
+    b.stack.color_pictures.insert(crate::model::color_picture_key("Rainbow", false), std::sync::Arc::new(rainbow()));
     // FatBits: the paint magnified, to work pixel by pixel.
     let fat = b.button(
         "FatBits",
@@ -1029,6 +1036,68 @@ end showState
     b.card_part(c, volume);
     b.stack.cards[c].script = "on openCard\n  put the soundVolume into button \"Volume\"\n  showVolume\n  pass openCard\nend openCard\n\non showVolume\n  put \"the soundVolume:\" && the soundVolume && \"of 7\" into field \"Volume\"\nend showVolume".into();
     b.stack.songs.insert(1, Song { name: "Tour Song".into(), data: tour_song() });
+
+    // ----- Movies -----
+    let c = b.card(main, "Movies");
+    let t = b.label("Heading", Rect::new(20, 10, 492, 36), "Movies", 20);
+    b.card_part(c, t);
+    let about = b.label(
+        "About",
+        Rect::new(20, 42, 492, 92),
+        "HyperCard 2.4 played QuickTime movies with its Movie command, and RandomCard plays today's (MOV, MP4, M4V, MPEG) the same way. Click the movie to pause it; double-click to play.",
+        12,
+    );
+    b.card_part(c, about);
+    let movie_buttons = [
+        ("Open Movie", "on mouseUp\n  if the number of movies > 0 then exit mouseUp\n  Movie \"Card Trick\", \"windoid\", \"20,112,244,280\"\n  if the result is not empty then\n    answer the result\n    exit mouseUp\n  end if\n  set the visible of controller of movie 1 to true\n  play movie 1\nend mouseUp"),
+        ("Close Movie", "on mouseUp\n  if the number of movies > 0 then close movie 1\nend mouseUp"),
+        ("Play", "on mouseUp\n  if the number of movies > 0 then play movie 1\nend mouseUp"),
+        ("Pause", "on mouseUp\n  if the number of movies > 0 then pause movie 1\nend mouseUp"),
+        ("Rewind", "on mouseUp\n  if the number of movies > 0 then send \"rewind\" to movie 1\nend mouseUp"),
+        ("Backward", "on mouseUp\n  if the number of movies > 0 then set the rate of movie 1 to -1\nend mouseUp"),
+        ("Faster", "on mouseUp\n  if the number of movies > 0 then set the rate of movie 1 to 2\nend mouseUp"),
+        ("Loop", "on mouseUp\n  if the number of movies is 0 then exit mouseUp\n  set the loop of movie 1 to not the loop of movie 1\n  put \"loop:\" && the loop of movie 1 into field \"Movie Messages\"\nend mouseUp"),
+        ("Controller", "on mouseUp\n  if the number of movies is 0 then exit mouseUp\n  set the visible of controller of movie 1 to not the visible of controller of movie 1\nend mouseUp"),
+        ("Where Is It?", "on mouseUp\n  if the number of movies is 0 then exit mouseUp\n  put \"currTime\" && the currTime of movie 1 && \"of\" && the duration of movie 1 into field \"Movie Messages\"\nend mouseUp"),
+    ];
+    for (i, (name, script)) in movie_buttons.iter().enumerate() {
+        let (col, row) = ((i % 2) as i32, (i / 2) as i32);
+        let x = 286 + col * 104;
+        let y = 104 + row * 30;
+        let p = b.button(name, Rect::new(x, y, x + 98, y + 24), script);
+        b.card_part(c, p);
+    }
+    let said = b.label("Movie Messages", Rect::new(286, 256, 492, 300), "", 11);
+    b.card_part(c, said);
+    // The movie messages HyperCard 2.4 sent the card, and closing the movie
+    // on leaving: movie windows stay open from card to card.
+    b.stack.cards[c].script = r#"on openMovie name, id
+  put "openMovie" && name into field "Movie Messages"
+end openMovie
+
+on closeMovie name, id
+  put "closeMovie" && name into field "Movie Messages"
+end closeMovie
+
+on movieRateChanged name, id, newRate
+  put "movieRateChanged: the rate is" && newRate into field "Movie Messages"
+end movieRateChanged
+
+on movieTimeChanged name, id, newTime
+  put "movieTimeChanged: the currTime is" && newTime into field "Movie Messages"
+end movieTimeChanged
+
+on mouseDownInMovie name, id, where, movieTime
+  put "mouseDownInMovie at" && where & ", time" && movieTime into field "Movie Messages"
+end mouseDownInMovie
+
+on closeCard
+  repeat while the number of movies > 0
+    close movie 1
+  end repeat
+  pass closeCard
+end closeCard"#
+        .into();
 
     // ----- Keys -----
     let c = b.card(main, "Keys");
@@ -1753,6 +1822,42 @@ end mouseUp"#,
         card.bg_text.insert(notes_id, note.into());
     }
     b.stack
+}
+
+/// The rainbow Color the House puts in the sky: an AddColor picture, as
+/// HyperCard stacks kept them in PICT resources, on white that AddColor
+/// leaves see-through.
+fn rainbow() -> Picture {
+    const BANDS: [[u8; 4]; 6] = [
+        [230, 40, 40, 255],
+        [250, 140, 30, 255],
+        [250, 220, 40, 255],
+        [60, 180, 70, 255],
+        [50, 110, 220, 255],
+        [130, 60, 190, 255],
+    ];
+    let (w, h) = (148, 80);
+    let mut p = Picture::new(w, h);
+    for y in 0..h as i32 {
+        for x in 0..w as i32 {
+            let (dx, dy) = (x as f32 - 73.5, y as f32 - 79.5);
+            let d = (dx * dx + dy * dy).sqrt();
+            let band = ((74.0 - d) / 6.0).floor();
+            let c = if (0.0..6.0).contains(&band) { BANDS[band as usize] } else { [255, 255, 255, 255] };
+            p.set(x, y, crate::model::Pixel(c));
+        }
+    }
+    p
+}
+
+/// The Tour's movie, which the Tour, having no folder of its own, finds
+/// built in, as `play` finds the built-in sounds.
+pub fn builtin_movie(name: &str) -> Option<(&'static str, &'static [u8])> {
+    let name = name.trim();
+    ["Card Trick", "Card Trick.mp4"]
+        .iter()
+        .any(|n| n.eq_ignore_ascii_case(name))
+        .then_some(("Card Trick.mp4", include_bytes!("tour_movie/Card Trick.mp4").as_slice()))
 }
 
 #[cfg(test)]

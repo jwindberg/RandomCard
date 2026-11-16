@@ -220,6 +220,7 @@ impl Interp {
                     .rev()
                     .map(|t| t.name.clone())
                     .collect();
+                list.extend(w.movies.iter().rev().map(|m| m.name.clone()));
                 // Card windows go by their stacks' names, as in HyperCard,
                 // the current one first.
                 list.extend(w.open_stacks().map(|s| s.name.clone()));
@@ -227,7 +228,34 @@ impl Interp {
                 list.join("\n")
             }
             // The text, rect or name of a window a script opened.
+            "__movie" => return self.movie_reference(&arg(0), &arg(1)),
             "__windowprop" => {
+                if let Some((i, as_window)) = self.movie_named(&arg(1)) {
+                    return self.movie_property(i, as_window, &arg(0));
+                }
+                // The message box's window: `the loc of window "message"`.
+                if super::world::is_message_window(&arg(1)) {
+                    let w = self.w();
+                    let r = w.msg_rect;
+                    return Ok(match arg(0).trim().to_ascii_lowercase().as_str() {
+                        "visible" => bool_str(w.msg_visible),
+                        "loc" | "location" | "topleft" => format!("{},{}", r.left, r.top),
+                        "rect" | "rectangle" => format!("{},{},{},{}", r.left, r.top, r.right, r.bottom),
+                        "left" => r.left.to_string(),
+                        "top" => r.top.to_string(),
+                        "right" => r.right.to_string(),
+                        "bottom" => r.bottom.to_string(),
+                        "width" => r.width().to_string(),
+                        "height" => r.height().to_string(),
+                        "botright" | "bottomright" => format!("{},{}", r.right, r.bottom),
+                        "name" => "Message".into(),
+                        other => {
+                            let other = other.to_string();
+                            drop(w);
+                            return err(format!("The message box's window has no property \"{other}\""));
+                        }
+                    });
+                }
                 // HyperCard's Scroll palette, never shown in RandomCard.
                 if arg(1).trim().eq_ignore_ascii_case("scroll") && arg(0).eq_ignore_ascii_case("visible") {
                     return Ok("false".into());

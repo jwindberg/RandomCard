@@ -11,6 +11,9 @@ in git), so the links work once that's in place. "Waited out" means a click ran
 into the two-second limit, usually an animation or a loop waiting for a key
 that a headless run can't press; worth a look by hand.
 
+HyperCard 2.4.1's own stacks, from its installation disk, are tested the same
+way and listed in [HYPERCARD_241_STACKS.md](HYPERCARD_241_STACKS.md).
+
 **Marks:**
 
 - **\*** works fully once its fix steps are applied to our copy, such as renaming

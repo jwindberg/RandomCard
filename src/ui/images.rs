@@ -91,6 +91,13 @@ impl App {
     pub(super) fn dropped_files(&mut self, ctx: &egui::Context) {
         let (files, pos) = ctx.input(|i| (i.raw.dropped_files.clone(), i.pointer.hover_pos()));
         let Some(file) = files.first() else { return };
+        // A movie opens in a movie window, as HyperCard 2.4 opened one
+        // dropped on it.
+        let path = file.path().to_path_buf();
+        if crate::video::is_movie(&path) {
+            self.send(crate::runtime::world::Event::OpenMovie(path));
+            return;
+        }
         if self.editing_level() < 3 {
             self.alert("Pictures can be dropped onto a card at the Painting user level and above.".into());
             return;

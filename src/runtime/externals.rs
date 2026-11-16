@@ -68,6 +68,11 @@ impl Interp {
         if let Some(v) = self.rinaldi_function(name, args) {
             return Some(v);
         }
+        // QuickTime Tools' movieInfo XFCN.
+        if name == "movieinfo" {
+            let file = args.first().cloned().unwrap_or_default();
+            return Some(Ok(self.movie_info(&file)));
+        }
         let arg = |i: usize| args.get(i).cloned().unwrap_or_default();
         let path = |p: Option<PathBuf>| p.map(|p| super::paths::shown(&p)).unwrap_or_default();
         Some(Ok(match name {
@@ -292,6 +297,18 @@ impl Interp {
         if name == "addcolor" {
             return Some(self.addcolor(args));
         }
+        // Enviro, from HyperCard 2.4's Color Tools: `enviro GetLargestDepth`
+        // puts the deepest screen's colors in bits into the result. Today's
+        // screens are all millions of colors.
+        if name == "enviro" {
+            let ask = args.first().map(|a| a.trim().to_ascii_lowercase()).unwrap_or_default();
+            self.result = if ask == "getlargestdepth" { "32".into() } else { String::new() };
+            return Some(Ok(()));
+        }
+        // HyperCard 2.4's Movie XCMD: open a movie window.
+        if name == "movie" {
+            return Some(self.open_movie(args));
+        }
         // It installed AddColor into a stack, which needs nothing here.
         if name == "ac_remoteinstall" {
             return Some(Ok(()));
@@ -432,7 +449,7 @@ impl Interp {
                 }
                 let r = |i: usize| crate::model::Rect::new(n[i], n[i + 1], n[i + 2], n[i + 3]);
                 self.w().zoom = Some((r(0), r(4), std::time::Instant::now()));
-                let r = self.sleep(super::world::ZOOM_TIME);
+                let r = self.watch_pause(super::world::ZOOM_TIME);
                 self.w().zoom = None;
                 r
             }
@@ -454,7 +471,7 @@ impl Interp {
 
     /// A file named by a stack: as given, beside the stack, or in a folder
     /// beside the stack (where Apple's CDs put a stack's pictures).
-    fn find_beside_stack(&self, name: &str) -> Option<PathBuf> {
+    pub(super) fn find_beside_stack(&self, name: &str) -> Option<PathBuf> {
         let given = super::paths::native(name);
         if given.is_absolute() {
             return given.is_file().then_some(given);

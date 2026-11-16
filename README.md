@@ -50,7 +50,7 @@ without a file stays loaded so you can come back to it.
 
 **The Tour.** The built-in Tour stack (`go to stack "Tour"`) is a hands-on
 demo of what works: HyperTalk basics, dice with a popup and AddColor,
-painting, animation, sound, keyboard messages,
+painting, animation, sound, movies, keyboard messages,
 field options and styled text, printing, Find and Recent, the debugger, and
 an address book on its own background. Its buttons' scripts are worth
 reading with the Button tool. It's built fresh each time it opens, so it
@@ -70,8 +70,9 @@ RandomCard's own, converting them as they open. MacBinary-wrapped files work too
 - every script;
 - button icons and sounds from the stack's resource fork;
 - AddColor colors (HyperCard 2.x's color XCMD) for buttons, fields and
-  rectangles. They're drawn as AddColor drew them: the white of the card
-  takes the color, and black stays black.
+  rectangles, and its color pictures (PICT resources from the stack, and
+  PICT files beside it). They're drawn as AddColor drew them: the white
+  of the card takes the color, and black stays black.
 
 Text is converted to Unicode from MacRoman, or from MacJapanese
 (Shift-JIS) for stacks made with Japanese HyperCard, which RandomCard
@@ -97,8 +98,8 @@ copy of HyperCard). Only icons the stack's buttons use, and sounds its
 scripts name in quotes, are copied.
 
 Styled text comes across with its fonts, sizes and styles. What doesn't
-come across: XCMDs and XFCNs, and PICT pictures (including AddColor's color
-pictures, which are kept but not drawn). Private-access stacks import, since only the stack header is
+come across: XCMDs and XFCNs, and PICT pictures other than AddColor's,
+palettes' and pasted ones. Private-access stacks import, since only the stack header is
 encrypted; they ask for their password. Protection comes across too:
 the user-level limit, password, Can't Modify and the other flags. Scripts
 that use palettes or other windows parse, but those commands do nothing.
@@ -387,6 +388,13 @@ Windows and "/" elsewhere, so a stack can find its own folder anywhere.
   durations, dots and triplets), `play stop`, `the sound`, `dial` (touch
   tones) and `beep`. Sounds come from the stack; HyperCard's harpsichord,
   flute and boing fall back to voices RandomCard synthesizes itself.
+- Movies, with HyperCard 2.4's syntax: `Movie "Intro", "windoid", "card"`,
+  `play movie 1`, `set the rate of movie 1 to -1`, `the currTime of movie
+  1`, QuickTime's controller and messages like `movieRateChanged`. Today's
+  formats play (MOV, MP4, M4V, MPEG), through the system's own player
+  (GStreamer on Linux). Classic QuickTime movies play where the system
+  can decode them. Dropping a movie file on the card opens it, with or
+  without an extension. See [HYPERTALK.md](HYPERTALK.md#movies).
 - Visual effects: dissolve, wipe, scroll/push, barn door, iris, zoom,
   venetian blinds and checkerboard, at four speeds.
 
@@ -457,6 +465,7 @@ src/
   paint/       raster painting: patterns, brushes, shapes, fills, selections,
                paint operations, painted text
   sound/       note parsing, rendering, built-in voices and audio output
+  video/       movies, through the system's own player (GStreamer on Linux)
   ui/          egui app: menus, palettes, card rendering, transitions,
                paint tools, info dialogs, script editor, user levels
 ```

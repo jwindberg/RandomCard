@@ -28,9 +28,10 @@ differ, the "Differences from HyperCard" section says why.
 7. [Functions](#functions)
 8. [Properties](#properties)
 9. [System messages](#system-messages)
-10. [Old externals, built in](#old-externals-built-in)
-11. [RandomCard's additions](#randomcards-additions)
-12. [Differences from HyperCard](#differences-from-hypercard)
+10. [Movies](#movies)
+11. [Old externals, built in](#old-externals-built-in)
+12. [RandomCard's additions](#randomcards-additions)
+13. [Differences from HyperCard](#differences-from-hypercard)
 
 ## Scripts and handlers
 
@@ -321,7 +322,7 @@ stack stays current.
 | go | `go to card "Index"`, `go next`, `go back`, `go home`, `go to stack "Addresses"`, `go to stack "Addresses" in a new window` |
 | hide, show | `hide button "Secret"`, `show field 2 at 10,10`, `hide menuBar`, `show 5 cards` |
 | import paint | `import paint from file "Frog.png"` |
-| lock, unlock | `lock screen`, `unlock screen with dissolve`, `lock messages`, `unlock messages` |
+| lock, unlock | `lock screen`, `unlock screen with dissolve`, `lock messages`, `unlock messages`, `lock recent` and `unlock recent` (cards visited stay off the Recent list) |
 | mark, unmark | `mark card 3`, `mark cards where field "Done" is true`, `unmark all cards` |
 | open | `open file "Notes.txt"`, `open printing`, `open "Report.pdf"` (in its own program) |
 | palette | `palette "Tools", "330,110"` |
@@ -408,7 +409,7 @@ is 2 and `round(3.5)` is 4. `random(n)` is a whole number from 1 to n.
 `the name of button 1`, `set the visible of field 2 to false`. Most work
 on several kinds of object; `get`, `put` and `set` read and change them.
 
-**Global:** `blindTyping`, `cursor`, `dragSpeed`, `editBkgnd`,
+**Global:** `blindTyping`, `cursor`, `dialingTime`, `dialingVolume`, `dragSpeed`, `editBkgnd`,
 `itemDelimiter`, `language`, `lockMessages`, `lockRecent`, `lockScreen`,
 `messageWatcher`, `numberFormat`, `powerKeys`, `soundChannel`,
 `soundVolume`, `textArrows`, `traceDelay`, `userLevel`, `userModify`,
@@ -477,6 +478,7 @@ RandomCard sends these as HyperCard did:
 | RandomCard itself | `startUp`, `resume`, `suspend`, `quit`, `idle`, `help` |
 | Menus and palettes | `doMenu`, `openPalette`, `closePalette` |
 | Sliders (RandomCard's own) | `sliderMoved`, `sliderChanged` |
+| Movies | `openMovie`, `closeMovie`, `movieRateChanged`, `movieTimeChanged`, `mouseDownInMovie` (see [Movies](#movies)) |
 
 Built-in commands go through the message path too (`on go`, `on doMenu`,
 `on find`), so a script can change or stop any of them.
@@ -497,6 +499,80 @@ on idle
   pass idle
 end idle
 ```
+
+## Movies
+
+HyperCard 2.4 played QuickTime movies with Apple's Movie command, and
+RandomCard plays today's movie files (MOV, MP4, M4V, MPEG) the same way,
+with the system's own player: GStreamer on Linux. Classic QuickTime
+movies, such as HyperCard 2.4's Simple Movie, play where the system can
+decode their codecs (GStreamer can decode some); their own color tables
+are honored. Music tracks and QuickTime VR aren't played.
+
+```hypertalk
+Movie "Intro", "windoid", "card"
+play movie "Intro"
+set the rate of movie 1 to 2
+put the currTime of movie 1 into field "Where"
+send "rewind" to movie 1
+close movie 1
+```
+
+`Movie file, style, location, visible, layer` opens a movie window. The
+file is found as given, beside the stack, or in a folder beside it, with or
+without its extension; with no name, a dialog asks for one. Errors go in
+`the result`. `open movie "Intro"` is the same with the defaults.
+
+- **Style:** `windoid` (the default), `tallWindoid`, `plain`, `zoom`,
+  `dialog`, `shadow`, `rect` or `borderLess`. Plain, zoom and tallWindoid
+  windows show their name.
+- **Location:** a point (the movie's top left on the card), a rect (the
+  window, the movie stretched to fill it), `card` (the default: the middle
+  of the card), or `document` (down and to the right of the card's corner).
+- **Visible:** `visible` (the default) or `invisible`, to set properties
+  before `show movie 1`.
+- **Layer:** `floating` or `nonFloating`. Plain and zoom windows go with
+  the card; the others float above it.
+
+Movie windows are drawn in the card window, where scripts put them in card
+coordinates, and stay open from card to card, as in HyperCard. Dropping a
+movie file on the card window opens it in a plain window.
+
+**Referring to movies.** `movie 1`, `movie "Intro"`, `movie id 1001`,
+`first movie`, `last movie` and `any movie`, and the window by its name,
+`window "Intro.mov"`. A name that isn't a window's is matched against the
+movie files. `the number of movies` counts them. Named as a window, a
+movie's rect is the window's on the card; named as a movie, it's the
+movie's in its window.
+
+**Commands.** `play movie`, `pause movie`, `rewind movie`, `close movie`,
+`hide movie` and `show movie`, and the messages `send "play" to movie 1`,
+`"pause"`, `"rewind"`, `"reverse"`, `"stepFwd"`, `"stepRev"`,
+`"showPoster"`, `"resizeToMovie"`, `"select"` and `"close"`.
+
+**Properties:**
+
+| Property | |
+| --- | --- |
+| `rate` | 1 playing, 0 paused, below 0 backward, up to 5 either way |
+| `currTime`, `duration`, `startTime`, `endTime` | Times in the `timeFormat`: `SystemTime` ("2,30" is 2 seconds and 30 ticks) or `MovieTime` (`the timeScale`, 600, to a second). The movie plays from `startTime` to `endTime` |
+| `loop`, `loopIsPalindrome`, `closeOnFinish` | What happens at the end |
+| `soundVolume`, `mute` | 256 is as recorded; muting makes it negative |
+| `visible`, `the visible of controller of movie 1` | The window, and QuickTime's controller under the movie (`controllerVisible`, its old name). It's hidden at first |
+| `badge`, `passMovieClick` | The badge that shows the controller when clicked, and clicks reaching the movie: a click pauses it, a double-click plays it |
+| `rect`, `loc`, `topLeft`, `left`, `top`, `width`, ... | Where it is (see above) |
+| `name`, `movie`, `id`, `number`, `owner` | A window's name can change; setting a window's `movie` puts another file in it |
+| `defaultRect`, `scale`, `preferredRate`, `preferredSoundVolume`, `timeScale`, `layer` | Read only |
+
+Other QuickTime properties (`fastIdle`, `seeAllFrames`, `dontErase`,
+`highQualityMode` and the like) keep what scripts set without doing
+anything. `movieInfo(file)` gives a movie file's rect, duration and time
+scale in its lines, as QuickTime Tools' movieInfo did.
+
+**Messages** go to the current card: `openMovie name, id` and `closeMovie
+name, id`; `movieRateChanged name, id, rate` when it plays, pauses or stops
+at its end; `movieTimeChanged name, id, time` when the controller's slider
+is let go; and `mouseDownInMovie name, id, where, time, "movie", id`.
 
 ## Old externals, built in
 
@@ -535,6 +611,7 @@ became of it.
 | SendPS | PostScript, opened in the system's viewer to print |
 | GetDocs, GetCreator | HyperCard 1.2's Documents stack |
 | PlayMOD | songs: `play "Title Music"`, `play stop "Title Music"` |
+| Movie, movieInfo (HyperCard 2.4's QuickTime Tools) | [movies](#movies) |
 | Main | ROT13, the Technical Notes stacks' easter egg |
 | BoardInfo, INITFinder, SpinAbout, SwitchXRoo | stubs: Mac details that mean nothing today, answered harmlessly |
 

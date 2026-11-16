@@ -184,7 +184,7 @@ impl Interp {
                     TimeUnit::Ticks => n / 60.0,
                     TimeUnit::Seconds => n,
                 };
-                self.sleep(Duration::from_secs_f64(secs))
+                self.watch_pause(Duration::from_secs_f64(secs))
             }
             Cmd::WaitUntil(cond) | Cmd::WaitWhile(cond) => {
                 let until = matches!(c, Cmd::WaitUntil(_));
@@ -210,6 +210,9 @@ impl Interp {
                 let name = self.eval(window)?;
                 let name = name.trim();
                 let message = text.split_whitespace().next().unwrap_or("").to_ascii_lowercase();
+                if let Some((i, _)) = self.movie_named(name) {
+                    return self.movie_message(i, &message);
+                }
                 let mut w = self.w();
                 let Some(at) = w.script_windows.iter().position(|t| t.name.eq_ignore_ascii_case(name)) else {
                     let others = ["card window", "message", "message box", "msg", "tools", "patterns"];
@@ -252,7 +255,7 @@ impl Interp {
                 };
                 for _ in 0..count {
                     self.go_card_id(self.next_card_id(), false)?;
-                    self.sleep(Duration::from_millis(60))?;
+                    self.watch_pause(Duration::from_millis(60))?;
                 }
                 Ok(())
             }
@@ -270,6 +273,10 @@ impl Interp {
             }
             Cmd::LockMessages => {
                 self.lock_messages = true;
+                Ok(())
+            }
+            Cmd::LockRecent(on) => {
+                self.w().lock_recent = *on;
                 Ok(())
             }
             Cmd::UnlockMessages => {
@@ -419,6 +426,21 @@ impl Interp {
             } => {
                 let name = self.eval(window)?;
                 let value = self.eval(value)?;
+                if let Some((i, as_window)) = self.movie_named(&name) {
+                    return self.set_movie_property(i, as_window, prop, &value);
+                }
+                // The message box's window: shown or hidden, and moved.
+                if super::world::is_message_window(&name) {
+                    return match prop.to_ascii_lowercase().as_str() {
+                        "visible" => {
+                            let v = super::interp::to_bool(&value)?;
+                            self.w().msg_visible = v;
+                            Ok(())
+                        }
+                        "loc" | "location" | "topleft" => self.move_msg(&value),
+                        other => err(format!("Can't set the {other} of the message box's window")),
+                    };
+                }
                 // The palettes: shown or hidden, and moved.
                 if is_palette_name(&name) {
                     return self.set_palette_prop(prop, &value);
@@ -437,8 +459,19 @@ impl Interp {
                     Err(e) => err(e),
                 }
             }
+            Cmd::OpenMovie(e) => {
+                let file = match e {
+                    Some(e) => self.eval(e)?,
+                    None => String::new(),
+                };
+                self.open_movie(&[file])
+            }
             Cmd::CloseWindow(e) => {
                 let name = self.eval(e)?;
+                if let Some((i, _)) = self.movie_named(&name) {
+                    let id = self.w().movies[i].id;
+                    return self.close_movie(id);
+                }
                 // A stack's card window goes by the stack's name.
                 let card_window = {
                     let w = self.w();
@@ -738,7 +771,9 @@ impl Interp {
             }
             Cmd::Dial(number) => {
                 let number = self.eval(number)?;
-                self.audio.play("dial", crate::sound::dial_tones(&number), 22050.0);
+                let level = self.w().dialing_volume as f32 / 7.0;
+                let tones = crate::sound::dial_tones(&number).into_iter().map(|s| s * level).collect();
+                self.audio.play("dial", tones, 22050.0);
                 Ok(())
             }
             Cmd::Speak(e) => {
@@ -875,6 +910,13 @@ impl Interp {
             ShowHide::Window(e) => {
                 let name = self.eval(e)?;
                 let name = name.trim();
+                if let Some((i, _)) = self.movie_named(name) {
+                    self.w().movies[i].visible = show;
+                    if let Some(at) = at {
+                        self.set_movie_property(i, true, "loc", &at)?;
+                    }
+                    return Ok(());
+                }
                 if ["message", "message box", "msg", "message window"]
                     .iter()
                     .any(|m| m.eq_ignore_ascii_case(name))
@@ -1482,7 +1524,7 @@ impl Interp {
             w.transition = Some(Transition { effect: name.to_ascii_lowercase(), seconds, seq });
         }
         // Let the effect play before the script continues, as HyperCard does.
-        self.sleep(Duration::from_secs_f32(seconds))
+        self.watch_pause(Duration::from_secs_f32(seconds))
     }
 
     pub fn arrow_key(&mut self, dir: &str) -> R<()> {

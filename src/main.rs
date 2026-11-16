@@ -9,6 +9,7 @@ mod print;
 mod runtime;
 mod sound;
 mod ui;
+mod video;
 mod web;
 
 use model::Stack;

@@ -430,6 +430,11 @@ pub enum KeyAction {
 /// palette (`tool window`) and a Patterns palette (`pattern window`);
 /// RandomCard has one palette with the tools, patterns and colors, which
 /// both names mean.
+/// The message box, by the names scripts give its window.
+pub fn is_message_window(name: &str) -> bool {
+    matches!(name.trim().to_ascii_lowercase().as_str(), "message" | "message box" | "msg" | "message window" | "msg box")
+}
+
 pub fn is_palette_name(name: &str) -> bool {
     matches!(
         name.trim().to_ascii_lowercase().as_str(),
@@ -568,6 +573,12 @@ pub enum Event {
     /// TEXWindowClosing name, changed, while the window can still be read,
     /// and then it closes.
     CloseWindow(String),
+    /// The user closed a movie window, or it closed at its end: the card
+    /// is sent closeMovie, and it closes.
+    CloseMovie(u32),
+    /// A movie file dropped on the card window: it opens in a movie window
+    /// down and to the right of the card's corner, as in HyperCard 2.4.
+    OpenMovie(std::path::PathBuf),
     /// The user clicked button `n` (from 0) of the named palette.
     PaletteButton(String, usize),
     Shutdown,
@@ -600,6 +611,14 @@ pub struct World {
     /// Cards visited, each once, most recent last, for the Recent dialog.
     pub recent: Vec<Id>,
     pub lock_screen: bool,
+    /// `the lockRecent`: cards visited stay off the Recent list, until
+    /// scripts finish.
+    pub lock_recent: bool,
+    /// `the dialingTime`: how long, in ticks, a modem's line stayed open
+    /// after `dial`. There's no modem; scripts read back what they set.
+    pub dialing_time: u32,
+    /// `the dialingVolume`: how loud `dial`'s touch tones are, 0 to 7.
+    pub dialing_volume: u32,
     pub menubar_visible: bool,
     /// The menu bar, as scripts have changed it.
     pub menus: Vec<super::menus::Menu>,
@@ -617,6 +636,11 @@ pub struct World {
     pub requests: Vec<UiRequest>,
     /// Text windows scripts have opened (TEXWindow), in front last.
     pub script_windows: Vec<ScriptWindow>,
+    /// Movie windows (HyperCard 2.4's Movie command), in front last. They
+    /// stay open from card to card, as in HyperCard.
+    pub movies: Vec<super::movies::MovieWindow>,
+    /// The id the next movie window gets.
+    pub next_movie_id: u32,
     /// The palette, as the UI shows it.
     pub palette_state: PaletteState,
     /// Where each palette was last shown, by lowercased name, so the
@@ -862,6 +886,9 @@ impl World {
             history_pos: 0,
             recent: vec![card_id],
             lock_screen: false,
+            lock_recent: false,
+            dialing_time: 180,
+            dialing_volume: 7,
             menubar_visible: true,
             menus: super::menus::standard_menus(),
             mouse: MouseState::default(),
@@ -873,6 +900,8 @@ impl World {
             picture_rev: 0,
             requests: Vec::new(),
             script_windows: Vec::new(),
+            movies: Vec::new(),
+            next_movie_id: 1001,
             palette_state: Default::default(),
             palette_locs: HashMap::new(),
             zoom: None,
@@ -1096,6 +1125,9 @@ impl World {
 
     /// Remember a card for the Recent dialog, which holds 42 as HyperCard's did.
     pub fn note_recent(&mut self, id: Id) {
+        if self.lock_recent {
+            return;
+        }
         self.recent.retain(|c| *c != id);
         self.recent.push(id);
         if self.recent.len() > RECENT_CARDS {

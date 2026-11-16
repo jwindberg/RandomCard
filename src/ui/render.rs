@@ -28,6 +28,9 @@ pub struct PartView {
     pub hilite: bool,
     /// What its white is filled with: white, or its AddColor color.
     pub fill: Color32,
+    /// Its white shows the AddColor color map instead, as over a color
+    /// picture: AddColor made opaque parts' white see-through to its colors.
+    pub fill_map: bool,
 }
 
 /// Everything needed to draw one card, copied out of the world.
@@ -78,14 +81,22 @@ impl Scene {
                     styles: if p.kind == PartKind::Field { s.field_styles(card, layer, p.id) } else { Vec::new() },
                     hilite: s.hilite(card, layer, p.id),
                     fill: WHITE,
+                    fill_map: false,
                     part,
                 });
             }
         }
         let colors = addcolor::shapes(w, card, edit_bg);
+        let pictures: Vec<crate::model::Rect> = colors.iter().filter(|s| s.picture.is_some()).map(|s| s.rect).collect();
         for pv in &mut parts {
+            let r = pv.part.rect;
+            let rect_like = pv.part.kind == PartKind::Field || matches!(pv.part.style, PartStyle::Opaque | PartStyle::Rectangle | PartStyle::Shadow);
+            let over_picture = pictures.iter().any(|p| p.left < r.right && r.left < p.right && p.top < r.bottom && r.top < p.bottom);
             if let Some(c) = pv.part.back_color {
                 pv.fill = rgb(c);
+            } else if rect_like && over_picture {
+                pv.fill = Color32::TRANSPARENT;
+                pv.fill_map = true;
             } else if !colors.is_empty() {
                 let (x, y) = pv.part.rect.center();
                 pv.fill = addcolor::color_at(&colors, x, y);
@@ -499,6 +510,7 @@ pub fn draw_scene(painter: &Painter, tex: &Textures, scene: &Scene, origin: Pos2
             draw_card_picture(painter, tex, scene, card_rect, uv);
         }
         if pv.part.visible {
+            fill_from_map(painter, tex, scene, pv, origin);
             if can_invert(&pv.part) && (pv.hilite || pressed == Some(pv.obj)) {
                 invert_under(painter, tex, scene, i, origin, live);
             }
@@ -508,6 +520,21 @@ pub fn draw_scene(painter: &Painter, tex: &Textures, scene: &Scene, origin: Pos2
     if !card_pict_drawn {
         draw_card_picture(painter, tex, scene, card_rect, uv);
     }
+}
+
+/// A part whose white shows AddColor's colors: the color map, under it.
+fn fill_from_map(painter: &Painter, tex: &Textures, scene: &Scene, pv: &PartView, origin: Pos2) {
+    if !pv.fill_map || pv.part.style == PartStyle::Transparent {
+        return;
+    }
+    let Some(t) = tex.color_maps.get(&scene.color_key) else { return };
+    let size = Vec2::new(scene.width as f32, scene.height as f32);
+    let r = part_rect(&pv.part, origin).intersect(Rect::from_min_size(origin, size));
+    if r.width() <= 0.0 || r.height() <= 0.0 {
+        return;
+    }
+    let uv = Rect::from_min_max(((r.min - origin) / size).to_pos2(), ((r.max - origin) / size).to_pos2());
+    painter.image(t.id(), r, uv, WHITE);
 }
 
 /// Draw again what lies above part `i`, clipped to it. A scrolling field is a
@@ -527,6 +554,7 @@ pub fn draw_over(painter: &Painter, tex: &Textures, scene: &Scene, i: usize, ori
             draw_card_picture(&painter, tex, scene, card_rect, uv);
         }
         if pv.part.visible && part_rect(&pv.part, origin).intersects(rect) {
+            fill_from_map(&painter, tex, scene, pv, origin);
             if can_invert(&pv.part) && pv.hilite {
                 invert_under(&painter, tex, scene, j, origin, live);
             }

@@ -96,6 +96,25 @@ fn effect_name(e: &str) -> &'static str {
 }
 
 impl Interp {
+    /// A picture a script adds: a file is read from beside the stack into
+    /// the stack's color pictures, if it isn't there already, and one put
+    /// at a point gets its own size.
+    fn place_color_picture(&self, target: &mut ColorTarget) {
+        let ColorTarget::Picture { name, file, rect, .. } = target else { return };
+        let mut w = self.w();
+        if *file && w.stack.color_picture(name, true).is_none() {
+            let dir = w.stack.path.clone().or_else(|| w.stack.imported_from.clone()).and_then(|p| p.parent().map(|d| d.to_path_buf()));
+            if let Some(p) = dir.and_then(|dir| crate::import::addcolor::picture_file(&dir, name)) {
+                w.stack.color_pictures.insert(crate::model::color_picture_key(name, true), std::sync::Arc::new(p));
+            }
+        }
+        if rect.width() == 0 && rect.height() == 0
+            && let Some(p) = w.stack.color_picture(name, *file)
+        {
+            *rect = Rect::new(rect.left, rect.top, rect.left + p.width as i32, rect.top + p.height as i32);
+        }
+    }
+
     pub(super) fn addcolor(&mut self, args: &[String]) -> R<()> {
         let arg = |i: usize| args.get(i).map(|s| s.trim().to_string()).unwrap_or_default();
         let function = arg(0).to_ascii_lowercase();
@@ -129,6 +148,8 @@ impl Interp {
         let rect = |i: usize| parse_rect(&arg(i)).ok_or_else(|| format!("Expected a point or rectangle, not \"{}\"", arg(i)));
         let bevel = |i: usize| -> Result<u16, String> { Ok(to_int(&arg(i)).unwrap_or(0).clamp(0, 32) as u16) };
         let transparent = |i: usize| arg(i).eq_ignore_ascii_case("t");
+        // A picture goes in a rect, or at a point at its own size (which
+        // `place_color_picture` fills in).
         let picture = |file: bool| -> Result<ColorTarget, String> {
             Ok(ColorTarget::Picture { rect: rect(3)?, name: arg(2), transparent: transparent(4), file })
         };
@@ -186,18 +207,20 @@ impl Interp {
                 self.add_color_item(layer()?, target, to_int(&arg(5)).unwrap_or(-1))
             }
             "addpict" | "addpictfile" => {
-                let target = picture(function == "addpictfile")?;
+                let mut target = picture(function == "addpictfile")?;
+                self.place_color_picture(&mut target);
                 self.add_color_item(layer()?, target, to_int(&arg(5)).unwrap_or(-1))
             }
             // Temporary items, in front until the next colorCard.
             "colorbutton" | "colorfield" | "colorrect" | "colorpict" | "colorpictfile" => {
                 let layer = layer()?;
-                let target = match function {
+                let mut target = match function {
                     "colorbutton" => ColorTarget::Button { id: number(2)? as Id, color: color(3)?, bevel: bevel(4)? },
                     "colorfield" => ColorTarget::Field { id: number(2)? as Id, color: color(3)?, bevel: bevel(4)? },
                     "colorrect" => ColorTarget::Rect { rect: rect(2)?, color: color(3)?, bevel: bevel(4)? },
                     _ => picture(function == "colorpictfile")?,
                 };
+                self.place_color_picture(&mut target);
                 {
                     let mut w = self.w();
                     let card = w.card_id;
@@ -370,7 +393,7 @@ impl Interp {
             let seq = w.transition_seq;
             w.transition = Some(Transition { effect: effect.into(), seconds, seq });
         }
-        self.sleep(std::time::Duration::from_secs_f32(seconds)).map_err(|e| format!("{e:?}"))
+        self.watch_pause(std::time::Duration::from_secs_f32(seconds)).map_err(|e| format!("{e:?}"))
     }
 
     fn layer_parts(&self, layer: Layer) -> Vec<crate::model::Part> {
