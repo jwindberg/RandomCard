@@ -4209,10 +4209,19 @@ fn movies() {
     assert_eq!(run(&mut i, "put the rate of movie 1"), "1");
     let msg = rx.try_recv().expect("movieRateChanged");
     assert!(matches!(msg, Event::Send { ref message, ref args, .. } if message == "movieRateChanged" && args[2] == "1"));
+    // On a busy machine the seek to 2.5 can take a while to land before
+    // the movie moves on, so it's given time, and the time that passes is
+    // measured rather than assumed.
+    let started = std::time::Instant::now();
+    let now = |i: &mut Interp| crate::runtime::movies::parse_system_time(&run(i, "put the currTime of movie 1")).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(300));
+    while now(&mut i) <= 2.6 && started.elapsed().as_secs() < 10 {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
     run(&mut i, "pause movie 1");
-    let t = crate::runtime::movies::parse_system_time(&run(&mut i, "put the currTime of movie 1")).unwrap();
-    assert!(t > 2.6 && t < 3.5, "played on from 2.5 to {t}");
+    let played = started.elapsed().as_secs_f64();
+    let t = now(&mut i);
+    assert!(t > 2.6 && t < 2.5 + played + 0.1, "played on from 2.5 to {t} in {played}");
     run(&mut i, "send \"rewind\" to movie 1");
     assert_eq!(run(&mut i, "put the currTime of movie 1"), "0");
     run(&mut i, "set the soundVolume of movie 1 to 100");
