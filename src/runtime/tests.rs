@@ -321,13 +321,13 @@ fn startup_comes_before_open_stack_once() {
 fn demo_stack_runs() {
     let mut i = interp_with(Stack::demo());
     i.handle_event(Event::Startup);
-    assert_eq!(run(&mut i, "put field \"Page\""), "Card 1 of 20");
+    assert_eq!(run(&mut i, "put field \"Page\""), "Card 1 of 21");
     let current = |i: &Interp| {
         let w = lock(&i.world);
         w.stack.card(w.card_id).unwrap().name.clone()
     };
     // The stack's own Tour menu.
-    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "19");
+    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "20");
     i.handle_event(Event::DoMenu("Dice".into()));
     assert_eq!(current(&i), "Dice");
     i.handle_event(Event::DoMenu("First".into()));
@@ -580,7 +580,7 @@ fn demo_stack_runs() {
     assert_eq!(click(&mut i, "Palettes", "Show Palette"), None);
     assert_eq!(run(&mut i, "put field \"Said\" of card \"Palettes\""), "openPalette Tour Palette 1");
     i.handle_event(Event::PaletteButton("Tour Palette".into(), 1));
-    assert_eq!(current(&i), "The Web");
+    assert_eq!(current(&i), "Card Window");
     i.handle_event(Event::PaletteButton("Tour Palette".into(), 2));
     assert_eq!(current(&i), "Contents");
     run(&mut i, "go to card \"Palettes\"");
@@ -613,6 +613,25 @@ fn demo_stack_runs() {
     assert!(run(&mut i, "put field \"Said\"").contains("icon shows its setting"));
     assert_eq!(click(&mut i, "Palettes", "Peek"), None);
     assert!(run(&mut i, "put field \"Said\"").contains("hidden button"));
+    // The card window: smaller and scrolled, zoomed, and bigger cards, all
+    // put back on leaving.
+    lock(&i.world).screen_rect = crate::model::Rect::new(0, 0, 1024, 768);
+    assert_eq!(click(&mut i, "Contents", "Card Window"), None);
+    assert_eq!(click(&mut i, "Card Window", "Window Size"), None);
+    assert_eq!(run(&mut i, "put the width of card window && the height of card window"), "360 240");
+    assert_eq!(run(&mut i, "put field \"Sent\""), "sizeWindow: 360 by 240");
+    assert_eq!(click(&mut i, "Card Window", "Scroll Around"), None);
+    assert!(run(&mut i, "put field \"Said\"").contains("150,100"));
+    assert_eq!(run(&mut i, "put the scroll of card window"), "0,0");
+    assert_eq!(click(&mut i, "Card Window", "Zoom"), None);
+    assert_eq!(run(&mut i, "put the zoomed of card window && the width of card window"), "true 512");
+    assert_eq!(click(&mut i, "Card Window", "Zoom"), None);
+    assert_eq!(run(&mut i, "put the zoomed of card window && the width of card window"), "false 360");
+    assert_eq!(click(&mut i, "Card Window", "Card Size"), None);
+    assert_eq!(run(&mut i, "put the width of card \"Contents\" && the height of this card"), "640 400");
+    run(&mut i, "go to card \"Contents\"");
+    assert_eq!(run(&mut i, "put the width of this card && the height of this card && the width of card window"), "512 342 512");
+    run(&mut i, "go to card \"Palettes\"");
     assert_eq!(click(&mut i, "Palettes", "Secret"), None);
     assert_eq!(run(&mut i, "put field \"Said\""), "You found the hidden button.");
     assert_eq!(click(&mut i, "Palettes", "Paint Menu"), None);
@@ -731,7 +750,7 @@ fn demo_stack_runs() {
     assert_eq!(run(&mut i, "put the number of cards of this background"), "4");
     i.canned_answers.push(DialogReply::Button("Delete".into()));
     assert_eq!(click(&mut i, "", "Delete"), None);
-    assert_eq!(run(&mut i, "put the number of cards"), "20");
+    assert_eq!(run(&mut i, "put the number of cards"), "21");
     assert_eq!(click(&mut i, "Grace Hopper", "Contents"), None);
     assert_eq!(current(&i), "Contents");
     assert_eq!(run(&mut i, "put the userLevel"), "5");

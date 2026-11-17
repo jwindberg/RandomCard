@@ -154,6 +154,9 @@ pub struct App {
     /// Where the card's top left corner was on screen last frame, and the
     /// window's outer top left, for moving the window when a script asks.
     card_on_screen: Option<(egui::Pos2, egui::Pos2)>,
+    /// The top left of the monitor the window is on, across the whole
+    /// desktop: the screenRect starts there.
+    monitor_origin: (i32, i32),
     /// The card's top left corner in the window, last frame.
     card_origin: egui::Pos2,
     /// The room the card had in the window last frame, and its size, to fit
@@ -283,6 +286,7 @@ impl App {
             rt: runtime::start(stack, open, settings.user_level, runtime::settings::home_path()),
             settings,
             card_on_screen: None,
+            monitor_origin: (0, 0),
             card_origin: egui::Pos2::ZERO,
             card_room: Vec2::ZERO,
             card_drawn: Vec2::ZERO,
@@ -2353,7 +2357,8 @@ impl App {
                 }
             }
             if let Some(m) = monitor {
-                w.screen_rect = crate::model::Rect::new(0, 0, m.x as i32, m.y as i32);
+                let (x, y) = self.monitor_origin;
+                w.screen_rect = crate::model::Rect::new(x, y, x + m.x as i32, y + m.y as i32);
             }
             w.focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
             w.mouse.shift = mods.shift;
@@ -2767,8 +2772,16 @@ fn with_ext(p: PathBuf) -> PathBuf {
 }
 
 impl eframe::App for App {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        // egui gives the monitor's size; where it starts on the desktop
+        // comes from winit, in the same points as the window's position.
+        if let Some(win) = frame.winit_window()
+            && let Some(m) = win.current_monitor()
+        {
+            let at = m.position().to_logical::<f64>(win.scale_factor() * ctx.zoom_factor() as f64);
+            self.monitor_origin = (at.x.round() as i32, at.y.round() as i32);
+        }
         if ctx.input(|i| i.viewport().close_requested()) && !self.quitting {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.request_quit(&ctx);

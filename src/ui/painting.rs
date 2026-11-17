@@ -2049,7 +2049,7 @@ impl App {
         let Some(f) = self.fat else { return };
         let (left, top) = (f.left.floor(), f.top.floor());
         let view = Vec2::new(size.x / FAT_ZOOM, size.y / FAT_ZOOM);
-        let uv = Rect::from_min_size(Pos2::new(left / size.x, top / size.y), Vec2::new(view.x / size.x, view.y / size.y));
+        let shown_px = Rect::from_min_size(Pos2::new(left, top), view);
         let whole = Rect::from_min_size(origin, size);
         let draw = |rect: Rect| {
             painter.rect_filled(rect, 0.0, Color32::WHITE);
@@ -2059,7 +2059,7 @@ impl App {
             ];
             for (layer, id, shown) in layers {
                 if let Some(t) = self.tex.picture(layer, id, scene.color_key).filter(|_| shown) {
-                    painter.image(t.id(), rect, uv, Color32::WHITE);
+                    painter.image(t.id(), rect, render::pixels_uv(t, shown_px), Color32::WHITE);
                 }
             }
         };

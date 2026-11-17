@@ -333,14 +333,14 @@ fn house(p: &mut Picture) {
 const STACK_SCRIPT: &str = r#"-- A menu of the stack's own. Its items arrive as doMenu messages.
 on openStack
   if there is no menu "Tour" then create menu "Tour"
-  put "Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Movies,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,The Web,Japanese,-,Address Book" into menu "Tour"
+  put "Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Movies,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,Card Window,The Web,Japanese,-,Address Book" into menu "Tour"
 end openStack
 
 on doMenu what
   if what is "Address Book" then
     visual effect zoom open
     go to first card of background "Address"
-  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Movies,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,The Web,Japanese," then
+  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Movies,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,Card Window,The Web,Japanese," then
     visual effect dissolve
     go to card what
   else
@@ -465,6 +465,7 @@ pub fn build() -> Stack {
         ("Icons", "on mouseUp\n  visual effect zoom open\n  go to card \"Icons\"\nend mouseUp"),
         ("Debugging", "on mouseUp\n  visual effect iris open\n  go to card \"Debugging\"\nend mouseUp"),
         ("Palettes", "on mouseUp\n  visual effect wipe right\n  go to card \"Palettes\"\nend mouseUp"),
+        ("Card Window", "on mouseUp\n  visual effect zoom open\n  go to card \"Card Window\"\nend mouseUp"),
         ("Address Book", "on mouseUp\n  visual effect zoom open\n  go to first card of background \"Address\"\nend mouseUp"),
         ("The Web", "on mouseUp\n  visual effect dissolve\n  go to card \"The Web\"\nend mouseUp"),
         ("Japanese", "on mouseUp\n  visual effect wipe left\n  go to card \"Japanese\"\nend mouseUp"),
@@ -1623,6 +1624,56 @@ end mouseUp"#,
         "on mouseUp\n  answer \"Home has\" && the number of cards of stack \"Home\" && \"cards. The first is called\" && quote & the short name of card 1 of stack \"Home\" & quote & \".\"\nend mouseUp",
     );
     b.card_part(c, ask);
+
+    // ----- The card window: smaller than the card and scrolled, zoomed,
+    // and the size of every card. All of it fits in the top-left corner,
+    // so the buttons stay in a small window.
+    let c = b.card(main, "Card Window");
+    let t = b.label("Heading", Rect::new(20, 10, 492, 36), "The card window", 20);
+    b.card_part(c, t);
+    let about = b.label(
+        "About",
+        Rect::new(20, 40, 340, 96),
+        "A script can make the card window smaller than its card and scroll it, zoom it to show the whole card, or change the size of every card in the stack.",
+        12,
+    );
+    b.card_part(c, about);
+    let window_buttons = [
+        (
+            "Window Size",
+            "on mouseUp\n  if the width of card window < the width of this card then\n    set the width of card window to the width of this card\n    set the height of card window to the height of this card\n    put \"The whole card again.\" into field \"Said\"\n  else\n    set the width of card window to 360\n    set the height of card window to 240\n    put \"A window smaller than its card, with scroll bars. Drag the window's edge to make it bigger.\" into field \"Said\"\n  end if\nend mouseUp",
+        ),
+        (
+            "Scroll Around",
+            "on mouseUp\n  if the width of card window >= the width of this card then\n    set the width of card window to 360\n    set the height of card window to 240\n  end if\n  repeat with i = 0 to 10\n    set the scroll of card window to (i * 15) & \",\" & (i * 10)\n    wait 3 ticks\n  end repeat\n  put \"The scroll of card window is\" && the scroll of card window & \": the far corner.\" into field \"Said\"\n  wait 2 seconds\n  set the scroll of card window to \"0,0\"\nend mouseUp",
+        ),
+        (
+            "Zoom",
+            "on mouseUp\n  set the zoomed of card window to not the zoomed of card window\n  if the zoomed of card window then\n    put \"Zoomed: the whole card, centered on the screen. Click Zoom again to put it back.\" into field \"Said\"\n  else\n    put \"Back where it was.\" into field \"Said\"\n  end if\nend mouseUp",
+        ),
+        (
+            "Card Size",
+            "on mouseUp\n  if the width of this card > 512 then\n    set the width of this card to 512\n    set the height of this card to 342\n  else\n    set the width of this card to 640\n    set the height of this card to 400\n  end if\n  put \"Every card is\" && the width of this card && \"by\" && the height of this card & \". The Tour goes back to 512 by 342 when you leave.\" into field \"Said\"\nend mouseUp",
+        ),
+    ];
+    for (i, (name, script)) in window_buttons.iter().enumerate() {
+        let y = 102 + i as i32 * 32;
+        let p = b.button(name, Rect::new(20, y, 160, y + 26), script);
+        b.card_part(c, p);
+    }
+    let mut said = b.label("Said", Rect::new(172, 102, 350, 190), "", 12);
+    said.text_style = "italic".into();
+    b.card_part(c, said);
+    let sent = b.label("Sent", Rect::new(172, 196, 350, 228), "", 10);
+    b.card_part(c, sent);
+    let corner = b.label(
+        "Corner",
+        Rect::new(372, 230, 500, 298),
+        "The card's far corner. In a small window, scroll here.",
+        12,
+    );
+    b.card_part(c, corner);
+    b.stack.cards[c].script = "on sizeWindow\n  put \"sizeWindow:\" && the width of card window && \"by\" && the height of card window into field \"Sent\"\nend sizeWindow\n\non moveWindow\n  put \"moveWindow: top left at\" && the topLeft of card window into field \"Sent\"\nend moveWindow\n\n-- Leave the Tour as it was.\non closeCard\n  if the zoomed of card window then set the zoomed of card window to false\n  if the width of this card is not 512 or the height of this card is not 342 then\n    set the width of this card to 512\n    set the height of this card to 342\n  end if\n  if the width of card window < 512 or the height of card window < 342 then\n    set the width of card window to 512\n    set the height of card window to 342\n  end if\n  set the scroll of card window to \"0,0\"\n  put empty into field \"Said\"\n  put empty into field \"Sent\"\nend closeCard".into();
 
     // ----- The web: JSON on the card itself, and requests to an address
     // the user types. Nothing here calls a service of its own accord: the

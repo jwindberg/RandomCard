@@ -500,14 +500,14 @@ pub fn draw_scene(painter: &Painter, tex: &Textures, scene: &Scene, origin: Pos2
     if scene.show_bg_pict
         && let Some(t) = tex.get(Layer::Background, scene.bg, scene.color_key)
     {
-        painter.image(t.id(), card_rect, uv, WHITE);
+        painter.image(t.id(), card_rect, card_uv(t, scene), WHITE);
     }
     let mut card_pict_drawn = false;
     for (i, pv) in scene.parts.iter().enumerate() {
         let is_card = matches!(pv.obj, ObjRef::Part { layer: Layer::Card, .. });
         if is_card && !card_pict_drawn {
             card_pict_drawn = true;
-            draw_card_picture(painter, tex, scene, card_rect, uv);
+            draw_card_picture(painter, tex, scene, card_rect);
         }
         if pv.part.visible {
             fill_from_map(painter, tex, scene, pv, origin);
@@ -518,7 +518,7 @@ pub fn draw_scene(painter: &Painter, tex: &Textures, scene: &Scene, origin: Pos2
         }
     }
     if !card_pict_drawn {
-        draw_card_picture(painter, tex, scene, card_rect, uv);
+        draw_card_picture(painter, tex, scene, card_rect);
     }
 }
 
@@ -545,13 +545,12 @@ pub fn draw_over(painter: &Painter, tex: &Textures, scene: &Scene, i: usize, ori
     let rect = part_rect(&scene.parts[i].part, origin);
     let painter = painter.with_clip_rect(rect.intersect(painter.clip_rect()));
     let card_rect = Rect::from_min_size(origin, Vec2::new(scene.width as f32, scene.height as f32));
-    let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
     let mut card_pict_drawn = matches!(scene.parts[i].obj, ObjRef::Part { layer: Layer::Card, .. });
     for (j, pv) in scene.parts.iter().enumerate().skip(i + 1) {
         let is_card = matches!(pv.obj, ObjRef::Part { layer: Layer::Card, .. });
         if is_card && !card_pict_drawn {
             card_pict_drawn = true;
-            draw_card_picture(&painter, tex, scene, card_rect, uv);
+            draw_card_picture(&painter, tex, scene, card_rect);
         }
         if pv.part.visible && part_rect(&pv.part, origin).intersects(rect) {
             fill_from_map(&painter, tex, scene, pv, origin);
@@ -562,7 +561,7 @@ pub fn draw_over(painter: &Painter, tex: &Textures, scene: &Scene, i: usize, ori
         }
     }
     if !card_pict_drawn {
-        draw_card_picture(&painter, tex, scene, card_rect, uv);
+        draw_card_picture(&painter, tex, scene, card_rect);
     }
 }
 
@@ -579,21 +578,20 @@ fn invert_under(painter: &Painter, tex: &Textures, scene: &Scene, i: usize, orig
     let rect = part_rect(&scene.parts[i].part, origin);
     let painter = painter.with_clip_rect(rect.intersect(painter.clip_rect()));
     let card_rect = Rect::from_min_size(origin, Vec2::new(scene.width as f32, scene.height as f32));
-    let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
     let layer = painter.layer_id();
     let start = painter.ctx().graphics_mut(|g| g.entry(layer).next_idx().0);
     painter.rect_filled(card_rect, 0.0, WHITE);
     if scene.show_bg_pict
         && let Some(t) = tex.get(Layer::Background, scene.bg, scene.color_key)
     {
-        painter.image(t.id(), card_rect, uv, WHITE);
+        painter.image(t.id(), card_rect, card_uv(t, scene), WHITE);
     }
     let mut card_pict_drawn = false;
     for pv in &scene.parts[..i] {
         let is_card = matches!(pv.obj, ObjRef::Part { layer: Layer::Card, .. });
         if is_card && !card_pict_drawn {
             card_pict_drawn = true;
-            draw_card_picture(&painter, tex, scene, card_rect, uv);
+            draw_card_picture(&painter, tex, scene, card_rect);
         }
         if pv.part.visible {
             draw_part(&painter, tex, pv, origin, false, scene.highlight(pv.obj), live);
@@ -662,12 +660,26 @@ fn invert_shape(shape: &mut egui::Shape, swap: &HashMap<egui::TextureId, egui::T
     }
 }
 
-fn draw_card_picture(painter: &Painter, tex: &Textures, scene: &Scene, card_rect: Rect, uv: Rect) {
+fn draw_card_picture(painter: &Painter, tex: &Textures, scene: &Scene, card_rect: Rect) {
     if scene.show_card_pict
         && let Some(t) = tex.get(Layer::Card, scene.card, scene.color_key)
     {
-        painter.image(t.id(), card_rect, uv, WHITE);
+        painter.image(t.id(), card_rect, card_uv(t, scene), WHITE);
     }
+}
+
+/// The part of a picture's texture that's on the card. Pictures never
+/// shrink with their cards, so one can be bigger than the card it's on;
+/// that part is drawn at its own size and the rest is left off.
+fn card_uv(t: &TextureHandle, scene: &Scene) -> Rect {
+    pixels_uv(t, Rect::from_min_size(Pos2::ZERO, Vec2::new(scene.width as f32, scene.height as f32)))
+}
+
+/// Pixels of a texture, as the fractions of it that painter.image takes.
+pub fn pixels_uv(t: &TextureHandle, r: Rect) -> Rect {
+    let [w, h] = t.size();
+    let size = Vec2::new(w.max(1) as f32, h.max(1) as f32);
+    Rect::from_min_max((r.min.to_vec2() / size).to_pos2(), (r.max.to_vec2() / size).to_pos2())
 }
 
 fn rgb([r, g, b]: [u8; 3]) -> Color32 {
