@@ -2345,11 +2345,24 @@ impl App {
             // (which is still settling) is the user's, and sends
             // moveWindow.
             let mut moved = None;
+            let settling = self.fitted_at.is_some_and(|t| t.elapsed() < Duration::from_millis(1500));
+            if let Some(t) = self.fitted_at
+                && settling
+            {
+                ctx.request_repaint_after(Duration::from_millis(1500).saturating_sub(t.elapsed()));
+            }
+            // Once a script's change has settled, the card is wherever it
+            // ended up, which needn't be where the script put it: sizing
+            // the window moves the card within it. Not the user's move, so
+            // no moveWindow, but zooming back has to return here.
+            let settled = !settling && self.fitted_at.is_some();
+            if settled && let Some((card, _)) = seen {
+                w.window_origin = (card.x as i32, card.y as i32);
+            }
             if let Some((card, _)) = seen
                 && last != Some(card)
             {
                 let at = (card.x as i32, card.y as i32);
-                let settling = self.fitted_at.is_some_and(|t| t.elapsed() < Duration::from_millis(1500));
                 if last.is_none() {
                     w.window_origin = at;
                 } else if !settling && w.window_key == 0 {
@@ -2365,6 +2378,9 @@ impl App {
             w.mouse.option = mods.alt;
             w.mouse.command = mods.command;
             drop(w);
+            if settled {
+                self.fitted_at = None;
+            }
             if seen.is_some() {
                 self.card_on_screen = seen;
             }
