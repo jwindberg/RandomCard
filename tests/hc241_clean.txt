@@ -6,6 +6,7 @@ AppleScript Stacks/Language at a Glance
 Color Tools
 HyperCard Help/Help Extras
 HyperCard Stacks/Audio Help
+HyperCard Stacks/Phone Dialer
 More Stacks/Alternate Home Stacks/Home (Browser)/Home
 More Stacks/Alternate Home Stacks/Home (Small)/Home
 More Stacks/Readymade Fields

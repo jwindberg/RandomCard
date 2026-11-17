@@ -931,6 +931,22 @@ impl Interp {
                 Ok(())
             }
             ObjRef::Card(id) => {
+                // A card's size is every card's: the stack's.
+                if matches!(name, "rect" | "rectangle" | "width" | "height") {
+                    let (cw, ch) = {
+                        let w = self.w();
+                        (w.stack.width as i64, w.stack.height as i64)
+                    };
+                    let (cw, ch) = match name {
+                        "width" => (to_int(v)?, ch),
+                        "height" => (cw, to_int(v)?),
+                        _ => match parse_rect(v) {
+                            Some((l, t, r, b)) => ((r - l) as i64, (b - t) as i64),
+                            None => return err(format!("Expected a rectangle, not \"{v}\"")),
+                        },
+                    };
+                    return self.resize_cards(cw.max(0) as u32, ch.max(0) as u32);
+                }
                 let mut w = self.w();
                 w.dirty = true;
                 let Some(c) = w.stack.card_mut(id) else { return err("No such card") };
@@ -1018,7 +1034,25 @@ impl Interp {
         }
     }
 
-    /// Move the message box so its top left corner is at a point.
+    /// Make every card in the stack this size, as setting the rect of a
+    /// card does, fitting the window around them. The card is sent
+    /// sizeWindow, as the window changes size with it.
+    pub(super) fn resize_cards(&mut self, width: u32, height: u32) -> R<()> {
+        {
+            let mut w = self.w();
+            let before = (w.stack.width, w.stack.height);
+            w.stack.resize_cards(width, height);
+            if (w.stack.width, w.stack.height) == before {
+                return Ok(());
+            }
+            w.dirty = true;
+            w.picture_rev += 1;
+            w.requests.push(UiRequest::FitCard);
+        }
+        let card = self.current_card_ref();
+        self.send_system(card, "sizeWindow")
+    }
+
     /// Set a geometric property of the card window. The card stays its own
     /// size, so this moves the window: to the new top left corner, or for
     /// right, bottom and botRight, to wherever puts that edge there. A rect
@@ -1053,6 +1087,7 @@ impl Interp {
         Ok(())
     }
 
+    /// Move the message box so its top left corner is at a point.
     pub(super) fn move_msg(&mut self, v: &str) -> R<()> {
         let Some((x, y)) = parse_point(v) else { return err(format!("Expected a point, not \"{v}\"")) };
         let mut w = self.w();

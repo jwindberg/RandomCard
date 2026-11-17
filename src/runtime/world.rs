@@ -529,6 +529,8 @@ pub enum UiRequest {
     MovePalette(i32, i32),
     /// Move the window so the card's top left corner is at this point on screen.
     MoveWindow(i32, i32),
+    /// The cards changed size: fit the window around them.
+    FitCard,
     /// Open a URL, such as a `mailto:` message, in the program that handles it.
     OpenUrl(String),
     /// Keep this user level in Settings: it was set from the Home stack.
@@ -581,6 +583,8 @@ pub enum Event {
     OpenMovie(std::path::PathBuf),
     /// The user clicked button `n` (from 0) of the named palette.
     PaletteButton(String, usize),
+    /// Stack Info's Resize: make every card this size.
+    ResizeCards(u32, u32),
     Shutdown,
 }
 

@@ -718,7 +718,26 @@ impl Default for Stack {
     }
 }
 
+/// The smallest and biggest a stack's cards can be, as in HyperCard
+/// (which went from 64 pixels to 1,280), with room above that for today's
+/// screens.
+pub const CARD_SIZES: std::ops::RangeInclusive<u32> = 64..=4096;
+
 impl Stack {
+    /// Make every card this size, as setting the rect of a card does. The
+    /// parts stay where they are, and the pictures keep what's painted
+    /// beyond the new edges.
+    pub fn resize_cards(&mut self, width: u32, height: u32) {
+        let (w, h) = (width.clamp(*CARD_SIZES.start(), *CARD_SIZES.end()), height.clamp(*CARD_SIZES.start(), *CARD_SIZES.end()));
+        (self.width, self.height) = (w, h);
+        for b in &mut self.backgrounds {
+            b.picture.grow_to(w, h);
+        }
+        for c in &mut self.cards {
+            c.picture.grow_to(w, h);
+        }
+    }
+
     pub fn new(name: &str) -> Stack {
         let (w, h) = (DEFAULT_WIDTH, DEFAULT_HEIGHT);
         let bg = Background { id: 2, picture: Picture::new(w, h), show_pict: true, ..Background::default() };
@@ -1082,10 +1101,10 @@ impl Stack {
         }
         let (w, h) = (stack.width, stack.height);
         for b in &mut stack.backgrounds {
-            b.picture.ensure_size(w, h);
+            b.picture.grow_to(w, h);
         }
         for c in &mut stack.cards {
-            c.picture.ensure_size(w, h);
+            c.picture.grow_to(w, h);
         }
         stack.path = Some(path.to_path_buf());
         Ok(stack)

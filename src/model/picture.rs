@@ -103,6 +103,13 @@ impl Picture {
         }
     }
 
+    /// Make it at least this big, keeping everything painted. Pictures
+    /// never shrink with their cards, so making the cards smaller and then
+    /// bigger again (as Phone Dialer does) brings back what was painted.
+    pub fn grow_to(&mut self, width: u32, height: u32) {
+        self.ensure_size(self.width.max(width), self.height.max(height));
+    }
+
     fn index(&self, x: i32, y: i32) -> Option<usize> {
         if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
             return None;

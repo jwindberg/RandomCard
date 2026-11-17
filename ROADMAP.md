@@ -627,15 +627,14 @@ parse, which takes all its handlers with it, so the syntax comes first.
    - ~~`dial` as Phone Dialer writes it~~ (done: a bare `dial` goes to the
      stack's own dial handler, a handler that takes `dial` gets the number
      itself, and `the dialingTime`, `the dialingVolume` and the message
-     box's size are in; Phone Dialer dials. Its Shrink Window waits for
-     card sizes, below)
+     box's size are in; Phone Dialer dials, and its Shrink Window works)
 2. **Movies** (QuickTime Tools): `there is a movie X`, `the version of
    QuickTime`, `the number of windows`; tracks (`track 1 of movie 1`) give
    a clear error rather than stopping the script.
 3. **Functions and properties:** `the destination` (HyperCard Help and the
    AppleScript Reference, on every navigation button), `the number of cd
    btns`, `textHeight` in Graph Maker, setting `the rect of card window`
-   (Phone Dialer; see The card window in Suggested order), New Features' "The button has no line 0".
+   (see The card window in Suggested order), New Features' "The button has no line 0".
 4. **Externals:** ~~Enviro~~ (done; with `lock recent`, the message box
    as `window "message"`, and AddColor pictures, Color Tools now runs
    clean, its Demo included), the palettes Power Tools, Art Bits, Background Art and Stack
@@ -771,8 +770,11 @@ their feedback. For now:
    2.4.1 (Basilisk II, `examples/apple/emulator-2.4/run.sh`): movies
    from HyperTalk (started: see Movies; macOS and Linux done, Windows
    written), URLs, the new script editor, and its menus and tools.
-5. **The card window:** global rect and loc, scrolling (hBarLoc, vBarLoc),
-   zoom, `moveWindow` and `sizeWindow`, and card size changes.
+5. **The card window:** card size changes (done: setting the rect,
+   width or height of a card sizes every card, as Stack Info's Resize
+   does, and sends sizeWindow; pictures keep what's painted beyond a
+   smaller card), a card window smaller than its card, scrolled, the
+   zoomed, and `moveWindow`.
 6. **Multiple windows.** Done: stack windows (`go to stack … in a new
    window`, `the stacks`, suspendStack and resumeStack); the editor
    windows (script editors, the Variable and Message Watchers, and Info

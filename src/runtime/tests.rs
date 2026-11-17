@@ -4337,3 +4337,27 @@ fn hypercard_241_stacks_stay_clean() {
     }
     assert!(broken.is_empty(), "HyperCard 2.4.1 stacks that were clean have errors:\n{}", broken.join("\n"));
 }
+
+#[test]
+fn cards_resize() {
+    // Setting the rect of a card sizes every card (Phone Dialer's Shrink
+    // Window), and the card is sent sizeWindow.
+    let mut s = stack();
+    s.cards[0].picture.set(100, 200, crate::model::Pixel::BLACK);
+    s.script = "on sizeWindow\n  put the rect of this card into the msg box\nend sizeWindow".into();
+    let mut i = interp_with(s);
+    run(&mut i, "set the rect of this card to 40,50,552,117");
+    assert_eq!(run(&mut i, "put the rect of card 3"), "0,0,512,67");
+    assert_eq!(lock(&i.world).msg, "0,0,512,67");
+    assert_eq!(run(&mut i, "put the height of card window"), "67");
+    // Growing again brings back what was painted below the small card.
+    run(&mut i, "set the height of this card to 302");
+    assert_eq!(run(&mut i, "put the height of this card"), "302");
+    assert_eq!(lock(&i.world).stack.cards[0].picture.get(100, 200), crate::model::Pixel::BLACK);
+    run(&mut i, "set the width of card 2 to 10");
+    assert_eq!(run(&mut i, "put the width of this card"), "64");
+    assert!(run(&mut i, "set the rect of this card to 1,2").starts_with("ERROR"));
+    // Stack Info's Resize.
+    i.handle_event(Event::ResizeCards(640, 480));
+    assert_eq!(run(&mut i, "put the rect of this card"), "0,0,640,480");
+}

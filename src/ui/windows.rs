@@ -601,6 +601,7 @@ impl App {
                 let path = w.stack.path.as_ref().map(|p| p.display().to_string()).unwrap_or("(not saved)".into());
                 let (cards, bgs, width, height) =
                     (w.stack.cards.len(), w.stack.backgrounds.len(), w.stack.width, w.stack.height);
+                let mut resize = None;
                 egui::Grid::new("stack-info").num_columns(2).show(ui, |ui| {
                     ui.label("Stack Name:");
                     changed |= ui.text_edit_singleline(&mut w.stack.name).changed();
@@ -611,13 +612,32 @@ impl App {
                     ui.label("Contains:");
                     ui.label(format!("{cards} cards, {bgs} backgrounds"));
                     ui.end_row();
+                    // The size as typed, until Resize; a new start when the
+                    // cards change size some other way.
                     ui.label("Card size:");
-                    ui.label(format!("{width} × {height}"));
+                    let id = egui::Id::unique("stack-info-card-size");
+                    let (base, mut size) = ui.data_mut(|d| *d.get_temp_mut_or(id, ((width, height), (width, height))));
+                    if base != (width, height) {
+                        size = (width, height);
+                    }
+                    ui.horizontal(|ui| {
+                        ui.add(egui::DragValue::new(&mut size.0).range(crate::model::CARD_SIZES));
+                        ui.label("×");
+                        ui.add(egui::DragValue::new(&mut size.1).range(crate::model::CARD_SIZES));
+                        if size != (width, height) && ui.button("Resize").clicked() {
+                            resize = Some(size);
+                        }
+                    });
+                    ui.data_mut(|d| d.insert_temp(id, ((width, height), size)));
                     ui.end_row();
                 });
                 changed |= ui.checkbox(&mut w.stack.cant_modify, "Can't Modify Stack").changed();
                 if scripting && ui.button("Script…").clicked() {
                     script = Some(ObjRef::Stack);
+                }
+                // On the script thread, which sends sizeWindow.
+                if let Some((cw, ch)) = resize {
+                    self.send(Event::ResizeCards(cw, ch));
                 }
             }
         }

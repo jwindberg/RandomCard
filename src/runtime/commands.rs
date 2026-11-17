@@ -1444,7 +1444,7 @@ impl Interp {
         Ok(())
     }
 
-    fn send_system(&mut self, target: ObjRef, msg: &str) -> R<()> {
+    pub(super) fn send_system(&mut self, target: ObjRef, msg: &str) -> R<()> {
         if self.lock_messages {
             return Ok(());
         }
@@ -2624,7 +2624,7 @@ impl Interp {
         let (width, height) = (w.stack.width, w.stack.height);
         w.record_picture();
         let Some(layer) = w.layer_picture_mut() else { return Err("There's no picture to import into.".into()) };
-        layer.ensure_size(width, height);
+        layer.grow_to(width, height);
         crate::paint::paste(layer, &pic, 0, 0);
         let rect = (0, 0, pic.width.min(width) as i32, pic.height.min(height) as i32);
         w.picture_rev += 1;

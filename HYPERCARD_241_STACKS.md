@@ -17,7 +17,7 @@ don't pause, with no one watching, so all of them take seconds. A stack
 joins the list when this page is written again after a fix. What breaks
 the others is in the roadmap's "HyperCard 2.4.1's own stacks" section.
 
-**11 of 29 stacks are clean** (2026-11-16).
+**12 of 29 stacks are clean** (2026-11-17).
 
 ## Clean
 
@@ -28,6 +28,7 @@ the others is in the roadmap's "HyperCard 2.4.1's own stacks" section.
 | Color Tools | 19 | 0 |
 | HyperCard Help/Help Extras | 6 | 0 |
 | HyperCard Stacks/Audio Help | 23 | 0 |
+| HyperCard Stacks/Phone Dialer | 15 | 0 |
 | More Stacks/Alternate Home Stacks/Home (Browser)/Home | 28 | 1 |
 | More Stacks/Alternate Home Stacks/Home (Small)/Home | 21 | 0 |
 | More Stacks/Readymade Fields | 8 | 0 |
@@ -51,7 +52,6 @@ the others is in the roadmap's "HyperCard 2.4.1's own stacks" section.
 | HyperCard Stacks/Art Bits | 14 | 1 | card 1 button "Beasts": Can't understand "generalpalette" |
 | HyperCard Stacks/Graph Maker | 20 | 1 | card 2 button "frame": No such property "textheight" |
 | HyperCard Stacks/New Features | 14 | 3 | openStack: The button has no line 0 |
-| HyperCard Stacks/Phone Dialer | 15 | 1 | card 1 button "Shrink Window": Can't set the rect of a card |
 | HyperCard Stacks/QuickTime Tools | 173 | 2 | openStack: No such object "QuickTime" |
 | More Stacks/Background Art | 20 | 1 | card 1 button "Books and notebooks": Can't understand "fieldpalette" |
 | More Stacks/Power Tools | 68 | 4 | openStack: Can't understand "generalpalette" |

@@ -334,6 +334,7 @@ impl Interp {
                     _ => Ok(()),
                 }
             }
+            Event::ResizeCards(width, height) => self.resize_cards(width, height),
             Event::Shutdown => Ok(()),
         };
         self.frames.clear();

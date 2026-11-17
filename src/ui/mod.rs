@@ -153,6 +153,13 @@ pub struct App {
     card_on_screen: Option<(egui::Pos2, egui::Pos2)>,
     /// The card's top left corner in the window, last frame.
     card_origin: egui::Pos2,
+    /// The room the card had in the window last frame, and its size, to fit
+    /// the window around the card when its size changes.
+    card_room: Vec2,
+    card_drawn: Vec2,
+    /// The card's size and the window's before a script changed the
+    /// card's size, so the window comes back as it was when the card does.
+    fit_from: Option<(Vec2, Vec2)>,
     /// Export Paint under way: the card is drawn without selections or
     /// windows over it until the screenshot is saved.
     export: Option<painting::Export>,
@@ -269,6 +276,9 @@ impl App {
             settings,
             card_on_screen: None,
             card_origin: egui::Pos2::ZERO,
+            card_room: Vec2::ZERO,
+            card_drawn: Vec2::ZERO,
+            fit_from: None,
             export: None,
             system_image_at_copy: None,
             fonts_for: None,
@@ -843,6 +853,7 @@ impl App {
                         ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(to));
                     }
                 }
+                UiRequest::FitCard => self.fit_card(ctx),
                 UiRequest::VariableWatcher(show) => self.variable_watcher = show,
                 UiRequest::Recent => self.recent_open = true,
                 UiRequest::FocusMessage(at) => {
@@ -893,6 +904,37 @@ impl App {
         if want.x > inner.width() + 0.5 || want.y > inner.height() + 0.5 {
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(want));
         }
+    }
+
+    /// Fit the window snugly around the card, smaller or bigger, when a
+    /// script or Stack Info changes the cards' size, as HyperCard's card
+    /// window took the new size. The menus and the message box keep their
+    /// room; the margin is the one the card is drawn with. When the card
+    /// goes back to the size it had first, so does the window.
+    fn fit_card(&mut self, ctx: &egui::Context) {
+        let size = {
+            let w = self.world();
+            if w.window_key != 0 {
+                return;
+            }
+            egui::vec2(w.stack.width as f32, w.stack.height as f32)
+        };
+        let (inner, monitor) = ctx.input(|i| (i.viewport().inner_rect, i.viewport().monitor_size));
+        let Some(inner) = inner else { return };
+        if self.card_room == Vec2::ZERO {
+            return;
+        }
+        let first = *self.fit_from.get_or_insert((self.card_drawn, inner.size()));
+        let mut want = if size == first.0 {
+            self.fit_from = None;
+            first.1
+        } else {
+            inner.size() - self.card_room + size + Vec2::splat(16.0)
+        };
+        if let Some(m) = monitor {
+            want = want.min(m * 0.95);
+        }
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(want.max(egui::vec2(200.0, 120.0))));
     }
 
     /// When another card window comes forward: the one going behind keeps
@@ -2161,6 +2203,7 @@ impl App {
         let shown = self.frozen.clone().unwrap_or_else(|| live.clone());
 
         let avail = ui.available_size();
+        (self.card_room, self.card_drawn) = (avail, size);
         // Whole-pixel placement keeps 1-pixel picture lines crisp.
         let pad = Vec2::new(((avail.x - size.x) / 2.0).max(8.0).round(), ((avail.y - size.y) / 2.0).max(8.0).round());
         ui.add_space(pad.y);
@@ -2612,6 +2655,7 @@ impl eframe::App for App {
         if serial != self.stack_seen {
             self.stack_seen = serial;
             self.forget_stack_view();
+            self.fit_from = None;
             self.track_front_window();
             self.fit_window(&ctx);
         }
