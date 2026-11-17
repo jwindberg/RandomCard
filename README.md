@@ -25,6 +25,12 @@ cargo run --release -- "Home"       # imports an original HyperCard stack
 cargo test                          # language, runtime and demo-stack tests
 ```
 
+To install it for yourself, `tools/install.sh` builds RandomCard into
+`~/.cargo/bin`, first offering to install Rust and what building needs, and
+`tools/install_desktop.sh` adds it to the Linux app menu. On Windows,
+`tools\install.ps1` and `tools\install_desktop.ps1` do the same (the Start
+menu); run them with `powershell -ExecutionPolicy Bypass -File tools\install.ps1`.
+
 On a Mac, `tools/make_mac_app.sh` builds `RandomCard.app` and puts it in
 `/Applications`, or in the folder you name (`tools/make_mac_app.sh ~/Applications`).
 
