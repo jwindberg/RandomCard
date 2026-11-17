@@ -51,6 +51,11 @@ libloading = "0.8.9"
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 ureq = { version = "3.5.1", default-features = false, features = ["native-tls", "gzip"] }
 
+# Windows: Media Foundation for movies.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Imaging", "Win32_Media_MediaFoundation", "Win32_System_Com"] }
+windows-core = "0.62.2"
+
 # macOS: native menus at the top of the screen, in place of winit's default,
 # and AVFoundation for movies.
 [target.'cfg(target_os = "macos")'.dependencies]

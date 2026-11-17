@@ -392,7 +392,7 @@ Windows and "/" elsewhere, so a stack can find its own folder anywhere.
   `play movie 1`, `set the rate of movie 1 to -1`, `the currTime of movie
   1`, QuickTime's controller and messages like `movieRateChanged`. Today's
   formats play (MOV, MP4, M4V, MPEG), through the system's own player:
-  AVFoundation on macOS and GStreamer on Linux; Windows is still to come.
+  AVFoundation on macOS, Media Foundation on Windows and GStreamer on Linux.
   macOS doesn't play MPEG-1 or MPEG-2. Classic QuickTime movies play
   where the system can decode them. Dropping a movie file on the card opens it, with or
   without an extension. See [HYPERTALK.md](HYPERTALK.md#movies).
@@ -467,7 +467,7 @@ src/
                paint operations, painted text
   sound/       note parsing, rendering, built-in voices and audio output
   video/       movies, through the system's own player (AVFoundation on
-               macOS, GStreamer on Linux)
+               macOS, Media Foundation on Windows, GStreamer on Linux)
   ui/          egui app: menus, palettes, card rendering, transitions,
                paint tools, info dialogs, script editor, user levels
 ```

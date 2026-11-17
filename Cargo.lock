@@ -3598,6 +3598,8 @@ dependencies = [
  "serde",
  "serde_json",
  "ureq",
+ "windows",
+ "windows-core",
  "winit",
  "winresource",
  "xmrs",

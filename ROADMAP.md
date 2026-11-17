@@ -66,7 +66,7 @@ RandomCard aims for HyperCard's functionality, not its 1987 appearance.
 | Fields | Styled text, the selection, click functions, list fields |
 | Visual effects | Complete |
 | Sound | `play`, notes, `dial`, `beep`; no MACE |
-| Movies | HyperCard 2.4's movie syntax, movie windows and controller, on macOS (AVFoundation) and Linux (GStreamer); Windows next |
+| Movies | HyperCard 2.4's movie syntax, movie windows and controller, on macOS (AVFoundation), Windows (Media Foundation) and Linux (GStreamer) |
 | HyperCard import | 1.x and 2.x: structure, pictures, parts, text, scripts, icons, sounds, AddColor |
 | User levels and stack protection | Levels, Protect Stack, passwords, private access |
 | Script-modifiable menus | Complete, except submenus |
@@ -569,7 +569,11 @@ and has already licensed H.264 and HEVC. In the Tour's Movies card.
    decode on the UI thread as they're drawn; if a large movie ever
    stutters, decoding moves to a thread of its own. macOS no longer
    decodes MPEG-1 or MPEG-2, or the classic QuickTime codecs.
-3. **Windows:** Media Foundation.
+3. **Windows** (written, to be tried on Windows): Media Foundation's
+   Media Engine, in frame-server mode, hands over each picture through a
+   Direct3D 11 texture (or a WIC bitmap, decoded in software, where
+   there's no GPU that decodes video). It can't play most movies
+   backward, so a negative rate steps back by seeking, without sound.
 4. **Classic QuickTime movies, everywhere.** The movies in old stacks are
    in QuickTime's own early codecs: Graphics (SMC), Animation (RLE),
    Apple Video (road pizza) and Cinepak, often in 256 colors with a color
@@ -766,7 +770,7 @@ their feedback. For now:
 4. **HyperCard 2.4's own features:** audit them in the real HyperCard
    2.4.1 (Basilisk II, `examples/apple/emulator-2.4/run.sh`): movies
    from HyperTalk (started: see Movies; macOS and Linux done, Windows
-   next), URLs, the new script editor, and its menus and tools.
+   written), URLs, the new script editor, and its menus and tools.
 5. **The card window:** global rect and loc, scrolling (hBarLoc, vBarLoc),
    zoom, `moveWindow` and `sizeWindow`, and card size changes.
 6. **Multiple windows.** Done: stack windows (`go to stack … in a new

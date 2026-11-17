@@ -1,7 +1,8 @@
 //! Movies: playing video files (MOV, MP4, M4V, MPEG) with the system's own
 //! media framework, which decodes them (in hardware where it can) and plays
-//! their sound. macOS uses AVFoundation; Linux uses GStreamer, loaded when the
-//! first movie opens, so RandomCard runs without it and only movies need it.
+//! their sound. macOS uses AVFoundation, Windows uses Media Foundation, and
+//! Linux uses GStreamer, loaded when the first movie opens, so RandomCard
+//! runs without it and only movies need it.
 //!
 //! A `Player` is one open movie. Scripts ask it the time and set its rate
 //! from the script thread; the UI takes its frames to draw. It's safe to
@@ -22,9 +23,14 @@ mod avfoundation;
 #[cfg(target_os = "macos")]
 use avfoundation as imp;
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(windows)]
+mod mediafoundation;
+#[cfg(windows)]
+use mediafoundation as imp;
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 mod unsupported;
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 use unsupported as imp;
 
 /// One picture of a movie, in RGBA.

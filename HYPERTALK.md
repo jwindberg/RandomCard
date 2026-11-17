@@ -504,8 +504,8 @@ end idle
 
 HyperCard 2.4 played QuickTime movies with Apple's Movie command, and
 RandomCard plays today's movie files (MOV, MP4, M4V, MPEG) the same way,
-with the system's own player: AVFoundation on macOS and GStreamer on
-Linux (Windows is still to come). macOS doesn't play MPEG-1 or MPEG-2.
+with the system's own player: AVFoundation on macOS, Media Foundation on
+Windows and GStreamer on Linux. macOS doesn't play MPEG-1 or MPEG-2.
 Classic QuickTime movies, such as HyperCard 2.4's Simple Movie, play
 where the system can decode their codecs (GStreamer can decode some, on
 Linux); their own color tables are honored. Music tracks and QuickTime VR aren't played.
