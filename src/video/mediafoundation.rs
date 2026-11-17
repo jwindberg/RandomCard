@@ -540,3 +540,44 @@ impl Drop for State {
         }
     }
 }
+
+#[cfg(test)]
+mod ci_probe {
+    use super::*;
+    use std::fmt::Write;
+    #[test]
+    fn ci_probe_engine() {
+        let file = concat!(env!("CARGO_MANIFEST_DIR"), "/src/model/tour_movie/Card Trick.mp4");
+        let mut log = String::new();
+        macro_rules! say { ($($a:tt)*) => {{ let l = format!($($a)*); eprintln!("{l}"); writeln!(log, "{l}").unwrap(); }} }
+        for off in [None, Some(1u32)] {
+            say!("=== deselect {off:?}: opening");
+            let p = Player::open(Path::new(file)).unwrap();
+            {
+                let st = p.state();
+                say!("opened, gpu={}", matches!(st.target, Some(Target::D3d { .. })));
+                let n = unsafe { st.ex.GetNumberOfStreams() };
+                say!("streams={n:?}");
+                if let Some(i) = off {
+                    let r = unsafe { st.ex.SetStreamSelection(i, false) };
+                    say!("SetStreamSelection -> {r:?}");
+                    let r = unsafe { st.ex.ApplyStreamSelections() };
+                    say!("ApplyStreamSelections -> {r:?}");
+                }
+            }
+            std::thread::sleep(Duration::from_millis(100));
+            p.set_rate(1.0);
+            let t0 = Instant::now();
+            while t0.elapsed() < Duration::from_millis(500) {
+                let st = p.state();
+                let (t, ready, paused) = unsafe { (st.engine.GetCurrentTime(), st.engine.GetReadyState(), st.engine.IsPaused().as_bool()) };
+                let err = error_text(&st.engine);
+                drop(st);
+                say!("{:>3}ms t={t:.3} ready={ready} paused={paused} err={err:?}", t0.elapsed().as_millis());
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            say!("closing");
+        }
+        panic!("probe log (deliberate failure):\n{log}");
+    }
+}

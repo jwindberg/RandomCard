@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os: [windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -23,10 +23,14 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
       # No rustfmt check: RandomCard's style isn't rustfmt's.
-      - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+      - name: Audio devices
+        shell: pwsh
+        run: |
+          Get-Service Audiosrv | Format-List Name,Status
+          Get-PnpDevice -Class AudioEndpoint -ErrorAction SilentlyContinue | Format-Table -AutoSize
+          Get-CimInstance Win32_SoundDevice | Format-Table Name,Status
       - name: Test
-        run: cargo test
+        run: cargo test --bin randomcard -- --nocapture movies ci_probe
       - name: Build release
         run: cargo build --release
       - name: Check it needs no Visual C++ runtime
