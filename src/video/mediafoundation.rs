@@ -2,7 +2,9 @@
 //! behind the HTML video element, which finds the decoders (hardware ones
 //! when there's a GPU), keeps the picture in time and plays the sound. It
 //! runs in "frame server" mode: rather than drawing into a window, it hands
-//! over each new picture, which is copied out as RGBA.
+//! over each new picture, which is copied out as RGBA. In that mode the
+//! engine only moves on when told time has passed, so a thread for each
+//! movie tells it while it plays, drawn or not.
 //!
 //! The pictures come through a Direct3D 11 texture when the machine has a
 //! GPU that decodes video, and otherwise (a virtual machine, say) through a
@@ -71,21 +73,29 @@ struct State {
     ended: bool,
     frame: Option<Arc<Frame>>,
     serial: u64,
+    /// The engine has a new picture that hasn't been copied out yet.
+    fresh: bool,
 }
+
+/// The state, shared with the thread that keeps the engine going.
+struct Shared(Mutex<State>);
+
+// SAFETY: Media Foundation's objects are free-threaded, the D3D device is
+// created with multithread protection, and everything else (the device
+// context, the WIC bitmap, our own state) is only touched while holding the
+// mutex. So the state can be used from the script, UI and tick threads alike.
+unsafe impl Send for Shared {}
+unsafe impl Sync for Shared {}
 
 /// An open movie.
 pub struct Player {
     size: (u32, u32),
     duration: f64,
-    state: Mutex<State>,
+    state: Arc<Shared>,
 }
 
-// SAFETY: Media Foundation's objects are free-threaded, the D3D device is
-// created with multithread protection, and everything else (the device
-// context, the WIC bitmap, our own state) is only touched while holding the
-// mutex. So the player can be used from the script and UI threads alike.
-unsafe impl Send for Player {}
-unsafe impl Sync for Player {}
+/// How often the tick thread nudges a playing engine.
+const TICK: Duration = Duration::from_millis(10);
 
 /// The engine's event callback, which it requires. The player asks the
 /// engine its state rather than waiting on events, so this ignores them.
@@ -222,17 +232,38 @@ fn error_text(engine: &IMFMediaEngine) -> Option<String> {
 }
 
 impl State {
-    /// Copy the engine's picture out, if there's a new one (or `force`).
-    fn grab(&mut self, size: (u32, u32), force: bool) -> bool {
-        let Some(target) = &self.target else { return false };
+    /// Tell the engine time has passed. In frame-server mode this is what
+    /// moves it along: until it's called, playing doesn't start, the clock
+    /// stands still and seeks don't land. Notes whether there's a new
+    /// picture.
+    fn pump(&mut self) {
         let mut pts = 0i64;
         // Called through the vtable to tell S_OK (a new picture) from
         // S_FALSE (no new one), which the wrapper treats alike.
         // SAFETY: A call on a live engine with a pointer to a local.
         let hr = unsafe { (Interface::vtable(&self.engine).OnVideoStreamTick)(Interface::as_raw(&self.engine), &mut pts) };
-        if hr != S_OK && !force {
+        if hr == S_OK {
+            self.fresh = true;
+        }
+    }
+
+    /// Whether the engine needs pumping without anyone drawing it: while
+    /// it plays forward, or a seek is on its way.
+    fn busy(&self) -> bool {
+        // SAFETY: A query on a live engine.
+        (self.rate > 0.0 && !self.ended) || unsafe { self.engine.IsSeeking() }.as_bool()
+    }
+
+    /// Copy the engine's picture out, if there's a new one (or `force`).
+    fn grab(&mut self, size: (u32, u32), force: bool) -> bool {
+        if self.target.is_none() {
             return false;
         }
+        self.pump();
+        if !self.fresh && !force {
+            return false;
+        }
+        let Some(target) = &self.target else { return false };
         let rect = RECT { left: 0, top: 0, right: size.0 as i32, bottom: size.1 as i32 };
         let border = MFARGB { rgbBlue: 0, rgbGreen: 0, rgbRed: 0, rgbAlpha: 255 };
         let rgba = match target {
@@ -274,6 +305,7 @@ impl State {
                 }
             }
         };
+        self.fresh = false;
         self.serial += 1;
         self.frame = Some(Arc::new(Frame { width: size.0, height: size.1, rgba, serial: self.serial }));
         true
@@ -324,11 +356,11 @@ impl Player {
             factory.CreateInstance(0, &attrs).map_err(fail)?
         };
         let ex: IMFMediaEngineEx = engine.cast().map_err(fail)?;
-        let state = State { engine, ex, target: None, rate: 0.0, held: 0.0, reverse: None, ended: false, frame: None, serial: 0 };
+        let state = State { engine, ex, target: None, rate: 0.0, held: 0.0, reverse: None, ended: false, frame: None, serial: 0, fresh: false };
         // From here on, dropping the state on failure shuts the engine down.
-        let mut player = Player { size: (0, 0), duration: 0.0, state: Mutex::new(state) };
+        let mut player = Player { size: (0, 0), duration: 0.0, state: Arc::new(Shared(Mutex::new(state))) };
         {
-            let st = player.state.get_mut().unwrap();
+            let st = Arc::get_mut(&mut player.state).unwrap().0.get_mut().unwrap();
             // A byte stream rather than a URL, so a file with no extension
             // (a classic Mac movie) still opens; the name is a hint to its
             // type.
@@ -374,12 +406,30 @@ impl Player {
                 }
             }
         }
+        // Keep the engine going while it plays, whether or not it's being
+        // drawn: a hidden movie still plays its sound, and its time moves on
+        // between repaints. The thread ends once the player is gone.
+        let weak = Arc::downgrade(&player.state);
+        std::thread::Builder::new()
+            .name("movie tick".into())
+            .spawn(move || {
+                ensure_com();
+                loop {
+                    std::thread::sleep(TICK);
+                    let Some(shared) = weak.upgrade() else { break };
+                    let mut st = lock(&shared);
+                    if st.busy() {
+                        st.pump();
+                    }
+                }
+            })
+            .map_err(|e| format!("The movie couldn't be played: {e}"))?;
         Ok(player)
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
         ensure_com();
-        self.state.lock().unwrap_or_else(|e| e.into_inner())
+        lock(&self.state)
     }
 
     pub fn size(&self) -> (u32, u32) {
@@ -473,6 +523,10 @@ impl Player {
         }
         done
     }
+}
+
+fn lock(shared: &Shared) -> MutexGuard<'_, State> {
+    shared.0.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 impl Drop for State {
