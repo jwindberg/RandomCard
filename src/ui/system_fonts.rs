@@ -53,6 +53,26 @@ fn japanese_font() -> Option<&'static FontData> {
     .as_ref()
 }
 
+/// How far down, as a fraction of the font size, a fallback font's glyphs
+/// go to sit on the main font's baseline. egui centers a fallback's line
+/// height on the main font's, so one with a taller line rides high: Yu
+/// Gothic's half-em line gap lifts Japanese a quarter of an em above the
+/// Latin text beside it.
+fn baseline_offset(font: &FontData, main: &FontData) -> Option<f32> {
+    use ab_glyph::Font;
+    // Ascent and line height, in ems.
+    let metrics = |f: &FontData| {
+        let face = ab_glyph::FontRef::try_from_slice_and_index(f.bytes(), f.index).ok()?;
+        let em = face.units_per_em()?;
+        let (ascent, descent, gap) = (face.ascent_unscaled(), face.descent_unscaled(), face.line_gap_unscaled());
+        Some((ascent / em, (ascent - descent + gap) / em))
+    };
+    let ((ascent, height), (main_ascent, main_height)) = (metrics(font)?, metrics(main)?);
+    // Where egui puts its baseline, below the main font's.
+    let below = (ascent - main_ascent) + 0.5 * (main_height - height);
+    Some(-below)
+}
+
 /// Whether text has Japanese in it: kana, kanji or full-width forms.
 fn is_japanese(text: &str) -> bool {
     text.chars().any(|c| matches!(c as u32, 0x3000..=0x30ff | 0x3400..=0x4dbf | 0x4e00..=0x9fff | 0xf900..=0xfaff | 0xff00..=0xffef))
@@ -105,7 +125,12 @@ pub fn add_fallbacks(defs: &mut FontDefinitions, stack: &Stack) {
     }
     let Some(font) = japanese_font() else { return };
     ADDED.store(true, Ordering::Relaxed);
-    defs.font_data.insert(JAPANESE.into(), font.clone().into());
+    let main = defs.families.get(&egui::FontFamily::Proportional).and_then(|f| f.first()).and_then(|name| defs.font_data.get(name));
+    let font = match main.and_then(|main| baseline_offset(font, main)) {
+        Some(offset) => font.clone().tweak(egui::FontTweak { y_offset_factor: offset, ..font.tweak.clone() }),
+        None => font.clone(),
+    };
+    defs.font_data.insert(JAPANESE.into(), font.into());
     for family in defs.families.values_mut() {
         family.push(JAPANESE.into());
     }
@@ -120,5 +145,18 @@ mod tests {
         assert!(is_japanese("あなたの番です"));
         assert!(is_japanese("ｱ"));
         assert!(!is_japanese("café ¬ “quotes” …"));
+    }
+
+    #[test]
+    fn fallbacks_sit_on_the_baseline() {
+        let defs = FontDefinitions::default();
+        let main = &defs.font_data[&defs.families[&egui::FontFamily::Proportional][0]];
+        assert_eq!(baseline_offset(main, main), Some(0.0));
+        // Yu Gothic's tall line would lift it about a quarter of an em.
+        #[cfg(target_os = "windows")]
+        if let Ok(bytes) = std::fs::read("C:\\Windows\\Fonts\\YuGothM.ttc") {
+            let offset = baseline_offset(&FontData::from_owned(bytes), main).unwrap();
+            assert!((0.2..0.35).contains(&offset), "{offset}");
+        }
     }
 }
