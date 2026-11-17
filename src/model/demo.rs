@@ -610,7 +610,7 @@ end mouseUp"#,
     house(&mut b.stack.cards[c].picture);
     let hint = b.label(
         "Hint",
-        Rect::new(20, 8, 492, 28),
+        Rect::new(20, 4, 492, 38),
         &if cfg!(target_os = "macos") {
             // macOS keeps ⌘Tab for switching apps.
             "Draw with the paint tools in the Tools palette. The hand gets you back.".to_string()
@@ -1153,7 +1153,7 @@ end idle
     let c = b.card(main, "Fields");
     let t = b.label("Heading", Rect::new(20, 10, 492, 36), "Fields and text", 20);
     b.card_part(c, t);
-    let hint = b.label("Hint", Rect::new(20, 40, 492, 56), "Select text in any field and use the Font and Style menus.", 12);
+    let hint = b.label("Hint", Rect::new(20, 40, 492, 58), "Select text in any field and use the Font and Style menus.", 12);
     b.card_part(c, hint);
     let fields = [
         (
@@ -1535,7 +1535,7 @@ end mouseUp"#,
     b.card_part(c, t);
     let about = b.label(
         "About",
-        Rect::new(20, 42, 492, 90),
+        Rect::new(20, 38, 492, 104),
         "A palette floats over the cards, and each of its buttons sends a message. HyperCard stacks keep theirs as resources, and RandomCard brings them along. Show this one, then go to another card: it stays. Scripts move the Tools palette too.",
         12,
     );
@@ -1546,8 +1546,8 @@ end mouseUp"#,
         ("Close Palette", "on mouseUp\n  if there is a window \"Tour Palette\" then close window \"Tour Palette\"\nend mouseUp"),
     ];
     for (i, (name, script)) in palette_buttons.iter().enumerate() {
-        let y = 110 + i as i32 * 38;
-        let p = b.button(name, Rect::new(36, y, 176, y + 28), script);
+        let y = 108 + i as i32 * 28;
+        let p = b.button(name, Rect::new(36, y, 176, y + 24), script);
         b.card_part(c, p);
     }
     // RandomCard's own palette, moved and shown by scripts as HyperCard's
@@ -1563,28 +1563,28 @@ end mouseUp"#,
         ),
     ];
     for (i, (name, script)) in own_palettes.iter().enumerate() {
-        let y = 110 + i as i32 * 38;
-        let p = b.button(name, Rect::new(196, y, 336, y + 28), script);
+        let y = 108 + i as i32 * 28;
+        let p = b.button(name, Rect::new(196, y, 336, y + 24), script);
         b.card_part(c, p);
     }
     // HyperCard's pattern editor, from Edit… beside the palette's pattern.
     let edit = b.button(
         "Edit a Pattern",
-        Rect::new(346, 110, 476, 138),
+        Rect::new(346, 108, 476, 132),
         "on mouseUp\n  choose brush tool\n  doMenu \"Edit Pattern\"\n  put \"Click squares to change the pattern, or Card… and then the card. OK keeps it with this stack. (Edit… beside the pattern on the palette does this too.)\" into field \"Said\"\nend mouseUp",
     );
     b.card_part(c, edit);
     // The tools' icons show their settings.
     let icons = b.button(
         "Tool Icons",
-        Rect::new(346, 148, 476, 176),
+        Rect::new(346, 136, 476, 160),
         "on mouseUp\n  choose regular polygon tool\n  put the polySides into oldSides\n  repeat with i = 1 to 6\n    set the polySides to item i of \"3,4,5,6,8,12\"\n    put \"Regular Polygon:\" && the polySides && \"sides. Watch its icon on the Tools palette.\" into field \"Said\"\n    wait 30 ticks\n  end repeat\n  set the polySides to oldSides\n  put \"Each tool's icon shows its setting. Double-click a tool with a corner mark for its choices.\" into field \"Said\"\nend mouseUp",
     );
     b.card_part(c, icons);
     // As in HyperCard, the Paint menu's commands need a selection.
     let menu = b.button(
         "Paint Menu",
-        Rect::new(346, 186, 476, 214),
+        Rect::new(346, 164, 476, 188),
         "on mouseUp\n  choose select tool\n  doMenu \"Select All\"\n  put \"All selected: the Paint menu's commands are active now. Click the card and they grey out again.\" into field \"Said\"\nend mouseUp",
     );
     b.card_part(c, menu);
@@ -1592,35 +1592,35 @@ end mouseUp"#,
     let keys = if cfg!(target_os = "macos") { "Command-Option (⌘⌥)" } else { "Ctrl+Alt" };
     let peek = b.button(
         "Peek",
-        Rect::new(36, 186, 176, 214),
+        Rect::new(36, 164, 176, 188),
         &format!("on mouseUp\n  put \"There's a hidden button below. Hold {keys} to outline every button, and add Shift for fields too.\" into field \"Said\"\nend mouseUp"),
     );
     b.card_part(c, peek);
-    let mut secret = b.button("Secret", Rect::new(300, 270, 400, 300), "on mouseUp\n  put \"You found the hidden button.\" into field \"Said\"\nend mouseUp");
+    let mut secret = b.button("Secret", Rect::new(360, 278, 470, 302), "on mouseUp\n  put \"You found the hidden button.\" into field \"Said\"\nend mouseUp");
     secret.style = PartStyle::Transparent;
     secret.show_name = false;
     b.card_part(c, secret);
-    let mut said = b.label("Said", Rect::new(36, 230, 476, 252), "", 12);
+    let mut said = b.label("Said", Rect::new(36, 192, 476, 226), "", 12);
     said.text_style = "italic".into();
     b.card_part(c, said);
     b.stack.cards[c].script = "on openPalette name, id\n  put \"openPalette\" && name && id into field \"Said\"\nend openPalette\n\non closePalette name\n  put \"closePalette\" && name into field \"Said\"\nend closePalette".into();
     // Stacks in windows of their own.
     let windows = b.label(
         "Windows",
-        Rect::new(20, 228, 492, 262),
+        Rect::new(20, 226, 492, 276),
         "A stack can open in a window of its own. Open Home beside the Tour, then click either one to bring it forward. A script can also read another stack's cards without going there.",
         12,
     );
     b.card_part(c, windows);
     let open = b.button(
         "Home in a Window",
-        Rect::new(36, 268, 196, 296),
+        Rect::new(36, 278, 196, 302),
         "on mouseUp\n  go to stack \"Home\" in a new window\n  if the result is not empty then answer the result\nend mouseUp",
     );
     b.card_part(c, open);
     let ask = b.button(
         "Ask Home",
-        Rect::new(206, 268, 346, 296),
+        Rect::new(206, 278, 346, 302),
         "on mouseUp\n  answer \"Home has\" && the number of cards of stack \"Home\" && \"cards. The first is called\" && quote & the short name of card 1 of stack \"Home\" & quote & \".\"\nend mouseUp",
     );
     b.card_part(c, ask);
@@ -1687,7 +1687,7 @@ on showReply theURL, reply
   put reply into card field "Reply"
 end showReply"#
         .into();
-    let t = b.label("Heading", Rect::new(20, 8, 492, 32), "The web: REST and JSON", 20);
+    let t = b.label("Heading", Rect::new(20, 8, 492, 34), "The web: REST and JSON", 20);
     b.card_part(c, t);
     let mut json = Part::new_field(b.id(), "JSON", Rect::new(20, 40, 250, 150));
     json.style = PartStyle::Scrolling;

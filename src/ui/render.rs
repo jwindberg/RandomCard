@@ -1379,4 +1379,27 @@ mod tests {
         let s = spacing(&[word(300.0, 400.0, 60), space(3.0, 4.0), word(30.0, 30.0, 5)]);
         assert_eq!(s[1].1, 4.0);
     }
+
+    /// The Tour's locked text fields, which can't be scrolled, show all
+    /// their text: laid out as drawn, it fits inside each field.
+    #[test]
+    fn the_tours_text_fits() {
+        let stack = crate::model::demo::build();
+        let parts = stack.cards.iter().map(|c| (c.name.as_str(), &c.parts)).chain(stack.backgrounds.iter().map(|b| (b.name.as_str(), &b.parts)));
+        let ctx = egui::Context::default();
+        let mut over = Vec::new();
+        let mut out = ctx.run_ui(Default::default(), |ui| {
+            for (owner, parts) in parts.clone() {
+                for p in parts.iter().filter(|p| p.kind == PartKind::Field && p.lock_text && p.style != PartStyle::Scrolling && !p.contents.is_empty()) {
+                    let room = field_text_rect(p, part_rect(p, Pos2::ZERO));
+                    let galley = ui.painter().layout_job(field_job(ui.ctx(), p, &p.contents, &p.styles, room.width(), None, Pass::Shown));
+                    if galley.size().y > room.height() + 1.0 {
+                        over.push(format!("{owner} field \"{}\": text {} high in {} ({} lines)", p.name, galley.size().y, room.height(), galley.rows.len()));
+                    }
+                }
+            }
+        });
+        out.textures_delta.clear();
+        assert!(over.is_empty(), "text that doesn't fit:\n{}", over.join("\n"));
+    }
 }
