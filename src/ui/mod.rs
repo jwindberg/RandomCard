@@ -161,8 +161,8 @@ pub struct App {
     card_room: Vec2,
     card_drawn: Vec2,
     /// The window's inner size last frame, to tell when the user resizes
-    /// it, and when the window was last fitted by a script, whose resizing
-    /// isn't the user's.
+    /// it, and when a script last fitted or moved the window, whose
+    /// resizing and moving aren't the user's.
     last_inner: Option<Vec2>,
     fitted_at: Option<Instant>,
     /// Dragging a card window scroll bar: which (0 across, 1 down), and the
@@ -859,6 +859,7 @@ impl App {
                     }
                 }
                 UiRequest::MoveWindow(x, y) => {
+                    self.fitted_at = Some(Instant::now());
                     if let Some((card, outer)) = self.card_on_screen {
                         let to = outer + (egui::pos2(x as f32, y as f32) - card);
                         ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(to));
@@ -2335,10 +2336,21 @@ impl App {
                 ctx.input(|i| (i.viewport().inner_rect, i.viewport().outer_rect, i.viewport().monitor_size));
             let last = self.card_on_screen.map(|(c, _)| c);
             let seen = inner.zip(outer).map(|(inner, outer)| (inner.min + resp.rect.min.round().to_vec2(), outer.min));
+            // The card window moving: the first place it's seen is just
+            // where it is; after that, a move that isn't a script's own
+            // (which is still settling) is the user's, and sends
+            // moveWindow.
+            let mut moved = None;
             if let Some((card, _)) = seen
                 && last != Some(card)
             {
-                w.window_origin = (card.x as i32, card.y as i32);
+                let at = (card.x as i32, card.y as i32);
+                let settling = self.fitted_at.is_some_and(|t| t.elapsed() < Duration::from_millis(1500));
+                if last.is_none() {
+                    w.window_origin = at;
+                } else if !settling && w.window_key == 0 {
+                    moved = Some(at);
+                }
             }
             if let Some(m) = monitor {
                 w.screen_rect = crate::model::Rect::new(0, 0, m.x as i32, m.y as i32);
@@ -2350,6 +2362,9 @@ impl App {
             drop(w);
             if seen.is_some() {
                 self.card_on_screen = seen;
+            }
+            if let Some((x, y)) = moved {
+                self.send(Event::CardWindowMoved(x, y));
             }
         }
 

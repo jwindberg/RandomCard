@@ -727,6 +727,7 @@ impl Interp {
                         let (sx, sy) = w.scroll();
                         format!("{sx},{sy}")
                     }
+                    "zoomed" => bool_str(w.zoomed_from.is_some()),
                     _ => {
                         drop(w);
                         return err(format!("Stacks have no property \"{name}\""));
@@ -994,6 +995,11 @@ impl Interp {
                         Some((x, y)) => w.card_scroll = (x.max(0), y.max(0)),
                         None => return err(format!("Expected a point, not \"{v}\"")),
                     },
+                    "zoomed" => {
+                        let zoom = to_bool(v)?;
+                        drop(w);
+                        return self.zoom_card_window(zoom);
+                    }
                     "rect" | "rectangle" | "loc" | "location" | "topleft" | "left" | "top" | "right" | "bottom" | "botright"
                     | "bottomright" | "width" | "height" => {
                         drop(w);
@@ -1088,14 +1094,66 @@ impl Interp {
                 Err(()) => return err(format!("Can't set the {name} of a stack to \"{v}\"")),
             }
         };
+        self.w().zoomed_from = None;
+        self.place_card_window(Rect::new(l, t, r, b))
+    }
+
+    /// Put the card window at this rect on screen, sending sizeWindow if
+    /// that sizes it and then moveWindow if it moves it, as HyperCard did.
+    fn place_card_window(&mut self, r: Rect) -> R<()> {
+        let moved = {
+            let mut w = self.w();
+            let moved = w.window_origin != (r.left, r.top);
+            if moved {
+                w.window_origin = (r.left, r.top);
+                w.requests.push(UiRequest::MoveWindow(r.left, r.top));
+            }
+            moved
+        };
+        self.size_card_window(r.width(), r.bottom - r.top, true)?;
+        if moved {
+            let card = self.current_card_ref();
+            self.send_system(card, "moveWindow")?;
+        }
+        Ok(())
+    }
+
+    /// Zoom the card window: true shows the whole card, centered on the
+    /// screen, and false puts the window back where it was.
+    fn zoom_card_window(&mut self, zoom: bool) -> R<()> {
+        let to = {
+            let mut w = self.w();
+            if zoom == w.zoomed_from.is_some() {
+                return Ok(());
+            }
+            if zoom {
+                let (x, y) = w.window_origin;
+                let (ww, wh) = w.card_window_size();
+                w.zoomed_from = Some(Rect::new(x, y, x + ww, y + wh));
+                let (cw, ch) = (w.stack.width as i32, w.stack.height as i32);
+                let s = w.screen_rect;
+                let (l, t) = ((s.left + (s.width() - cw) / 2).max(s.left), (s.top + (s.bottom - s.top - ch) / 2).max(s.top));
+                Rect::new(l, t, l + cw, t + ch)
+            } else {
+                w.zoomed_from.take().unwrap_or_default()
+            }
+        };
+        self.place_card_window(to)
+    }
+
+    /// The user moved the window, which sends the card moveWindow; the
+    /// window's no longer zoomed.
+    pub(super) fn card_window_moved(&mut self, x: i32, y: i32) -> R<()> {
         {
             let mut w = self.w();
-            if w.window_origin != (l, t) {
-                w.window_origin = (l, t);
-                w.requests.push(UiRequest::MoveWindow(l, t));
+            if w.window_origin == (x, y) {
+                return Ok(());
             }
+            w.window_origin = (x, y);
+            w.zoomed_from = None;
         }
-        self.size_card_window(r - l, b - t, true)
+        let card = self.current_card_ref();
+        self.send_system(card, "moveWindow")
     }
 
     /// Make the card window this size (by a script, or by the user

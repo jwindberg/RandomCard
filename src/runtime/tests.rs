@@ -4395,3 +4395,29 @@ fn a_card_window_smaller_than_its_card() {
     run(&mut i, "set the rect of this card to 0,0,400,300");
     assert_eq!(run(&mut i, "put the rect of card window"), "0,0,400,300");
 }
+
+#[test]
+fn the_card_window_moves_and_zooms() {
+    // moveWindow follows sizeWindow when a script moves and sizes it.
+    let mut s = stack();
+    s.script = "on sizeWindow\n  put \"size \" after msg\nend sizeWindow\non moveWindow\n  put \"move\" after msg\nend moveWindow".into();
+    let mut i = interp_with(s);
+    lock(&i.world).screen_rect = Rect::new(0, 0, 1024, 768);
+    run(&mut i, "set the rect of card window to 20,30,220,130");
+    assert_eq!(lock(&i.world).msg, "size move");
+    lock(&i.world).msg.clear();
+    run(&mut i, "set the loc of card window to 20,30");
+    assert_eq!(lock(&i.world).msg, "");
+    // Zoomed: the whole card, centered on the screen, and back again.
+    assert_eq!(run(&mut i, "put the zoomed of card window"), "false");
+    run(&mut i, "set the zoomed of card window to true");
+    assert_eq!(run(&mut i, "put the zoomed of card window & \":\" & the rect of card window"), "true:256,213,768,555");
+    run(&mut i, "set the zoomed of card window to false");
+    assert_eq!(run(&mut i, "put the zoomed of card window & \":\" & the rect of card window"), "false:20,30,220,130");
+    // The user moving the window sends moveWindow and unzooms it.
+    run(&mut i, "set the zoomed of card window to true");
+    lock(&i.world).msg.clear();
+    i.handle_event(Event::CardWindowMoved(5, 6));
+    assert_eq!(lock(&i.world).msg, "move");
+    assert_eq!(run(&mut i, "put the zoomed of card window & \":\" & the topLeft of card window"), "false:5,6");
+}

@@ -587,6 +587,9 @@ pub enum Event {
     ResizeCards(u32, u32),
     /// The user resized the window, which makes the card window this size.
     SizeCardWindow(i32, i32),
+    /// The user moved the window: the card window's top left corner is now
+    /// here on screen.
+    CardWindowMoved(i32, i32),
     Shutdown,
 }
 
@@ -611,6 +614,9 @@ pub struct World {
     /// script or the user made it (see `card_window_size`); None shows the
     /// whole card.
     pub card_window: Option<(i32, i32)>,
+    /// The card window's rect before `set the zoomed of card window to
+    /// true`, while it's zoomed: setting it false puts it back there.
+    pub zoomed_from: Option<crate::model::Rect>,
     /// Command-Shift-E has shown the card window's size box: the next click
     /// drags it.
     pub size_box: bool,
@@ -893,6 +899,7 @@ impl World {
             window_origin: (0, 0),
             card_scroll: (0, 0),
             card_window: None,
+            zoomed_from: None,
             size_box: false,
             screen_rect: crate::model::Rect::new(0, 0, 1920, 1080),
             history: vec![card_id],

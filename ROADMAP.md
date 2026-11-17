@@ -781,7 +781,7 @@ their feedback. For now:
    does, and sends sizeWindow; pictures keep what's painted beyond a
    smaller card), a card window smaller than its card (done: scripts and
    the user size it, and it shows part of the card at its scroll, with
-   scroll bars), the zoomed, and `moveWindow`.
+   scroll bars), and the zoomed and `moveWindow` (done).
 6. **Multiple windows.** Done: stack windows (`go to stack … in a new
    window`, `the stacks`, suspendStack and resumeStack); the editor
    windows (script editors, the Variable and Message Watchers, and Info

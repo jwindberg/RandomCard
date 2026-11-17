@@ -335,7 +335,11 @@ impl Interp {
                 }
             }
             Event::ResizeCards(width, height) => self.resize_cards(width, height),
-            Event::SizeCardWindow(width, height) => self.size_card_window(width, height, false),
+            Event::SizeCardWindow(width, height) => {
+                self.w().zoomed_from = None;
+                self.size_card_window(width, height, false)
+            }
+            Event::CardWindowMoved(x, y) => self.card_window_moved(x, y),
             Event::Shutdown => Ok(()),
         };
         self.frames.clear();
