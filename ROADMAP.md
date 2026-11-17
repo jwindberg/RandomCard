@@ -584,6 +584,12 @@ and has already licensed H.264 and HEVC. In the Tour's Movies card.
    them the same on every system. This reverses the earlier "no classic
    codecs" decision for video, so it comes after steps 2 and 3. Music
    tracks and QuickTime VR stay out.
+5. **Streaming video:** movies from a URL (`Movie "https://…"`), plain
+   files over HTTP and streams such as HLS, played by the same system
+   players, which can already read from the network. Needs a look at
+   what each system's player accepts, how a script learns that a stream
+   is still loading or failed, and what `the duration` of a live stream
+   is. Example stacks only: the Tour doesn't call outside services.
 
 Still to come: resizing zoom windows by their grow box; `callBackTime`
 and `callBackMsg` (a message at a time in the movie); `mouseUpInMovie`
@@ -773,8 +779,9 @@ their feedback. For now:
 5. **The card window:** card size changes (done: setting the rect,
    width or height of a card sizes every card, as Stack Info's Resize
    does, and sends sizeWindow; pictures keep what's painted beyond a
-   smaller card), a card window smaller than its card, scrolled, the
-   zoomed, and `moveWindow`.
+   smaller card), a card window smaller than its card (done: scripts and
+   the user size it, and it shows part of the card at its scroll, with
+   scroll bars), the zoomed, and `moveWindow`.
 6. **Multiple windows.** Done: stack windows (`go to stack … in a new
    window`, `the stacks`, suspendStack and resumeStack); the editor
    windows (script editors, the Variable and Message Watchers, and Info

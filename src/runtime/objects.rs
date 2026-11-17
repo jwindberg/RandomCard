@@ -704,7 +704,8 @@ impl Interp {
                 // The stack's rect is its card window's, on screen. A
                 // window's loc is its top left corner.
                 let (x, y) = w.window_origin;
-                let r = full_rect.translate(x, y);
+                let (ww, wh) = w.card_window_size();
+                let r = Rect::new(x, y, x + ww, y + wh);
                 if matches!(name, "loc" | "location") {
                     return Ok(format!("{},{}", r.left, r.top));
                 }
@@ -721,9 +722,11 @@ impl Interp {
                     // Space Compact Stack would free: text and styles left by
                     // deleted background fields, and unused backgrounds.
                     "freesize" => s.free_size().to_string(),
-                    // How far the card is scrolled in its window (HyperCard
-                    // 2): RandomCard always shows the whole card.
-                    "scroll" => w.card_scroll.clone(),
+                    // How far the card is scrolled in a smaller window.
+                    "scroll" => {
+                        let (sx, sy) = w.scroll();
+                        format!("{sx},{sy}")
+                    }
                     _ => {
                         drop(w);
                         return err(format!("Stacks have no property \"{name}\""));
@@ -988,7 +991,7 @@ impl Interp {
                     "privateaccess" => w.stack.protection.private_access = to_bool(v)?,
                     "userlevel" => {}
                     "scroll" => match crate::hypertalk::value::parse_point(v) {
-                        Some((x, y)) => w.card_scroll = format!("{x},{y}"),
+                        Some((x, y)) => w.card_scroll = (x.max(0), y.max(0)),
                         None => return err(format!("Expected a point, not \"{v}\"")),
                     },
                     "rect" | "rectangle" | "loc" | "location" | "topleft" | "left" | "top" | "right" | "bottom" | "botright"
@@ -1045,6 +1048,8 @@ impl Interp {
             if (w.stack.width, w.stack.height) == before {
                 return Ok(());
             }
+            // The window takes the cards' new size.
+            w.card_window = None;
             w.dirty = true;
             w.picture_rev += 1;
             w.requests.push(UiRequest::FitCard);
@@ -1053,38 +1058,61 @@ impl Interp {
         self.send_system(card, "sizeWindow")
     }
 
-    /// Set a geometric property of the card window. The card stays its own
-    /// size, so this moves the window: to the new top left corner, or for
-    /// right, bottom and botRight, to wherever puts that edge there. A rect
-    /// that's smaller would show part of the card in HyperCard 2; RandomCard
-    /// shows the whole card at the rect's top left.
+    /// Set a geometric property of the card window: its rect moves and
+    /// sizes it, its width and height size it, and the rest move it (to the
+    /// new top left corner, or for right, bottom and botRight, to wherever
+    /// puts that edge there). It's never bigger than the card; smaller, it
+    /// shows part of the card, at its scroll.
     fn move_card_window(&mut self, name: &str, v: &str) -> R<()> {
-        let (x, y) = {
+        let (l, t, r, b) = {
             let w = self.w();
             let (x, y) = w.window_origin;
-            let (cw, ch) = (w.stack.width as i32, w.stack.height as i32);
+            let (ww, wh) = w.card_window_size();
             let point = || parse_point(v).ok_or(());
             let int = || to_int(v).map(|n| n as i32).map_err(|_| ());
+            let at = |(l, t): (i32, i32)| (l, t, l + ww, t + wh);
             let moved = match name {
-                "rect" | "rectangle" => parse_rect(v).map(|(l, t, _, _)| (l, t)).ok_or(()),
-                "loc" | "location" | "topleft" => point(),
-                "botright" | "bottomright" => point().map(|(r, b)| (r - cw, b - ch)),
-                "left" => int().map(|l| (l, y)),
-                "top" => int().map(|t| (x, t)),
-                "right" => int().map(|r| (r - cw, y)),
-                "bottom" => int().map(|b| (x, b - ch)),
-                // The card's size is the stack's, set with Stack Info.
-                _ => Ok((x, y)),
+                "rect" | "rectangle" => parse_rect(v).ok_or(()),
+                "loc" | "location" | "topleft" => point().map(at),
+                "botright" | "bottomright" => point().map(|(r, b)| at((r - ww, b - wh))),
+                "left" => int().map(|l| at((l, y))),
+                "top" => int().map(|t| at((x, t))),
+                "right" => int().map(|r| at((r - ww, y))),
+                "bottom" => int().map(|b| at((x, b - wh))),
+                "width" => int().map(|n| (x, y, x + n, y + wh)),
+                "height" => int().map(|n| (x, y, x + ww, y + n)),
+                _ => Ok(at((x, y))),
             };
             match moved {
                 Ok(p) => p,
                 Err(()) => return err(format!("Can't set the {name} of a stack to \"{v}\"")),
             }
         };
-        let mut w = self.w();
-        w.window_origin = (x, y);
-        w.requests.push(UiRequest::MoveWindow(x, y));
-        Ok(())
+        {
+            let mut w = self.w();
+            if w.window_origin != (l, t) {
+                w.window_origin = (l, t);
+                w.requests.push(UiRequest::MoveWindow(l, t));
+            }
+        }
+        self.size_card_window(r - l, b - t, true)
+    }
+
+    /// Make the card window this size (by a script, or by the user
+    /// resizing the window), sending sizeWindow if that changed it. A
+    /// script's change fits the window around it.
+    pub(super) fn size_card_window(&mut self, width: i32, height: i32, by_script: bool) -> R<()> {
+        {
+            let mut w = self.w();
+            if !w.set_card_window_size(width, height) {
+                return Ok(());
+            }
+            if by_script {
+                w.requests.push(UiRequest::FitCard);
+            }
+        }
+        let card = self.current_card_ref();
+        self.send_system(card, "sizeWindow")
     }
 
     /// Move the message box so its top left corner is at a point.

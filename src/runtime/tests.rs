@@ -2742,7 +2742,8 @@ fn forms_from_apples_develop_stacks() {
     run(&mut i, "set the rect of the card window to 0,40,512,382");
     assert_eq!(run(&mut i, "put the top of the cd window & \":\" & the scroll of cd window"), "40:0,0");
     run(&mut i, "set the scroll of card window to 0,20");
-    assert_eq!(run(&mut i, "put the scroll of card window"), "0,20");
+    // A window the card's size can't scroll.
+    assert_eq!(run(&mut i, "put the scroll of card window"), "0,0");
     // HIN Stack 2.0: a menu message written without quotes.
     let mut i = interp_with(stack());
     run(&mut i, "create menu \"Extras\"\nput \"Search\" after menu \"Extras\" with menuMessages go stack \"Search Knowledge Base\"");
@@ -4360,4 +4361,37 @@ fn cards_resize() {
     // Stack Info's Resize.
     i.handle_event(Event::ResizeCards(640, 480));
     assert_eq!(run(&mut i, "put the rect of this card"), "0,0,640,480");
+}
+
+#[test]
+fn a_card_window_smaller_than_its_card() {
+    // HyperTalk Reference's madScroller: a small window, scrolled about.
+    let mut s = stack();
+    s.script = "on sizeWindow\n  put the rect of card window into the msg box\nend sizeWindow".into();
+    let mut i = interp_with(s);
+    run(&mut i, "set the rect of card window to 10,40,182,104");
+    assert_eq!(run(&mut i, "put the rect of card window"), "10,40,182,104");
+    assert_eq!(lock(&i.world).msg, "10,40,182,104");
+    assert_eq!(run(&mut i, "put the rect of this card"), "0,0,512,342");
+    run(&mut i, "set the scroll of card window to 100,50");
+    assert_eq!(run(&mut i, "put the scroll of card window"), "100,50");
+    // No further than shows the card's far edge.
+    run(&mut i, "set the scroll of card window to bottomRight of this card");
+    assert_eq!(run(&mut i, "put the scroll of card window"), "340,278");
+    // Moving keeps the size; the width and height size it.
+    run(&mut i, "set the topLeft of card window to 0,0");
+    assert_eq!(run(&mut i, "put the rect of card window"), "0,0,172,64");
+    run(&mut i, "set the height of card window to 100");
+    assert_eq!(run(&mut i, "put the rect of card window"), "0,0,172,100");
+    // Never bigger than the card.
+    run(&mut i, "set the rect of card window to 0,0,2000,2000");
+    assert_eq!(run(&mut i, "put the rect of card window"), "0,0,512,342");
+    assert_eq!(run(&mut i, "put the scroll of card window"), "0,0");
+    // The user resizing the window.
+    lock(&i.world).msg.clear();
+    i.handle_event(Event::SizeCardWindow(300, 200));
+    assert_eq!(lock(&i.world).msg, "0,0,300,200");
+    // Resizing the cards gives the window their size.
+    run(&mut i, "set the rect of this card to 0,0,400,300");
+    assert_eq!(run(&mut i, "put the rect of card window"), "0,0,400,300");
 }

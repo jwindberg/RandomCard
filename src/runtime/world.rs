@@ -585,6 +585,8 @@ pub enum Event {
     PaletteButton(String, usize),
     /// Stack Info's Resize: make every card this size.
     ResizeCards(u32, u32),
+    /// The user resized the window, which makes the card window this size.
+    SizeCardWindow(i32, i32),
     Shutdown,
 }
 
@@ -602,9 +604,13 @@ pub struct World {
     /// as `the rect of card window` reports it. The UI keeps it up to date;
     /// scripts move the window by setting it.
     pub window_origin: (i32, i32),
-    /// The card window's scroll, as scripts set it (HyperCard 2 scrolled a
-    /// card bigger than its window). RandomCard always shows the whole card.
-    pub card_scroll: String,
+    /// How far the card is scrolled in a card window smaller than it, as
+    /// scripts set it or the scroll bars do (see `scroll`).
+    pub card_scroll: (i32, i32),
+    /// The card window's size when it's smaller than the card, which a
+    /// script or the user made it (see `card_window_size`); None shows the
+    /// whole card.
+    pub card_window: Option<(i32, i32)>,
     /// Command-Shift-E has shown the card window's size box: the next click
     /// drags it.
     pub size_box: bool,
@@ -838,7 +844,8 @@ pub struct StackWindow {
     pub redo: Vec<super::undo::UndoEntry>,
     pub dirty: bool,
     pub window_origin: (i32, i32),
-    pub card_scroll: String,
+    pub card_scroll: (i32, i32),
+    pub card_window: Option<(i32, i32)>,
     pub window_title: Option<(u64, String)>,
     pub unlocked: bool,
 }
@@ -860,7 +867,8 @@ impl StackWindow {
             redo: Vec::new(),
             dirty,
             window_origin,
-            card_scroll: "0,0".into(),
+            card_scroll: (0, 0),
+            card_window: None,
             window_title: None,
             unlocked: false,
         }
@@ -883,7 +891,8 @@ impl World {
             msg_visible: false,
             msg_rect,
             window_origin: (0, 0),
-            card_scroll: "0,0".into(),
+            card_scroll: (0, 0),
+            card_window: None,
             size_box: false,
             screen_rect: crate::model::Rect::new(0, 0, 1920, 1080),
             history: vec![card_id],
@@ -963,6 +972,31 @@ impl World {
         }
     }
 
+    /// The card window's size: the card's, or smaller, but never bigger.
+    pub fn card_window_size(&self) -> (i32, i32) {
+        let (cw, ch) = (self.stack.width as i32, self.stack.height as i32);
+        self.card_window.map_or((cw, ch), |(w, h)| (w.min(cw), h.min(ch)))
+    }
+
+    /// How far the card is scrolled in its window: as far as it was set,
+    /// but no further than shows the card's far edge.
+    pub fn scroll(&self) -> (i32, i32) {
+        let (ww, wh) = self.card_window_size();
+        let (cw, ch) = (self.stack.width as i32, self.stack.height as i32);
+        (self.card_scroll.0.clamp(0, cw - ww), self.card_scroll.1.clamp(0, ch - wh))
+    }
+
+    /// Make the card window this size, within the card's. Returns whether
+    /// that changed it.
+    pub fn set_card_window_size(&mut self, width: i32, height: i32) -> bool {
+        let before = self.card_window_size();
+        let (cw, ch) = (self.stack.width as i32, self.stack.height as i32);
+        let min = *crate::model::CARD_SIZES.start() as i32;
+        let size = (width.clamp(min.min(cw), cw), height.clamp(min.min(ch), ch));
+        self.card_window = (size != (cw, ch)).then_some(size);
+        self.card_window_size() != before
+    }
+
     /// Show another stack. The one being left is saved if it has a file,
     /// and stays loaded if it's Home, in use, or has no file to reopen.
     pub fn replace_stack(&mut self, stack: Stack) {
@@ -1014,6 +1048,7 @@ impl World {
         swap(&mut self.dirty, &mut sw.dirty);
         swap(&mut self.window_origin, &mut sw.window_origin);
         swap(&mut self.card_scroll, &mut sw.card_scroll);
+        swap(&mut self.card_window, &mut sw.card_window);
         swap(&mut self.window_title, &mut sw.window_title);
         swap(&mut self.unlocked, &mut sw.unlocked);
         // What was selected or found belongs to the window left behind.

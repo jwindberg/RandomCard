@@ -426,7 +426,29 @@ on several kinds of object; `get`, `put` and `set` read and change them.
 `cantModify`, `cantPeek`, `privateAccess`, `userLevel`.
 
 **Backgrounds and cards:** `name`, `id`, `number`, `script`, `marked`,
-`cantDelete`, `dontSearch`, `showPict`, `owner`, `rect`.
+`cantDelete`, `dontSearch`, `showPict`, `owner`, `rect`. A card's `rect`,
+`width` and `height` are every card's: setting them resizes all the
+cards in the stack, as Stack Info's Resize does.
+
+**The card window:** `rect`, `loc`, `topLeft`, `left`, `top`, `right`,
+`bottom`, `width`, `height` and `scroll`, on screen. The card window is
+never bigger than the card; smaller, it shows part of the card, at its
+`scroll`, with scroll bars. Setting its `rect` moves and sizes it, its
+`width` and `height` size it, and the rest move it.
+
+```hypertalk
+on madScroller -- from HyperCard's HyperTalk Reference
+  put the rect of card window into theRect
+  set the rect of card window to left of cd window, top of cd window, ¬
+    left of cd window + 172, top of cd window + 64
+  repeat 10 times
+    set the scroll of card window to ¬
+      random(width of this card), random(height of this card)
+    wait 30
+  end repeat
+  set the rect of card window to theRect
+end madScroller
+```
 
 **Buttons:** `name`, `id`, `number`, `partNumber`, `rect`, `loc`, `left`,
 `top`, `right`, `bottom`, `width`, `height`, `topLeft`, `bottomRight`,
@@ -474,6 +496,7 @@ RandomCard sends these as HyperCard did:
 | Keys | `keyDown`, `arrowKey`, `functionKey`, `commandKeyDown`, `controlKey`, `returnKey`, `enterKey`, `tabKey`, `returnInField`, `enterInField` |
 | Fields | `openField`, `closeField`, `exitField` |
 | Going places | `openCard`, `closeCard`, `openBackground`, `closeBackground`, `openStack`, `closeStack`, `resumeStack`, `suspendStack` |
+| The card window | `sizeWindow`, when a script, Stack Info or the user resizes it |
 | Making and removing | `newCard`, `deleteCard`, `newBackground`, `deleteBackground`, `newButton`, `deleteButton`, `newField`, `deleteField`, `newStack`, `deleteStack` |
 | RandomCard itself | `startUp`, `resume`, `suspend`, `quit`, `idle`, `help` |
 | Menus and palettes | `doMenu`, `openPalette`, `closePalette` |

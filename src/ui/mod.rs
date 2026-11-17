@@ -57,6 +57,9 @@ const PALETTE_WIDTH: f32 = painting::ROW + 22.0;
 /// The room a window keeps beside its card: for the palette when it's
 /// docked, and a margin.
 pub const SIDE_ROOM: f32 = PALETTE_WIDTH + 40.0;
+/// Room beside and below a card window smaller than its card, for its
+/// scroll bars.
+const BAR_ROOM: f32 = 12.0;
 
 /// A text field being edited in the browse tool.
 struct Editing {
@@ -157,9 +160,14 @@ pub struct App {
     /// the window around the card when its size changes.
     card_room: Vec2,
     card_drawn: Vec2,
-    /// The card's size and the window's before a script changed the
-    /// card's size, so the window comes back as it was when the card does.
-    fit_from: Option<(Vec2, Vec2)>,
+    /// The window's inner size last frame, to tell when the user resizes
+    /// it, and when the window was last fitted by a script, whose resizing
+    /// isn't the user's.
+    last_inner: Option<Vec2>,
+    fitted_at: Option<Instant>,
+    /// Dragging a card window scroll bar: which (0 across, 1 down), and the
+    /// scroll and pointer where the drag started.
+    scroll_drag: Option<(usize, (i32, i32), Pos2)>,
     /// Export Paint under way: the card is drawn without selections or
     /// windows over it until the screenshot is saved.
     export: Option<painting::Export>,
@@ -278,7 +286,10 @@ impl App {
             card_origin: egui::Pos2::ZERO,
             card_room: Vec2::ZERO,
             card_drawn: Vec2::ZERO,
-            fit_from: None,
+            last_inner: None,
+            // The window settling as it opens isn't the user resizing it.
+            fitted_at: Some(Instant::now()),
+            scroll_drag: None,
             export: None,
             system_image_at_copy: None,
             fonts_for: None,
@@ -886,14 +897,16 @@ impl App {
     /// sized its window to each stack's cards; never past the screen, and
     /// never smaller (the extra is room for the tools and message box, as
     /// at startup).
-    fn fit_window(&self, ctx: &egui::Context) {
+    fn fit_window(&mut self, ctx: &egui::Context) {
         let (w, h) = {
             let w = self.world();
             // Only for this window's own stack; others have their own windows.
             if w.window_key != 0 {
                 return;
             }
-            (w.stack.width as f32 + SIDE_ROOM, w.stack.height as f32 + 150.0)
+            let (ww, wh) = w.card_window_size();
+            let bars = if (ww, wh) == (w.stack.width as i32, w.stack.height as i32) { 0.0 } else { BAR_ROOM };
+            (ww as f32 + bars + SIDE_ROOM, wh as f32 + bars + 150.0)
         };
         let (inner, monitor) = ctx.input(|i| (i.viewport().inner_rect, i.viewport().monitor_size));
         let Some(inner) = inner else { return };
@@ -902,6 +915,7 @@ impl App {
             want = want.min(m * 0.95);
         }
         if want.x > inner.width() + 0.5 || want.y > inner.height() + 0.5 {
+            self.fitted_at = Some(Instant::now());
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(want));
         }
     }
@@ -909,28 +923,24 @@ impl App {
     /// Fit the window snugly around the card, smaller or bigger, when a
     /// script or Stack Info changes the cards' size, as HyperCard's card
     /// window took the new size. The menus and the message box keep their
-    /// room; the margin is the one the card is drawn with. When the card
-    /// goes back to the size it had first, so does the window.
+    /// room; the margin is the one the card is drawn with.
     fn fit_card(&mut self, ctx: &egui::Context) {
         let size = {
             let w = self.world();
             if w.window_key != 0 {
                 return;
             }
-            egui::vec2(w.stack.width as f32, w.stack.height as f32)
+            let (ww, wh) = w.card_window_size();
+            let bars = if (ww, wh) == (w.stack.width as i32, w.stack.height as i32) { 0.0 } else { BAR_ROOM };
+            egui::vec2(ww as f32 + bars, wh as f32 + bars)
         };
+        self.fitted_at = Some(Instant::now());
         let (inner, monitor) = ctx.input(|i| (i.viewport().inner_rect, i.viewport().monitor_size));
         let Some(inner) = inner else { return };
         if self.card_room == Vec2::ZERO {
             return;
         }
-        let first = *self.fit_from.get_or_insert((self.card_drawn, inner.size()));
-        let mut want = if size == first.0 {
-            self.fit_from = None;
-            first.1
-        } else {
-            inner.size() - self.card_room + size + Vec2::splat(16.0)
-        };
+        let mut want = inner.size() - self.card_room + size + Vec2::splat(16.0);
         if let Some(m) = monitor {
             want = want.min(m * 0.95);
         }
@@ -2203,17 +2213,27 @@ impl App {
         let shown = self.frozen.clone().unwrap_or_else(|| live.clone());
 
         let avail = ui.available_size();
-        (self.card_room, self.card_drawn) = (avail, size);
+        // A card window smaller than the card shows part of it, at its
+        // scroll, with scroll bars.
+        let (view, scroll) = {
+            let w = self.world();
+            let (ww, wh) = w.card_window_size();
+            (Vec2::new(ww as f32, wh as f32), w.scroll())
+        };
+        let scrolling = view != size;
+        self.user_resize(&ctx, avail, size, view);
+        (self.card_room, self.card_drawn) = (avail, view + if scrolling { Vec2::splat(BAR_ROOM) } else { Vec2::ZERO });
         // Whole-pixel placement keeps 1-pixel picture lines crisp.
-        let pad = Vec2::new(((avail.x - size.x) / 2.0).max(8.0).round(), ((avail.y - size.y) / 2.0).max(8.0).round());
+        let shown_size = self.card_drawn;
+        let pad = Vec2::new(((avail.x - shown_size.x) / 2.0).max(8.0).round(), ((avail.y - shown_size.y) / 2.0).max(8.0).round());
         ui.add_space(pad.y);
         let (resp, painter) = ui
             .horizontal(|ui| {
                 ui.add_space(pad.x);
-                ui.allocate_painter(size, Sense::click_and_drag())
+                ui.allocate_painter(view, Sense::click_and_drag())
             })
             .inner;
-        let origin = resp.rect.min.round();
+        let origin = resp.rect.min.round() - Vec2::new(scroll.0 as f32, scroll.1 as f32);
         self.card_origin = origin;
         let painter = painter.with_clip_rect(resp.rect);
 
@@ -2228,6 +2248,12 @@ impl App {
         } else {
             ui.painter().rect_stroke(frame_rect, 0.0, Stroke::new(2.0, Color32::BLACK), StrokeKind::Inside);
         }
+        if scrolling {
+            self.card_scroll_bars(ui, &resp, size, view, scroll);
+        }
+        // Fields and editors on the card show only inside its window.
+        let outer_clip = ui.clip_rect();
+        ui.set_clip_rect(outer_clip.intersect(resp.rect));
 
         // FatBits is for painting: another tool, or another stack, ends it.
         if self.fat.is_some() && (!tool.is_paint() || self.export.is_some()) {
@@ -2308,7 +2334,7 @@ impl App {
             let (inner, outer, monitor) =
                 ctx.input(|i| (i.viewport().inner_rect, i.viewport().outer_rect, i.viewport().monitor_size));
             let last = self.card_on_screen.map(|(c, _)| c);
-            let seen = inner.zip(outer).map(|(inner, outer)| (inner.min + origin.to_vec2(), outer.min));
+            let seen = inner.zip(outer).map(|(inner, outer)| (inner.min + resp.rect.min.round().to_vec2(), outer.min));
             if let Some((card, _)) = seen
                 && last != Some(card)
             {
@@ -2412,7 +2438,93 @@ impl App {
         if (tool.is_paint() || matches!(tool, Tool::Button | Tool::Field)) && self.export.is_none() {
             self.tool_cursor(&ctx, &painter, &resp, origin, tool);
         }
+        ui.set_clip_rect(outer_clip);
         self.last_scene = Some(shown);
+    }
+
+    /// The scroll bars of a card window smaller than its card, in the
+    /// margin beside and below it, and the scroll wheel over the card.
+    /// Fields that scroll take the wheel first.
+    fn card_scroll_bars(&mut self, ui: &mut egui::Ui, card: &egui::Response, size: Vec2, view: Vec2, scroll: (i32, i32)) {
+        let max = (size - view).max(Vec2::ZERO);
+        let rect = card.rect;
+        let mut to = Vec2::new(scroll.0 as f32, scroll.1 as f32);
+        if card.hovered() {
+            to -= ui.ctx().input(|i| i.smooth_scroll_delta);
+        }
+        let visuals = ui.visuals().clone();
+        for axis in 0..2 {
+            if max[axis] <= 0.0 {
+                continue;
+            }
+            let track = if axis == 0 {
+                Rect::from_min_max(egui::pos2(rect.left(), rect.bottom() + 4.0), egui::pos2(rect.right(), rect.bottom() + BAR_ROOM - 1.0))
+            } else {
+                Rect::from_min_max(egui::pos2(rect.right() + 4.0, rect.top()), egui::pos2(rect.right() + BAR_ROOM - 1.0, rect.bottom()))
+            };
+            let id = egui::Id::unique(("card-scroll", axis));
+            let resp = ui.interact(track, id, Sense::click_and_drag());
+            let along = track.size()[axis];
+            let thumb = (along * view[axis] / size[axis]).clamp(16.0, along);
+            let travel = (along - thumb).max(1.0);
+            if let (true, Some(p)) = (resp.drag_started(), resp.interact_pointer_pos()) {
+                self.scroll_drag = Some((axis, scroll, p));
+            }
+            match (self.scroll_drag, resp.interact_pointer_pos()) {
+                (Some((a, from, start)), Some(p)) if a == axis && resp.dragged() => {
+                    let start_at = if axis == 0 { from.0 } else { from.1 } as f32;
+                    to[axis] = start_at + (p[axis] - start[axis]) * max[axis] / travel;
+                }
+                _ => {}
+            }
+            if resp.drag_stopped() {
+                self.scroll_drag = None;
+            }
+            let at = (to[axis].clamp(0.0, max[axis]) / max[axis]) * travel;
+            // A click on the track pages toward it.
+            if resp.clicked()
+                && let Some(p) = resp.interact_pointer_pos()
+            {
+                let thumb_start = track.min[axis] + at;
+                to[axis] += if p[axis] < thumb_start { -view[axis] } else { view[axis] };
+            }
+            let thumb_rect = if axis == 0 {
+                Rect::from_min_size(egui::pos2(track.left() + at, track.top()), Vec2::new(thumb, track.height()))
+            } else {
+                Rect::from_min_size(egui::pos2(track.left(), track.top() + at), Vec2::new(track.width(), thumb))
+            };
+            let painter = ui.painter();
+            painter.rect_filled(track, 4.0, visuals.extreme_bg_color);
+            let fill = if resp.hovered() || resp.dragged() { visuals.widgets.hovered.fg_stroke.color } else { visuals.widgets.inactive.fg_stroke.color };
+            painter.rect_filled(thumb_rect.shrink(1.0), 4.0, fill);
+        }
+        let to = (to.x.clamp(0.0, max.x).round() as i32, to.y.clamp(0.0, max.y).round() as i32);
+        if to != scroll {
+            self.world().card_scroll = to;
+            ui.ctx().request_repaint();
+        }
+    }
+
+    /// When the user resizes the window, the card window takes the room it
+    /// now has, up to the card's size, and the card is sent sizeWindow.
+    /// The window changing size because a script sized the card window (or
+    /// a stack opened) isn't the user's doing.
+    fn user_resize(&mut self, ctx: &egui::Context, avail: Vec2, size: Vec2, view: Vec2) {
+        let Some(inner) = ctx.input(|i| i.viewport().inner_rect.map(|r| r.size())) else { return };
+        let resized = self.last_inner.is_some_and(|last| (last - inner).length() > 0.5);
+        self.last_inner = Some(inner);
+        let fitting = self.fitted_at.is_some_and(|t| t.elapsed() < Duration::from_millis(1500));
+        if !resized || fitting || self.world().window_key != 0 {
+            return;
+        }
+        let mut room = avail - Vec2::splat(16.0);
+        if room.x < size.x || room.y < size.y {
+            room -= Vec2::splat(BAR_ROOM);
+        }
+        let want = room.min(size).floor();
+        if want != view {
+            self.send(Event::SizeCardWindow(want.x as i32, want.y as i32));
+        }
     }
 
     fn message_box(&mut self, ui: &mut egui::Ui) {
@@ -2646,18 +2758,20 @@ impl eframe::App for App {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.request_quit(&ctx);
         }
-        self.handle_requests(&ctx);
-        // A selection floats only while it's selected.
-        if !matches!(self.marquee, Some(Marquee::Selected { .. } | Marquee::Moving { .. } | Marquee::Scaling { .. })) {
-            self.floating = None;
-        }
+        // A stack that's just opened fits the window first, so a script
+        // that sizes its card window as it opens (openStack) has the last
+        // word.
         let serial = self.world().stack_serial;
         if serial != self.stack_seen {
             self.stack_seen = serial;
             self.forget_stack_view();
-            self.fit_from = None;
             self.track_front_window();
             self.fit_window(&ctx);
+        }
+        self.handle_requests(&ctx);
+        // A selection floats only while it's selected.
+        if !matches!(self.marquee, Some(Marquee::Selected { .. } | Marquee::Moving { .. } | Marquee::Scaling { .. })) {
+            self.floating = None;
         }
         // The stack's own bitmap fonts, when a different stack opens.
         // Or the system's Japanese font, when Japanese is first drawn.
