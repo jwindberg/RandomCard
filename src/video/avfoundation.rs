@@ -1045,6 +1045,9 @@ mod tests {
         assert_ne!(f_seek.rgba, f0.rgba);
 
         // Forward playback advances both time and frames.
+        // The clock follows the real time that passes, which on a busy
+        // machine can be well over the sleeps' total, so that's measured.
+        let started = Instant::now();
         p.set_rate(1.0);
         let mut last_serial = f_seek.serial;
         for _ in 0..10 {
@@ -1052,20 +1055,24 @@ mod tests {
             last_serial = p.frame().unwrap().serial;
         }
         p.set_rate(0.0);
+        let played = started.elapsed().as_secs_f64();
         assert!(last_serial > f_seek.serial + 2, "frames advanced forward: {last_serial}");
-        assert!(p.time() > 2.1 && p.time() < 2.8, "time moved forward: {}", p.time());
+        assert!(p.time() > 2.1 && (p.time() - (2.0 + played)).abs() < 0.15, "time moved forward: {} in {played}", p.time());
 
         // Reverse playback moves time and frames backward, then finishes at 0.
         p.seek(2.5);
         let before_rev = p.frame().unwrap().serial;
+        let started = Instant::now();
         p.set_rate(-1.0);
         for _ in 0..10 {
             std::thread::sleep(Duration::from_millis(25));
             let _ = p.frame();
         }
         p.set_rate(0.0);
+        let played = started.elapsed().as_secs_f64();
         let after_rev = p.frame().unwrap().serial;
-        assert!(p.time() < 2.35 && p.time() > 1.8, "time moved backward: {}", p.time());
+        let expected = (2.5 - played).max(0.0);
+        assert!(p.time() < 2.35 && (p.time() - expected).abs() < 0.15, "time moved backward: {} in {played}", p.time());
         assert!(after_rev > before_rev + 2, "frames stepped backward: {before_rev} -> {after_rev}");
 
         p.seek(0.15);
