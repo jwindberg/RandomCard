@@ -1251,8 +1251,38 @@ impl Interp {
     /// How a pushed card names its stack: the stack's path, or its name if
     /// it has none, as in a card's long name.
     fn stack_place(&self) -> String {
-        let w = self.w();
-        w.stack.path.as_ref().map_or(w.stack.name.clone(), |p| super::paths::shown(p))
+        place_of(&self.w().stack)
+    }
+
+    /// The destination: where navigation is going, while it sends the
+    /// close and suspend messages, and otherwise the current stack.
+    pub(super) fn destination(&self) -> String {
+        self.destination.clone().unwrap_or_else(|| self.stack_place())
+    }
+
+    /// Send the messages leaving a stack, with `the destination` the stack
+    /// `key` while they're sent: the one about to be shown.
+    fn send_leaving(&mut self, key: Option<u32>, messages: &[&str], keep_going: bool) -> R<()> {
+        let place = {
+            let w = self.w();
+            key.and_then(|k| w.other(k)).map(place_of)
+        };
+        let was = self.destination.clone();
+        if place.is_some() {
+            self.destination = place;
+        }
+        let card = self.current_card_ref();
+        let mut out = Ok(());
+        for m in messages {
+            let r = self.send_system(card, m);
+            // A window closing closes even if a handler fails.
+            if !keep_going && r.is_err() {
+                out = r;
+                break;
+            }
+        }
+        self.destination = was;
+        out
     }
 
     /// `go home`: to the Home stack, or the first card if there's none.
@@ -1291,10 +1321,7 @@ impl Interp {
         if self.w().windows.iter().any(|sw| sw.key == key) {
             return self.bring_forward(key);
         }
-        let card = self.current_card_ref();
-        for m in ["closeCard", "closeBackground", "closeStack"] {
-            self.send_system(card, m)?;
-        }
+        self.send_leaving(Some(key), &["closeCard", "closeBackground", "closeStack"], false)?;
         let Some(stack) = self.w().take_other(key) else { return Ok(()) };
         self.scripts_changed();
         self.w().replace_stack(stack);
@@ -1311,8 +1338,7 @@ impl Interp {
         if self.w().windows.iter().any(|sw| sw.key == key) {
             return self.bring_forward(key);
         }
-        let card = self.current_card_ref();
-        self.send_system(card, "suspendStack")?;
+        self.send_leaving(Some(key), &["suspendStack"], false)?;
         let Some(stack) = self.w().take_other(key) else { return Ok(()) };
         self.scripts_changed();
         {
@@ -1334,8 +1360,7 @@ impl Interp {
         if !self.w().windows.iter().any(|sw| sw.key == key) {
             return Ok(());
         }
-        let card = self.current_card_ref();
-        self.send_system(card, "suspendStack")?;
+        self.send_leaving(Some(key), &["suspendStack"], false)?;
         self.scripts_changed();
         self.w().front_window(key);
         let card = self.current_card_ref();
@@ -1359,11 +1384,9 @@ impl Interp {
                 return Ok(());
             }
         }
-        let card = self.current_card_ref();
-        for m in ["closeCard", "closeBackground", "closeStack"] {
-            // The window closes even if a handler fails.
-            let _ = self.send_system(card, m);
-        }
+        // The window behind comes forward, so it's the destination.
+        let behind = self.w().windows.first().map(|sw| sw.key);
+        self.send_leaving(behind, &["closeCard", "closeBackground", "closeStack"], true)?;
         self.scripts_changed();
         self.w().close_front_window();
         if key == current {
@@ -2753,4 +2776,10 @@ pub fn find_in(hay: &str, needle: &str, mode: FindMode, from: usize) -> Option<(
 fn is_text_menu_item(key: &str) -> bool {
     let size = key.strip_suffix(" point").unwrap_or(key).parse::<u32>().is_ok_and(|s| styles::SIZES.contains(&s));
     key == "plain" || styles::STYLES.contains(&key) || size || styles::FONTS.iter().any(|f| f.eq_ignore_ascii_case(key))
+}
+
+/// How a script sees where a stack is: its path, or its name if it has
+/// no file yet.
+pub(super) fn place_of(s: &crate::model::Stack) -> String {
+    s.path.as_ref().map_or(s.name.clone(), |p| super::paths::shown(p))
 }

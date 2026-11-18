@@ -157,6 +157,8 @@ impl Interp {
                 let f = self.frame();
                 if n == 0 { f.message.clone() } else { f.params.get((n - 1) as usize).cloned().unwrap_or_default() }
             }
+            // Where navigation is going, as its close messages are sent.
+            "destination" => self.destination(),
             "target" => {
                 let t = self.frame().target;
                 self.name_of(t, NameLength::Default)

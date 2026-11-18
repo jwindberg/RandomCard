@@ -637,8 +637,9 @@ parse, which takes all its handlers with it, so the syntax comes first.
 2. **Movies** (QuickTime Tools): `there is a movie X`, `the version of
    QuickTime`, `the number of windows`; tracks (`track 1 of movie 1`) give
    a clear error rather than stopping the script.
-3. **Functions and properties:** `the destination` (HyperCard Help and the
-   AppleScript Reference, on every navigation button), `the number of cd
+3. **Functions and properties:** ~~`the destination`~~ (done: HyperCard
+   Help and the AppleScript Reference now click clean, with a fix step for
+   their colon paths), `the number of cd
    btns`, `textHeight` in Graph Maker, ~~setting `the rect of card window`~~
    (done; see The card window in Suggested order), New Features' "The button has no line 0".
 4. **Externals:** ~~Enviro~~ (done; with `lock recent`, the message box

@@ -592,6 +592,7 @@ fn demo_stack_runs() {
     Stack::home().save(&home_dir.join("Home.rcstack")).unwrap();
     lock(&i.world).home_path = Some(home_dir.join("Home.rcstack"));
     assert_eq!(click(&mut i, "Palettes", "Home in a Window"), None);
+    assert_eq!(run(&mut i, "put field \"Said\" of card \"Palettes\" of stack \"Tour\""), "suspendStack, for Home.rcstack: the destination");
     assert_eq!(run(&mut i, "put the short name of this stack && the number of lines of the stacks"), "Home 2");
     run(&mut i, "close window \"Home\"");
     assert_eq!(current(&i), "Palettes");
@@ -4448,4 +4449,54 @@ fn the_card_window_moves_and_zooms() {
     i.handle_event(Event::CardWindowMoved(5, 6));
     assert_eq!(lock(&i.world).msg, "move");
     assert_eq!(run(&mut i, "put the zoomed of card window & \":\" & the topLeft of card window"), "false:5,6");
+}
+
+#[test]
+fn the_destination() {
+    // Where navigation is going, as the close and suspend messages are sent;
+    // otherwise the current stack. The Help stacks ask it in closeStack.
+    let dir = std::env::temp_dir().join(format!("randomcard-destination-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let logger = |name: &str| {
+        ["closeCard", "closeStack", "suspendStack"]
+            .map(|m| format!("on {m}\n  global log\n  put \"{name} {m} \" & the destination & \",\" after log\nend {m}"))
+            .join("\n")
+    };
+    let mut lib = stack();
+    lib.name = "Lib".into();
+    lib.script = logger("Lib");
+    let lib_path = dir.join("Lib.rcstack");
+    lib.path = Some(lib_path.clone());
+    lib.save(&lib_path).unwrap();
+    let mut main = stack();
+    main.name = "Main".into();
+    main.script = logger("Main");
+    let main_path = dir.join("Main.rcstack");
+    main.path = Some(main_path.clone());
+    main.save(&main_path).unwrap();
+    let (lib_at, main_at) = (crate::runtime::paths::shown(&lib_path), crate::runtime::paths::shown(&main_path));
+
+    let mut i = interp_with(main);
+    let log = |i: &mut Interp| run(i, "global log\nput log\nput empty into log");
+    // Not navigating: the current stack.
+    assert_eq!(run(&mut i, "put the destination"), main_at);
+    assert_eq!(run(&mut i, "put destination()"), main_at);
+    // Within a stack, its own path.
+    run(&mut i, "go to card 2");
+    assert_eq!(log(&mut i), format!("Main closeCard {main_at},"));
+    // To another stack, that one's.
+    run(&mut i, "go to stack \"Lib\"");
+    assert_eq!(log(&mut i), format!("Main closeCard {lib_at},Main closeStack {lib_at},"));
+    assert_eq!(run(&mut i, "put the destination"), lib_at);
+    // A new window, and bringing one forward.
+    run(&mut i, "go to stack \"Main\" in a new window");
+    assert_eq!(log(&mut i), format!("Lib suspendStack {main_at},"));
+    run(&mut i, "go to stack \"Lib\"");
+    assert_eq!(log(&mut i), format!("Main suspendStack {lib_at},"));
+    // Closing a window: the one left showing is where it's going.
+    run(&mut i, "close window \"Main\"");
+    assert_eq!(log(&mut i), format!("Main closeCard {lib_at},Main closeStack {lib_at},"));
+    // A variable can still be called destination.
+    assert_eq!(run(&mut i, "put \"Two\" into destination\nput destination"), "Two");
+    std::fs::remove_dir_all(&dir).ok();
 }

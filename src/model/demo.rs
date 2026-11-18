@@ -1603,7 +1603,7 @@ end mouseUp"#,
     let mut said = b.label("Said", Rect::new(36, 192, 476, 226), "", 12);
     said.text_style = "italic".into();
     b.card_part(c, said);
-    b.stack.cards[c].script = "on openPalette name, id\n  put \"openPalette\" && name && id into field \"Said\"\nend openPalette\n\non closePalette name\n  put \"closePalette\" && name into field \"Said\"\nend closePalette".into();
+    b.stack.cards[c].script = "on openPalette name, id\n  put \"openPalette\" && name && id into field \"Said\"\nend openPalette\n\non closePalette name\n  put \"closePalette\" && name into field \"Said\"\nend closePalette\n\n-- Leaving for a stack in another window: the destination says which.\non suspendStack\n  set the itemDelimiter to the pathSeparator\n  put \"suspendStack, for\" && last item of the destination & \": the destination\" into field \"Said\"\n  pass suspendStack\nend suspendStack".into();
     // Stacks in windows of their own.
     let windows = b.label(
         "Windows",

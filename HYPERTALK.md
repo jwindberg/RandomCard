@@ -384,7 +384,7 @@ A function is called with parentheses, `max(3, 7)`, or with `the`,
 | Mouse | `the mouse`, `the mouseClick`, `the mouseLoc`, `the mouseH`, `the mouseV`, `the clickLoc`, `the clickH`, `the clickV`, `the clickChunk`, `the clickLine`, `the clickText` |
 | Keys | `the shiftKey`, `the optionKey`, `the commandKey` (`cmdKey`), `the controlKey`, `the keysDown` |
 | Selection and finding | `the selectedText`, `the selectedChunk`, `the selectedLine`, `the selectedField`, `the selectedLoc`, `the foundText`, `the foundChunk`, `the foundLine`, `the foundField`, `the selectedButton of card family 1` |
-| Handlers | `the params`, `the paramCount`, `param(n)`, `the result`, `the target` |
+| Handlers | `the params`, `the paramCount`, `param(n)`, `the result`, `the target`, `the destination` |
 | Sound and speech | `the sound`, `the speech`, `the voices` |
 | The system | `the version`, `the systemVersion`, `the screenRect`, `the diskSpace`, `the heapSpace`, `the tool`, `the menus`, `the stacks`, `the stacksInUse`, `the windows` |
 
@@ -399,6 +399,18 @@ on mouseUp
   convert today to dateItems
   if the shiftKey is down then answer the clickText
 end mouseUp
+```
+
+`the destination` is the path of the stack navigation is going to, while
+it sends closeCard, closeBackground, closeStack and suspendStack, so a
+stack can tidy up differently when it's leaving for another; at other
+times it's the current stack's path. A stack without a file gives its name.
+
+```hypertalk
+on closeStack
+  set the itemDelimiter to the pathSeparator
+  if last item of the destination is not "Help Extras" then removeHelpMenu
+end closeStack
 ```
 
 `round` rounds a half to the even number, as HyperCard did: `round(2.5)`

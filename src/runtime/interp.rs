@@ -163,6 +163,9 @@ pub struct Interp {
     pub skip_pauses: bool,
     /// startUp has gone to the first stack opened.
     sent_startup: bool,
+    /// Where navigation is going while it sends the close and suspend
+    /// messages: the destination. At other times it's the current stack.
+    pub(super) destination: Option<String>,
     /// Documents printed, newest last.
     pub printed: Vec<std::path::PathBuf>,
 }
@@ -207,6 +210,7 @@ impl Interp {
             open_documents: false,
             skip_pauses: false,
             sent_startup: false,
+            destination: None,
             printed: Vec::new(),
         }
     }
@@ -458,10 +462,12 @@ impl Interp {
 
     fn switch_stack(&mut self, stack: Stack) -> R<()> {
         let card = self.current_card_ref();
+        let was = self.destination.replace(super::commands::place_of(&stack));
         for m in ["closeCard", "closeBackground", "closeStack"] {
             // Errors in the old stack shouldn't prevent opening the new one.
             let _ = self.dispatch_top(card, m, vec![]);
         }
+        self.destination = was;
         self.scripts.clear();
         self.w().replace_stack(stack);
         self.open_stack_messages()

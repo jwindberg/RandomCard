@@ -33,3 +33,6 @@ Owner's Guide	line LN of	line (LN) of	LN is a variable, but HyperCard 2.4.1 read
 Hyperdex 1.0B9	line LN of	line (LN) of	LN is a variable, but HyperCard 2.4.1 reads `LN of x` as the ln function too: parentheses make it a variable
 SpIndexer 2.6	line LN of	line (LN) of	LN is a variable, but HyperCard 2.4.1 reads `LN of x` as the ln function too: parentheses make it a variable
 Hyperdex 1.0B10	line LN of	line (LN) of	LN is a variable, but HyperCard 2.4.1 reads `LN of x` as the ln function too: parentheses make it a variable
+HyperCard Help	lastItem(":",destination())	lastItem(the pathSeparator,destination())	Mac colon paths: the folder separator is the pathSeparator on other systems
+Help Extras	lastItem(":",destination())	lastItem(the pathSeparator,destination())	Mac colon paths: the folder separator is the pathSeparator on other systems
+HyperCard AppleScript Reference	lastItem(":",destination())	lastItem(the pathSeparator,destination())	Mac colon paths: the folder separator is the pathSeparator on other systems
