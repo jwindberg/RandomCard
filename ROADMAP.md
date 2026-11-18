@@ -569,7 +569,7 @@ and has already licensed H.264 and HEVC. In the Tour's Movies card.
    decode on the UI thread as they're drawn; if a large movie ever
    stutters, decoding moves to a thread of its own. macOS no longer
    decodes MPEG-1 or MPEG-2, or the classic QuickTime codecs.
-3. **Windows** (written, to be tried on Windows): Media Foundation's
+3. **Windows** (done): Media Foundation's
    Media Engine, in frame-server mode, hands over each picture through a
    Direct3D 11 texture (or a WIC bitmap, decoded in software, where
    there's no GPU that decodes video). It can't play most movies
@@ -639,8 +639,8 @@ parse, which takes all its handlers with it, so the syntax comes first.
    a clear error rather than stopping the script.
 3. **Functions and properties:** `the destination` (HyperCard Help and the
    AppleScript Reference, on every navigation button), `the number of cd
-   btns`, `textHeight` in Graph Maker, setting `the rect of card window`
-   (see The card window in Suggested order), New Features' "The button has no line 0".
+   btns`, `textHeight` in Graph Maker, ~~setting `the rect of card window`~~
+   (done; see The card window in Suggested order), New Features' "The button has no line 0".
 4. **Externals:** ~~Enviro~~ (done; with `lock recent`, the message box
    as `window "message"`, and AddColor pictures, Color Tools now runs
    clean, its Demo included), the palettes Power Tools, Art Bits, Background Art and Stack
@@ -774,8 +774,8 @@ their feedback. For now:
    released as 0.3.0), then printing in color.
 4. **HyperCard 2.4's own features:** audit them in the real HyperCard
    2.4.1 (Basilisk II, `examples/apple/emulator-2.4/run.sh`): movies
-   from HyperTalk (started: see Movies; macOS and Linux done, Windows
-   written), URLs, the new script editor, and its menus and tools.
+   from HyperTalk (done on macOS, Windows and Linux; see Movies for
+   classic codecs and streaming), URLs, the new script editor, and its menus and tools.
 5. **The card window:** card size changes (done: setting the rect,
    width or height of a card sizes every card, as Stack Info's Resize
    does, and sends sizeWindow; pictures keep what's painted beyond a
