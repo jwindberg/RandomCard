@@ -400,6 +400,12 @@ pub struct ListDialog {
     /// Where on the screen: the top left, and the bottom right if given.
     pub at: Option<(i32, i32)>,
     pub size: Option<(i32, i32)>,
+    /// Named buttons in place of OK and Cancel (ShowList's), the default
+    /// first, each with whether a line is drawn above it. The reply names
+    /// the one clicked.
+    pub buttons: Vec<(String, bool)>,
+    /// Typing and the arrow keys leave the selection alone.
+    pub no_typing: bool,
 }
 
 #[derive(Clone, Debug)]

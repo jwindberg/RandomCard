@@ -4574,3 +4574,28 @@ fn number_of_what_a_variable_names() {
     assert_eq!(run(&mut i, "put \"card 2\" into theCard\nput the number of theCard"), "2");
     assert_eq!(run(&mut i, "put \"cd btn\" into theObj\nput number of (theObj & \"s\")"), "1");
 }
+
+#[test]
+fn show_list() {
+    // ShowList, from Apple's Power Tools: up to four named buttons (a ^
+    // draws a line above one), single or multiple choice, typing or not.
+    let args: Vec<String> =
+        ["a\nb\nc", "Pick:", "true", "false", "OK,Cancel^,Add", "2", "30", "40"].map(String::from).to_vec();
+    let d = super::externals::show_list_dialog(&args);
+    assert_eq!(d.items, ["a", "b", "c"]);
+    assert_eq!(d.mode, 3);
+    assert!(d.no_typing);
+    assert_eq!(d.selected, [1]);
+    assert_eq!(d.at, Some((30, 40)));
+    assert_eq!(d.buttons, [("OK".to_string(), false), ("Cancel".to_string(), true), ("Add".to_string(), false)]);
+    // It answers the button, then the chosen lines.
+    let mut i = interp_with(stack());
+    i.canned_answers.push(DialogReply::List(vec![0, 2], "OK".into()));
+    assert_eq!(run(&mut i, "get showList(\"a\" & return & \"b\" & return & \"c\", \"Pick:\", true, true, \"OK,Cancel\", 0)\nput it"), "OK\n1,3");
+    // The Tour's List Objects flashes the button chosen.
+    let mut t = interp_with(Stack::demo());
+    run(&mut t, "go to card \"Debugging\"");
+    t.canned_answers.push(DialogReply::List(vec![0], "Flash".into()));
+    assert_eq!(click(&mut t, "Debugging", "List Objects"), None);
+    assert_eq!(run(&mut t, "put cd fld \"Answer\""), "ShowList answered \"Flash\" and line 1.");
+}

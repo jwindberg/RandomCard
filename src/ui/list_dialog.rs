@@ -3,6 +3,9 @@
 //! arrow keys (Shift or Command to extend, Option for the ends), typing to
 //! jump to a line, Command-A for all, Return or Enter to choose, Escape or
 //! Command-Z to cancel and Tab to leave.
+//!
+//! ShowList, from Apple's Power Tools, uses it too: up to four named
+//! buttons in a column beside the list, the default at the bottom.
 
 use std::time::{Duration, Instant};
 
@@ -98,6 +101,15 @@ impl App {
                 text,
             )
         });
+        // The button Return chooses, and the one Escape does: ShowList's
+        // default and its Cancel, or ListSelect's OK and Cancel.
+        let default_exit = d.buttons.first().map_or("Validated".to_string(), |b| b.0.clone());
+        let cancel_exit = if d.buttons.is_empty() {
+            Some("Cancelled".to_string())
+        } else {
+            d.buttons.iter().find(|b| b.0.eq_ignore_ascii_case("cancel")).map(|b| b.0.clone())
+        };
+        let (up, down, all, text) = if d.no_typing { (false, false, false, String::new()) } else { (up, down, all, text) };
         let st = &mut self.list;
         if n > 0 && (up || down) {
             let last = st.scroll_to.unwrap_or(st.anchor);
@@ -132,10 +144,10 @@ impl App {
             }
         }
         if enter {
-            reply = Some(st.reply("Validated"));
-        } else if escape || undo {
-            reply = Some(DialogReply::List(vec![], "Cancelled".into()));
-        } else if tab {
+            reply = Some(st.reply(&default_exit));
+        } else if (escape || undo) && cancel_exit.is_some() {
+            reply = Some(DialogReply::List(vec![], cancel_exit.clone().unwrap_or_default()));
+        } else if tab && d.buttons.is_empty() {
             reply = Some(st.reply("TabKey"));
         }
 
@@ -150,43 +162,68 @@ impl App {
             area = area.anchor(egui::Align2::LEFT_TOP, pos.to_vec2() - screen.min.to_vec2());
         }
         let st = &mut self.list;
+        const BUTTONS: f32 = 110.0;
         egui::Modal::new(id).area(area).show(ctx, |ui| {
-            ui.set_width(width);
+            ui.set_width(width + if d.buttons.is_empty() { 0.0 } else { BUTTONS + 8.0 });
             if !d.prompt.is_empty() {
                 ui.label(RichText::new(&d.prompt).size(13.0));
                 ui.add_space(4.0);
             }
-            egui::Frame::new().stroke(ui.visuals().widgets.noninteractive.bg_stroke).show(ui, |ui| {
-                egui::ScrollArea::vertical().max_height(list_height).auto_shrink([false, false]).show(ui, |ui| {
-                    ui.spacing_mut().item_spacing.y = 0.0;
-                    for (i, item) in d.items.iter().enumerate() {
-                        let selected = st.selected.contains(&i);
-                        // A row as the Mac drew one: left-aligned, filled when chosen.
-                        let (rect, r) = ui.allocate_exact_size(egui::vec2(ui.available_width(), row), egui::Sense::click());
-                        let v = ui.visuals();
-                        let color = if selected {
-                            ui.painter().rect_filled(rect, 0.0, v.selection.bg_fill);
-                            v.strong_text_color()
-                        } else {
-                            v.text_color()
-                        };
-                        ui.painter().text(rect.left_center() + egui::vec2(6.0, 0.0), egui::Align2::LEFT_CENTER, item, font.clone(), color);
-                        if st.scroll_to == Some(i) {
-                            r.scroll_to_me(None);
-                        }
-                        if r.clicked() {
-                            let m = ui.input(|i| i.modifiers);
-                            st.choose(d, i, m.shift, m.command);
-                        }
-                        if r.double_clicked() && d.double_click && d.mode != 0 {
-                            st.choose(d, i, false, false);
-                            reply = Some(st.reply("Validated"));
-                        }
-                    }
+            ui.horizontal_top(|ui| {
+                ui.vertical(|ui| {
+                    ui.set_width(width);
+                    egui::Frame::new().stroke(ui.visuals().widgets.noninteractive.bg_stroke).show(ui, |ui| {
+                        egui::ScrollArea::vertical().max_height(list_height).auto_shrink([false, false]).show(ui, |ui| {
+                            ui.spacing_mut().item_spacing.y = 0.0;
+                            for (i, item) in d.items.iter().enumerate() {
+                                let selected = st.selected.contains(&i);
+                                // A row as the Mac drew one: left-aligned, filled when chosen.
+                                let (rect, r) = ui.allocate_exact_size(egui::vec2(ui.available_width(), row), egui::Sense::click());
+                                let v = ui.visuals();
+                                let color = if selected {
+                                    ui.painter().rect_filled(rect, 0.0, v.selection.bg_fill);
+                                    v.strong_text_color()
+                                } else {
+                                    v.text_color()
+                                };
+                                ui.painter().text(rect.left_center() + egui::vec2(6.0, 0.0), egui::Align2::LEFT_CENTER, item, font.clone(), color);
+                                if st.scroll_to == Some(i) {
+                                    r.scroll_to_me(None);
+                                }
+                                if r.clicked() {
+                                    let m = ui.input(|i| i.modifiers);
+                                    st.choose(d, i, m.shift, m.command);
+                                }
+                                if r.double_clicked() && d.double_click && d.mode != 0 {
+                                    st.choose(d, i, false, false);
+                                    reply = Some(st.reply(&default_exit));
+                                }
+                            }
+                        });
+                    });
                 });
+                // ShowList's buttons, bottom to top beside the list: the
+                // default at the bottom, a line above those marked with ^.
+                if !d.buttons.is_empty() {
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(BUTTONS, list_height + 2.0),
+                        egui::Layout::bottom_up(egui::Align::Min),
+                        |ui| {
+                            for (i, (name, line)) in d.buttons.iter().enumerate() {
+                                let text = if i == 0 { RichText::new(name).strong() } else { RichText::new(name) };
+                                if ui.add_sized([BUTTONS, 22.0], egui::Button::new(text)).clicked() {
+                                    reply = Some(st.reply(name));
+                                }
+                                if *line && i < 3 {
+                                    ui.separator();
+                                }
+                            }
+                        },
+                    );
+                }
             });
             st.scroll_to = None;
-            if !d.ok.is_empty() || !d.cancel.is_empty() {
+            if d.buttons.is_empty() && (!d.ok.is_empty() || !d.cancel.is_empty()) {
                 ui.add_space(8.0);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if !d.ok.is_empty() && ui.button(RichText::new(&d.ok).strong()).clicked() {

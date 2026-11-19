@@ -68,6 +68,10 @@ impl Interp {
         if let Some(v) = self.rinaldi_function(name, args) {
             return Some(v);
         }
+        // Power Tools' ShowList XFCN.
+        if name == "showlist" {
+            return Some(self.show_list(args));
+        }
         // QuickTime Tools' movieInfo XFCN.
         if name == "movieinfo" {
             let file = args.first().cloned().unwrap_or_default();
@@ -285,6 +289,22 @@ impl Interp {
             "main" => arg(0).chars().map(rot13).collect(),
             _ => return None,
         }))
+    }
+
+    /// ShowList(items, prompt, multiSelect, typingSelect, "btn1,btn2^,…",
+    /// hilitedLine [, left, top]), from Apple's Power Tools: a list to
+    /// choose from, with up to four buttons, the first the default (a ^
+    /// after a name draws a line above it). It answers the button clicked,
+    /// then the chosen lines' numbers, by commas.
+    fn show_list(&mut self, args: &[String]) -> R<String> {
+        let d = show_list_dialog(args);
+        let (chosen, button) = match self.dialog(super::world::Dialog::List(d))? {
+            super::world::DialogReply::List(c, b) => (c, b),
+            super::world::DialogReply::Button(b) => (vec![], b),
+            _ => (vec![], String::new()),
+        };
+        let lines: Vec<String> = chosen.iter().map(|i| (i + 1).to_string()).collect();
+        Ok(format!("{button}\n{}", lines.join(",")))
     }
 
     /// Run an external command, or answer `None` if there's no such external.
@@ -621,4 +641,38 @@ fn volumes() -> Vec<String> {
         }
     }
     out
+}
+
+/// ShowList's arguments as a list dialog: single or multiple choice,
+/// typing to jump to a line or not, the line hilited first (from 1, or 0
+/// for none), its buttons, and the dialog's top left on the screen.
+pub(super) fn show_list_dialog(args: &[String]) -> super::world::ListDialog {
+    let arg = |i: usize| args.get(i).cloned().unwrap_or_default();
+    let truth = |i: usize| arg(i).trim().eq_ignore_ascii_case("true");
+    let buttons: Vec<(String, bool)> = arg(4)
+        .split(',')
+        .map(str::trim)
+        .filter(|b| !b.is_empty())
+        .take(4)
+        .map(|b| match b.strip_suffix('^') {
+            Some(name) => (name.trim().to_string(), true),
+            None => (b.to_string(), false),
+        })
+        .collect();
+    let hilited = arg(5).trim().parse::<usize>().unwrap_or(0);
+    let at = match (arg(6).trim().parse::<f64>(), arg(7).trim().parse::<f64>()) {
+        (Ok(l), Ok(t)) => Some((l as i32, t as i32)),
+        _ => None,
+    };
+    super::world::ListDialog {
+        prompt: arg(1),
+        items: arg(0).lines().map(String::from).collect(),
+        mode: if truth(2) { 3 } else { 1 },
+        selected: if hilited > 0 { vec![hilited - 1] } else { vec![] },
+        double_click: true,
+        at,
+        buttons,
+        no_typing: !truth(3),
+        ..Default::default()
+    }
 }

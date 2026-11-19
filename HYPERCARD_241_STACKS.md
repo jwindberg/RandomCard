@@ -46,7 +46,7 @@ the others is in the roadmap's "HyperCard 2.4.1's own stacks" section.
 
 | Stack | Clicks | Distinct errors | First error |
 | --- | --- | --- | --- |
-| AppleScript Stacks/AppleScript Library | 14 | 6 | openStack: Script error in stack "AppleScript Library": line 36: Expected an object after "there is a", found "scriptinglanguage" |
+| AppleScript Stacks/AppleScript Library | 14 | 5 | openStack: Script error in stack "AppleScript Library": line 36: Expected an object after "there is a", found "scriptinglanguage" |
 | AppleScript Stacks/AppleScript Mail Merge | 29 | 2 | openStack: Script error in bkgnd id 2599: line 78: Expected "then", found "AppleScript" |
 | AppleScript Stacks/AppleScript Text Controls | 13 | 11 | openStack: Script error in bkgnd id 2733: line 41: Expected "then", found "AppleScript" |
 | Home | 48 | 3 | openStack: No such function "stackisbeingused" |
@@ -55,7 +55,7 @@ the others is in the roadmap's "HyperCard 2.4.1's own stacks" section.
 | HyperCard Stacks/Graph Maker | 20 | 1 | card 2 button "frame": No such property "textheight" |
 | HyperCard Stacks/New Features | 14 | 3 | openStack: The button has no line 0 |
 | HyperCard Stacks/QuickTime Tools | 173 | 2 | openStack: No such object "QuickTime" |
-| More Stacks/Power Tools | 68 | 3 | card 8 button "ListObjects": No such object "cd btns" |
+| More Stacks/Power Tools | 68 | 2 | card 9 button "": Can't understand "picture" |
 | More Stacks/Readymade Buttons | 85 | 3 | card 5 button "Show Navigator": Can't find palette "Navigator" |
 
 ## Not stacks

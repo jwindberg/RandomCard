@@ -647,8 +647,9 @@ parse, which takes all its handlers with it, so the syntax comes first.
    clean, its Demo included), ~~the palettes Power Tools, Art Bits, Background Art and Stack
    Templates use (`generalPalette`, `fieldPalette`, `hidePalette`)~~ (done:
    built in, and `the stacks` now gives a converted stack's file, as its
-   long name does, so their `wrongStack()` checks pass), the
-   Navigator palette (Readymade Buttons), the `picture` command, and
+   long name does, so their `wrongStack()` checks pass), ~~ShowList~~ (done; Power
+   Tools' list dialog), the Navigator palette (Readymade Buttons), the
+   `picture` command (next for Power Tools), and
    `stackIsBeingUsed` and `tips`, which may be handlers in another stack.
 5. **AppleScript and Apple events:** `there is a scriptingLanguage
    AppleScript`, `the version of scriptingLanguage "AppleScript"`,

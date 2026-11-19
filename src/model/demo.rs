@@ -1587,6 +1587,34 @@ end mouseUp"#,
 end mouseUp"#,
     );
     b.card_part(c, dont_save);
+    // ShowList, from Apple's Power Tools: a list with buttons of a
+    // script's choosing, as Power Tools' own List Objects used it.
+    let list = b.button(
+        "List Objects",
+        Rect::new(36, 278, 176, 302),
+        r#"on mouseUp
+  put empty into objList
+  repeat with i = 1 to the number of cd btns
+    put the short name of cd btn i & return after objList
+  end repeat
+  delete last char of objList
+  get ShowList(objList, "This card's buttons:", false, true, "Flash,Cancel^,Script", 1)
+  if line 1 of it is "Cancel" or line 2 of it is empty then exit mouseUp
+  put line (line 2 of it) of objList into theName
+  if line 1 of it is "Script" then
+    edit script of cd btn theName
+    exit mouseUp
+  end if
+  repeat 3 times
+    hide cd btn theName
+    wait 8 ticks
+    show cd btn theName
+    wait 8 ticks
+  end repeat
+  put "ShowList answered" && quote & line 1 of it & quote && "and line" && line 2 of it & "." into cd fld "Answer"
+end mouseUp"#,
+    );
+    b.card_part(c, list);
     let mut answer = b.label("Answer", Rect::new(20, 132, 492, 156), "", 14);
     answer.text_align = TextAlign::Center;
     b.card_part(c, answer);

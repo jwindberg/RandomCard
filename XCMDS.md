@@ -199,6 +199,7 @@ they never call.
 | ThumbBtn | XFCN | 1 stack, called in 0 | A scroll thumb made from a button (not called). | Unknown | Needs research | Research |
 | GeneralPalette | XCMD | HyperCard 2.4.1's Art Bits and Power Tools | A navigation palette from the stack's own picture: arrows that send goPrev and goNext, a named button that sends goCategories, and the HaveGeneralPalette and GeneralPaletteLoc globals (Jay Hodgdon, 1990). | Built in | src/runtime/apple_palettes.rs, as a palette window; the picture is kept from the stack's resources | Done |
 | FieldPalette | XCMD | HyperCard 2.4.1's Background Art | GeneralPalette with three lines of text above its buttons, set with `the fields of window "FieldPalette"`. | Built in | As GeneralPalette | Done |
+| ShowList | XFCN | HyperCard 2.4.1's Power Tools | A scrolling list in a dialog, with a two-line prompt and up to four named buttons (a ^ draws a line above one); answers the button clicked and the chosen lines' numbers. | Built in | As the list dialog ListSelect uses, with the stack's buttons | Done |
 | StackTemplatePal | XCMD | HyperCard 2.4.1's Stack Templates | A palette with two named buttons (createStack, goCategories), Info, Home and the arrows. | Built in | As GeneralPalette | Done |
 
 ### Printing
