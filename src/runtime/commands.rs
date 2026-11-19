@@ -53,7 +53,7 @@ impl Interp {
                     // Windows and palettes aren't supported.
                     Some(e) if is_menu(e) => Ok(()),
                     Some(Expr::Menu(r)) => self.set_menu_property(r, &prop, &v),
-                    Some(e @ (Expr::Chunk(..) | Expr::Selection)) => self.set_chunk_property(e, &prop, &v),
+                    Some(e @ (Expr::Chunk(..) | Expr::Selection)) if !chunk_of_value(e) => self.set_chunk_property(e, &prop, &v),
                     Some(Expr::Object(spec)) => {
                         // A card or part of another stack: it comes in for the moment.
                         if let Some(name) = super::interp::spec_stack(spec)
@@ -2796,6 +2796,20 @@ pub fn find_in(hay: &str, needle: &str, mode: FindMode, from: usize) -> Option<(
 fn is_text_menu_item(key: &str) -> bool {
     let size = key.strip_suffix(" point").unwrap_or(key).parse::<u32>().is_ok_and(|s| styles::SIZES.contains(&s));
     key == "plain" || styles::STYLES.contains(&key) || size || styles::FONTS.iter().any(|f| f.eq_ignore_ascii_case(key))
+}
+
+/// Whether a chunk is a piece of a value (a variable, a function's
+/// answer, a literal) rather than of a field: `item 2 of fieldList`, whose
+/// text names an object, as in `the scroll of last item of fieldList`.
+pub(super) fn chunk_of_value(e: &Expr) -> bool {
+    match e {
+        Expr::Chunk(_, inner) => match inner.as_ref() {
+            Expr::Chunk(..) => chunk_of_value(inner),
+            Expr::Var(_) | Expr::Lit(_) | Expr::Call(..) | Expr::Builtin(..) => true,
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 /// How a script sees where a stack is: its path, or its name if it has

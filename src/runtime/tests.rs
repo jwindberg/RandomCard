@@ -4710,3 +4710,19 @@ fn tour_pictures() {
     run(&mut i, "go to next card");
     assert_eq!(run(&mut i, "put the number of pictures"), "0");
 }
+
+#[test]
+fn a_chunk_of_a_value_names_an_object() {
+    // `the scroll of last item of fieldList`: an item of a variable names
+    // the field, as Apple's Multiple Scrolling Fields has it. A chunk of a
+    // field still has its own text properties.
+    let mut i = interp_with(stack());
+    run(&mut i, "put \"bg field id 1,bg field 1\" into fieldList");
+    run(&mut i, "set the textSize of last item of fieldList to 18");
+    assert_eq!(run(&mut i, "put the textSize of bg field 1"), "18");
+    assert_eq!(run(&mut i, "put the textSize of last item of fieldList"), "18");
+    run(&mut i, "set the textSize of (item 2 of fieldList) to 9");
+    assert_eq!(run(&mut i, "put the textSize of item 2 of fieldList"), "9");
+    run(&mut i, "put \"Hello world\" into bg field 1\nset the textStyle of word 2 of bg field 1 to bold");
+    assert_eq!(run(&mut i, "put the textStyle of word 2 of bg field 1"), "bold");
+}

@@ -266,6 +266,12 @@ end mouseUp
 `the foundChunk` is text like `char 6 to 15 of card field 1`, and scripts
 may use it anywhere a chunk goes (`select the foundChunk`).
 
+A chunk of a field has text properties of its own (`the textStyle of word
+2 of field 1`); a chunk of a variable is text, and when that text names
+an object, a property goes to the object: with "card field 1,card field
+2" in `fieldList`, `the scroll of last item of fieldList` is the scroll
+of card field 2.
+
 ## Objects
 
 | Object | Named by |

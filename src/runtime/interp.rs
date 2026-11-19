@@ -1152,7 +1152,7 @@ impl Interp {
                 if let Expr::Menu(r) = &args[2] {
                     return self.menu_property(r, &prop.to_ascii_lowercase());
                 }
-                if matches!(args[2], Expr::Chunk(..) | Expr::Selection) {
+                if matches!(args[2], Expr::Chunk(..) | Expr::Selection) && !super::commands::chunk_of_value(&args[2]) {
                     return self.chunk_property(&args[2], &prop.to_ascii_lowercase());
                 }
                 // `number of theObjs`, with "cd btns" in theObjs: the
