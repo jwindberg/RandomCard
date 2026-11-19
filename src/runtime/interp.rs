@@ -166,6 +166,9 @@ pub struct Interp {
     /// Where navigation is going while it sends the close and suspend
     /// messages: the destination. At other times it's the current stack.
     pub(super) destination: Option<String>,
+    /// `lock error dialogs`: the next script error goes to an errorDialog
+    /// handler instead of a dialog. It unlocks when the event is over.
+    pub(super) lock_error_dialogs: bool,
     /// Documents printed, newest last.
     pub printed: Vec<std::path::PathBuf>,
 }
@@ -211,6 +214,7 @@ impl Interp {
             skip_pauses: false,
             sent_startup: false,
             destination: None,
+            lock_error_dialogs: false,
             printed: Vec::new(),
         }
     }
@@ -363,7 +367,11 @@ impl Interp {
             // moment later, reopening the error faster than anyone could fix
             // it. Report it once, until something the user does runs again.
             let key = format!("{}|{:?}", e.msg, e.line);
-            if !(repeating && self.repeating_error.as_deref() == Some(key.as_str())) {
+            if std::mem::take(&mut self.lock_error_dialogs) {
+                // The script asked to hear about errors itself.
+                let card = self.current_card_ref();
+                let _ = self.dispatch_top(card, "errorDialog", vec![e.msg]);
+            } else if !(repeating && self.repeating_error.as_deref() == Some(key.as_str())) {
                 self.w().requests.push(UiRequest::ScriptError { msg: e.msg, obj: e.obj, line: e.line });
             }
             if repeating {
@@ -373,6 +381,9 @@ impl Interp {
         if !repeating {
             self.repeating_error = None;
         }
+        // Locked error dialogs unlock when the event is over, as at idle in
+        // HyperCard.
+        self.lock_error_dialogs = false;
         // HyperCard resets these when all handlers finish.
         self.item_delimiter = ",".into();
         self.number_format = "0.######".into();
@@ -715,7 +726,11 @@ impl Interp {
         let lname = name.to_ascii_lowercase();
         let watched = self.watch_message(name);
         let mut handled = false;
-        for obj in path {
+        let (mut path, mut i) = (path, 0);
+        let mut in_use = self.w().in_use.clone();
+        while i < path.len() {
+            let obj = path[i];
+            i += 1;
             let Some(script) = self.script_for(obj)? else { continue };
             let Some(handler) = script.handlers.get(&lname) else { continue };
             match self.run_handler(handler, obj, target, name, args) {
@@ -724,7 +739,22 @@ impl Interp {
                     handled = true;
                     break;
                 }
-                Err(Ctl::Pass) => continue,
+                // A stack the handler started using comes next in the path,
+                // as in HyperCard: the Reference starts using HyperCard
+                // Help in openStack, and passes openStack on to it.
+                Err(Ctl::Pass) => {
+                    let now = self.w().in_use.clone();
+                    if now != in_use {
+                        in_use = now;
+                        let fresh = self.message_path(target);
+                        if let Some(at) = fresh.iter().position(|o| *o == obj) {
+                            let rest: Vec<ObjRef> = fresh[at + 1..].iter().filter(|o| !path[..i].contains(o)).copied().collect();
+                            path.truncate(i);
+                            path.extend(rest);
+                        }
+                    }
+                    continue;
+                }
                 Err(e) => {
                     self.message_handled(watched);
                     return Err(e);
@@ -1286,24 +1316,27 @@ impl Interp {
             BinOp::Add => self.fmt(num(&x)? + num(&y)?),
             BinOp::Sub => self.fmt(num(&x)? - num(&y)?),
             BinOp::Mul => self.fmt(num(&x)? * num(&y)?),
+            // Dividing by zero is INF (or -INF), and 0/0 not a number, as
+            // HyperCard 2.4.1's arithmetic answers; div and mod by zero
+            // are errors.
             BinOp::Div => {
-                let d = num(&y)?;
-                if d == 0.0 {
-                    return err("Can't divide by zero");
+                let (n, d) = (num(&x)?, num(&y)?);
+                if d == 0.0 && n == 0.0 {
+                    return Ok("-NAN(000)".into());
                 }
-                self.fmt(num(&x)? / d)
+                self.fmt(n / d)
             }
             BinOp::IntDiv => {
                 let d = num(&y)?;
                 if d == 0.0 {
-                    return err("Can't divide by zero");
+                    return err("Can't DIV by zero");
                 }
                 self.fmt((num(&x)? / d).trunc())
             }
             BinOp::Mod => {
                 let d = num(&y)?;
                 if d == 0.0 {
-                    return err("Can't divide by zero");
+                    return err("Can't MOD by zero");
                 }
                 self.fmt(num(&x)? % d)
             }
@@ -1314,9 +1347,11 @@ impl Interp {
             BinOp::Gt => bool_str(compare(&x, &y).is_gt()),
             BinOp::Le => bool_str(compare(&x, &y).is_le()),
             BinOp::Ge => bool_str(compare(&x, &y).is_ge()),
-            BinOp::Contains => bool_str(x.to_lowercase().contains(&y.to_lowercase())),
-            BinOp::IsIn => bool_str(y.to_lowercase().contains(&x.to_lowercase())),
-            BinOp::IsNotIn => bool_str(!y.to_lowercase().contains(&x.to_lowercase())),
+            // Empty is in nothing, as HyperCard 2.4.1 answers: Mail Merge
+            // asks whether an empty name is in the windows.
+            BinOp::Contains => bool_str(has_text(&x, &y)),
+            BinOp::IsIn => bool_str(has_text(&y, &x)),
+            BinOp::IsNotIn => bool_str(!has_text(&y, &x)),
             BinOp::IsWithin | BinOp::IsNotWithin => {
                 let Some((px, py)) = parse_point(&x) else {
                     return err(format!("Expected a point here, not \"{x}\""));
@@ -1561,6 +1596,12 @@ impl Interp {
             None => err(format!("No such object \"{text}\"")),
         }
     }
+}
+
+/// Whether `needle` is somewhere in `hay`, ignoring case. Empty text is in
+/// nothing.
+fn has_text(hay: &str, needle: &str) -> bool {
+    !needle.is_empty() && hay.to_lowercase().contains(&needle.to_lowercase())
 }
 
 pub fn to_number(s: &str) -> R<f64> {

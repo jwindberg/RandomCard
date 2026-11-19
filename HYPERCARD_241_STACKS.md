@@ -17,7 +17,7 @@ don't pause, with no one watching, so all of them take seconds. A stack
 joins the list when this page is written again after a fix. What breaks
 the others is in the roadmap's "HyperCard 2.4.1's own stacks" section.
 
-**19 of 29 stacks are clean** (2026-11-19).
+**28 of 29 stacks are clean** (2026-11-19).
 
 ## Clean
 
@@ -25,18 +25,27 @@ the others is in the roadmap's "HyperCard 2.4.1's own stacks" section.
 | --- | --- | --- |
 | About HyperCard... | 16 | 0 |
 | Addresses | 30 | 0 |
+| AppleScript Stacks/AppleScript Library | 14 | 0 |
+| AppleScript Stacks/AppleScript Mail Merge | 28 | 0 |
 | AppleScript Stacks/HyperCard AppleScript Reference | 22 | 0 |
 | AppleScript Stacks/Language at a Glance | 81 | 0 |
 | Color Tools | 19 | 0 |
+| Home | 48 | 0 |
+| HyperCard Help/Apple Event Primer | 26 | 0 |
 | HyperCard Help/Help Extras | 6 | 0 |
 | HyperCard Help/HyperCard Help | 47 | 0 |
+| HyperCard Help/HyperTalk Reference | 29 | 4 |
 | HyperCard Stacks/Art Bits | 14 | 0 |
 | HyperCard Stacks/Audio Help | 23 | 0 |
+| HyperCard Stacks/Graph Maker | 20 | 0 |
+| HyperCard Stacks/New Features | 14 | 0 |
 | HyperCard Stacks/Phone Dialer | 15 | 0 |
+| HyperCard Stacks/QuickTime Tools | 168 | 0 |
 | More Stacks/Alternate Home Stacks/Home (Browser)/Home | 28 | 1 |
 | More Stacks/Alternate Home Stacks/Home (Small)/Home | 21 | 0 |
 | More Stacks/Background Art | 20 | 0 |
 | More Stacks/Power Tools | 68 | 0 |
+| More Stacks/Readymade Buttons | 85 | 0 |
 | More Stacks/Readymade Fields | 8 | 0 |
 | More Stacks/Stack Templates | 95 | 0 |
 | PaintTest | 0 | 0 |
@@ -47,16 +56,7 @@ the others is in the roadmap's "HyperCard 2.4.1's own stacks" section.
 
 | Stack | Clicks | Distinct errors | First error |
 | --- | --- | --- | --- |
-| AppleScript Stacks/AppleScript Library | 14 | 5 | openStack: Script error in stack "AppleScript Library": line 36: Expected an object after "there is a", found "scriptinglanguage" |
-| AppleScript Stacks/AppleScript Mail Merge | 29 | 2 | openStack: Script error in bkgnd id 2599: line 78: Expected "then", found "AppleScript" |
-| AppleScript Stacks/AppleScript Text Controls | 13 | 11 | openStack: Script error in bkgnd id 2733: line 41: Expected "then", found "AppleScript" |
-| Home | 48 | 3 | openStack: No such function "stackisbeingused" |
-| HyperCard Help/Apple Event Primer | 26 | 5 | card 4 button "Request": Script error in card button "Request": line 10: Expected end of line, found "of" |
-| HyperCard Help/HyperTalk Reference | 29 | 1 | card 1 button "Next": There is no menu "" |
-| HyperCard Stacks/Graph Maker | 20 | 1 | card 2 button "frame": No such property "textheight" |
-| HyperCard Stacks/New Features | 14 | 3 | openStack: The button has no line 0 |
-| HyperCard Stacks/QuickTime Tools | 169 | 14 | openStack: No such object "QuickTime" |
-| More Stacks/Readymade Buttons | 85 | 2 | card 5 button "Show Navigator": Can't find palette "Navigator" |
+| AppleScript Stacks/AppleScript Text Controls | 13 | 10 | card 1 button "Help Rect": Can't understand "changestyle" |
 
 ## Not stacks
 

@@ -356,6 +356,16 @@ pub enum Cmd {
     UnlockMessages,
     /// `lock recent`, `unlock recent`: `the lockRecent`.
     LockRecent(bool),
+    /// `lock error dialogs`: a script error goes to an errorDialog handler
+    /// instead of a dialog, until the handler that locked them ends.
+    LockErrorDialogs(bool),
+    /// `send "x" to program p`, `request "x" of program p`: an Apple event
+    /// to another program. There's none to send to.
+    ToProgram { msg: Expr, program: Expr },
+    /// `request appleEvent data`: there's no Apple event to ask about.
+    RequestAppleEvent,
+    /// `do script as AppleScript`: a script in another language.
+    DoAs(Expr, Expr),
     VisualEffect(Effect),
     PushCard(Option<Expr>),
     PopCard(Option<(Prep, Expr)>),

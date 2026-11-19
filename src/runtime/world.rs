@@ -807,6 +807,9 @@ pub struct World {
     /// Font, size and style for painted text.
     pub paint_font: String,
     pub paint_text_size: u32,
+    /// The line height a script set for painted text (`the textHeight`);
+    /// None for the size's own, a third more than the size.
+    pub paint_text_height: Option<u32>,
     pub paint_text_style: String,
     /// Where scripts' `type` paints with the text tool (set by `click at`).
     pub text_point: Option<(i32, i32)>,
@@ -822,6 +825,10 @@ pub struct World {
     /// left that have no file to come back to.
     pub others: Vec<LoadedStack>,
     pub next_stack_key: u32,
+    /// The key the current stack had while it was loaded behind, when a
+    /// script went to it: it keeps it, so a handler of it that's running
+    /// still finds it, and gets it back when another stack comes in.
+    pub current_key: Option<u32>,
     /// Stacks open in card windows behind the current one, the most
     /// recently in front first. The current stack's window is `window_key`.
     pub windows: Vec<StackWindow>,
@@ -1049,6 +1056,7 @@ impl World {
             fill_color: crate::model::Pixel::BLACK,
             paint_font: "Geneva".into(),
             paint_text_size: 12,
+            paint_text_height: None,
             paint_text_style: "plain".into(),
             text_point: None,
             undo: Vec::new(),
@@ -1057,6 +1065,7 @@ impl World {
             unlocked: false,
             others: Vec::new(),
             next_stack_key: 1,
+            current_key: None,
             windows: Vec::new(),
             window_key: 0,
             lent: false,
@@ -1114,6 +1123,7 @@ impl World {
         fresh.user_level = self.user_level;
         fresh.others = std::mem::take(&mut self.others);
         fresh.next_stack_key = self.next_stack_key;
+        let old_key = self.current_key.take();
         fresh.windows = std::mem::take(&mut self.windows);
         fresh.window_key = self.window_key;
         fresh.in_use = std::mem::take(&mut self.in_use);
@@ -1132,7 +1142,12 @@ impl World {
             None => dirty,
         };
         if unsaved || self.is_home(&old) || self.is_in_use(&old.name) {
-            self.add_other(old);
+            match old_key {
+                Some(key) => self.others.push(LoadedStack { key, stack: old }),
+                None => {
+                    self.add_other(old);
+                }
+            }
         }
         self.load_home();
     }
@@ -1294,13 +1309,26 @@ impl World {
         key
     }
 
-    /// A loaded stack by key: one kept loaded, or one in a window behind.
+    /// Whether a key is the current stack's: the one it had loaded behind,
+    /// or its card window's.
+    fn is_current_key(&self, key: u32) -> bool {
+        self.current_key == Some(key) || key != 0 && key == self.window_key
+    }
+
+    /// A loaded stack by key: one kept loaded, or one in a window behind,
+    /// or the current stack if the key is its.
     pub fn other(&self, key: u32) -> Option<&Stack> {
+        if self.is_current_key(key) {
+            return Some(&self.stack);
+        }
         let open = self.windows.iter().find(|sw| sw.key == key).map(|sw| &sw.stack);
         open.or_else(|| self.others.iter().find(|o| o.key == key).map(|o| &o.stack))
     }
 
     pub fn other_mut(&mut self, key: u32) -> Option<&mut Stack> {
+        if self.is_current_key(key) {
+            return Some(&mut self.stack);
+        }
         if let Some(sw) = self.windows.iter_mut().find(|sw| sw.key == key) {
             return Some(&mut sw.stack);
         }

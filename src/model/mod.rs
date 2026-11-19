@@ -5,6 +5,7 @@ pub mod bitmap_font;
 pub mod color;
 pub mod demo;
 pub mod home;
+pub mod navigator;
 pub mod metrics;
 pub mod password;
 mod picture;

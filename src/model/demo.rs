@@ -259,19 +259,19 @@ fn style_text(field: &mut Part, needle: &str, style: &TextStyle) {
     styles::apply(&mut field.styles, start, end, len, |s| *s = style.clone());
 }
 
-fn hline(p: &mut Picture, x0: i32, x1: i32, y: i32) {
+pub(super) fn hline(p: &mut Picture, x0: i32, x1: i32, y: i32) {
     for x in x0..=x1 {
         p.set(x, y, Pixel::BLACK);
     }
 }
 
-fn vline(p: &mut Picture, x: i32, y0: i32, y1: i32) {
+pub(super) fn vline(p: &mut Picture, x: i32, y0: i32, y1: i32) {
     for y in y0..=y1 {
         p.set(x, y, Pixel::BLACK);
     }
 }
 
-fn line(p: &mut Picture, x0: i32, y0: i32, x1: i32, y1: i32) {
+pub(super) fn line(p: &mut Picture, x0: i32, y0: i32, x1: i32, y1: i32) {
     let steps = (x1 - x0).abs().max((y1 - y0).abs()).max(1);
     for i in 0..=steps {
         let x = x0 + (x1 - x0) * i / steps;
@@ -280,7 +280,7 @@ fn line(p: &mut Picture, x0: i32, y0: i32, x1: i32, y1: i32) {
     }
 }
 
-fn frame(p: &mut Picture, l: i32, t: i32, r: i32, b: i32) {
+pub(super) fn frame(p: &mut Picture, l: i32, t: i32, r: i32, b: i32) {
     hline(p, l, r, t);
     hline(p, l, r, b);
     vline(p, l, t, b);
@@ -319,7 +319,7 @@ fn general_palette_picture() -> Picture {
     p
 }
 
-fn circle(p: &mut Picture, cx: i32, cy: i32, r: i32, filled: bool) {
+pub(super) fn circle(p: &mut Picture, cx: i32, cy: i32, r: i32, filled: bool) {
     for y in -r..=r {
         for x in -r..=r {
             let d = x * x + y * y;

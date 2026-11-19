@@ -391,7 +391,7 @@ impl Interp {
     /// The movie file a script names: as given, beside the stack, in a
     /// folder beside it, with one of the movie extensions, or chosen in a
     /// file dialog when no name is given.
-    fn find_movie_file(&self, name: &str) -> Option<PathBuf> {
+    pub(super) fn find_movie_file(&self, name: &str) -> Option<PathBuf> {
         if name.trim().is_empty() {
             return self.file_dialog("Open which movie?", super::externals::FileDialog::Open);
         }
@@ -571,9 +571,14 @@ impl Interp {
             "timeformat" => if m.movie_time { "MovieTime" } else { "SystemTime" }.into(),
             "timescale" => format!("{TIME_SCALE}"),
             "defaultrect" => rect_text(Rect::new(0, 0, nw, nh)),
-            "scale" => {
+            "scale" | "moviescale" => {
                 let s = |a: i32, b: i32| format_number(if b > 0 { a as f64 / b as f64 } else { 1.0 }, "0.0###");
                 format!("{},{}", s(m.movie_rect.width(), nw), s(m.movie_rect.height(), nh))
+            }
+            // QuickTime's transform: here only ever a scale.
+            "matrix" => {
+                let s = |a: i32, b: i32| format_number(if b > 0 { a as f64 / b as f64 } else { 1.0 }, "0.0###");
+                format!("{},0,0\n0,{},0\n0,0,1", s(m.movie_rect.width(), nw), s(m.movie_rect.height(), nh))
             }
             "layer" => if m.floating { "floating" } else { "nonFloating" }.into(),
             "windowstyle" | "style" => m.style.name().into(),
@@ -655,6 +660,51 @@ impl Interp {
                     }
                 }
                 "layer" => m.floating = !value.eq_ignore_ascii_case("nonfloating"),
+                // The movie's size in its window, as factors of its own:
+                // "2,2", "double", "half,1". The window keeps its size
+                // until sent resizeToMovie.
+                "scale" | "moviescale" | "matrix" => {
+                    let (nw, nh) = m.natural_size();
+                    let screen = w.screen_rect;
+                    let m = &mut w.movies[i];
+                    let factor = |v: &str| -> Option<f64> {
+                        match v.trim().to_ascii_lowercase().as_str() {
+                            "half" => Some(0.5),
+                            "normal" => Some(1.0),
+                            "double" => Some(2.0),
+                            "fullscreen" => {
+                                let (sw, sh) = (screen.width() as f64 / nw.max(1) as f64, screen.height() as f64 / nh.max(1) as f64);
+                                Some(sw.min(sh))
+                            }
+                            n => n.parse::<f64>().ok().filter(|f| *f > 0.0),
+                        }
+                    };
+                    let (sx, sy) = if prop == "matrix" {
+                        if value.eq_ignore_ascii_case("identity") {
+                            (1.0, 1.0)
+                        } else {
+                            let n: Vec<f64> = value.split([',', '\n']).filter_map(|v| v.trim().parse().ok()).collect();
+                            match (n.first(), n.get(4)) {
+                                (Some(&a), Some(&d)) if a > 0.0 && d > 0.0 => (a, d),
+                                _ => return err(format!("Expected a matrix here, not \"{value}\"")),
+                            }
+                        }
+                    } else {
+                        let mut parts = value.split(',');
+                        let x = parts.next().and_then(factor);
+                        let y = match parts.next() {
+                            Some(v) => factor(v),
+                            None => x,
+                        };
+                        match (x, y) {
+                            (Some(x), Some(y)) => (x, y),
+                            _ => return err(format!("Expected a scale here, not \"{value}\"")),
+                        }
+                    };
+                    let r = m.movie_rect;
+                    let (w2, h2) = ((nw as f64 * sx).round() as i32, (nh as f64 * sy).round() as i32);
+                    m.movie_rect = Rect::new(r.left, r.top, r.left + w2.max(1), r.top + h2.max(1));
+                }
                 // A new movie in the window, which keeps its rect.
                 "movie" if as_window => {
                     drop(w);

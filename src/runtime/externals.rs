@@ -76,6 +76,15 @@ impl Interp {
         if name == "showlist" {
             return Some(self.show_list(args));
         }
+        // QuickTime Tools' moviePath XFCN: a movie's path, found by name or
+        // chosen by the user; empty if canceled.
+        if name == "moviepath" {
+            let wanted = args.first().cloned().unwrap_or_default();
+            let found = self.find_movie_file(&wanted).or_else(|| {
+                self.file_dialog(&format!("Where is {}?", wanted.trim()), FileDialog::Open)
+            });
+            return Some(Ok(found.map(|p| super::paths::shown(&p)).unwrap_or_default()));
+        }
         // QuickTime Tools' movieInfo XFCN.
         if name == "movieinfo" {
             let file = args.first().cloned().unwrap_or_default();
@@ -386,7 +395,10 @@ impl Interp {
             // openPalette name, id to the card.
             "palette" => {
                 let name = arg(0).trim().to_string();
-                let found = self.w().stack.find_palette(&name).map(|(id, p)| (id, std::sync::Arc::new(p.clone())));
+                // HyperCard's own Navigator, when the stack has none.
+                let found = self.w().stack.find_palette(&name).map(|(id, p)| (id, std::sync::Arc::new(p.clone()))).or_else(|| {
+                    name.eq_ignore_ascii_case("Navigator").then(|| (0, std::sync::Arc::new(crate::model::navigator::navigator())))
+                });
                 let Some((id, palette)) = found else {
                     return Some(super::interp::err(format!("Can't find palette \"{name}\"")));
                 };

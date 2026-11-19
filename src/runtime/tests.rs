@@ -4197,6 +4197,12 @@ fn movies() {
     let frame = lock(&i.world).movies[0].player.frame().expect("a first frame");
     assert!(frame.rgba.as_chunks::<4>().0.iter().all(|p| p[3] == 255));
     assert_eq!(run(&mut i, "put the defaultRect of first movie"), "0,0,320,240");
+    // The movie's scale, which QuickTime Tools sets; its matrix says the same.
+    run(&mut i, "set the scale of movie 1 to \"double\"");
+    assert_eq!(run(&mut i, "put the scale of movie 1 && the rect of movie 1"), "2,2 0,0,640,480");
+    assert_eq!(run(&mut i, "put line 1 of the matrix of movie 1"), "2,0,0");
+    run(&mut i, "set the movieScale of movie 1 to \"1,1\"");
+    assert_eq!(run(&mut i, "put the rect of movie 1"), "0,0,320,240");
     assert_eq!(run(&mut i, "put the name of window \"Card Trick\""), "Card Trick.mp4");
     let id = run(&mut i, "put the id of movie 1");
     assert_eq!(run(&mut i, &format!("put the number of movie id {id}")), "1");
@@ -4629,6 +4635,11 @@ fn picture_windows() {
     assert_eq!(run(&mut i, "put the number of pictures"), "0");
     run(&mut i, "open picture \"Klee.png\"");
     assert_eq!(run(&mut i, "put the number of pictures"), "1");
+    // A window by its id.
+    let id = run(&mut i, "put the id of window \"Klee.png\"");
+    assert_eq!(run(&mut i, &format!("put the name of window id {id}")), "Klee.png");
+    run(&mut i, &format!("hide window id {id}"));
+    assert_eq!(run(&mut i, "put the visible of window \"Klee.png\""), "false");
     // Problems go in the result.
     run(&mut i, "picture \"Nowhere.png\"");
     assert!(run(&mut i, "put the result").starts_with("Couldn't display picture."));
@@ -4799,4 +4810,114 @@ fn resource_mover() {
     run(&mut i, "ResRemove \"\", \"ICON\", 999");
     assert_eq!(run(&mut i, "put the result"), "Error: there's no ICON 999.");
     std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn small_things_apples_stacks_use() {
+    // `delete menuItem x from menu 3` (Audio Help), `select line 0` of a
+    // popup (New Features), and the textHeight of painted text (Graph Maker).
+    let mut i = interp_with(stack());
+    run(&mut i, "create menu \"Things\"\nput \"One,Two\" into menu \"Things\"\ndelete menuItem \"One\" from menu \"Things\"");
+    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Things\""), "1");
+    run(&mut i, "set the style of card button 1 to popup\nset the contents of card button 1 to \"a\" & return & \"b\"\nselect line 2 of card button 1\nselect line 0 of card button 1");
+    assert_eq!(run(&mut i, "put the selectedLine of card button 1"), "");
+    run(&mut i, "set the textSize to 12");
+    assert_eq!(run(&mut i, "put the textHeight"), "16");
+    run(&mut i, "set the textHeight to 20");
+    assert_eq!(run(&mut i, "put the textHeight"), "20");
+    run(&mut i, "set the textSize to 9");
+    assert_eq!(run(&mut i, "put the textHeight"), "12");
+}
+
+#[test]
+fn passing_reaches_a_stack_just_put_in_use() {
+    // The HyperTalk Reference starts using HyperCard Help in its openStack
+    // and passes openStack on: the library, now in the path, gets it.
+    let dir = std::env::temp_dir().join(format!("randomcard-passuse-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut lib = stack();
+    lib.name = "Lib".into();
+    lib.script = "on openStack\n  global seen\n  put \"lib\" into seen\nend openStack".into();
+    let lp = dir.join("Lib.rcstack");
+    lib.path = Some(lp.clone());
+    lib.save(&lp).unwrap();
+    let mut s = stack();
+    s.script = format!("on openStack\n  start using stack \"{}\"\n  pass openStack\nend openStack", lp.display());
+    let mut i = interp_with(s);
+    run(&mut i, "send openStack to this card");
+    assert_eq!(run(&mut i, "global seen\nput seen"), "lib");
+    // start using empties the result when it works.
+    assert_eq!(run(&mut i, "put the result"), "");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn no_applescript_and_no_apple_events() {
+    // The AppleScript stacks and the Apple Event Primer ask about
+    // AppleScript and other programs: there are none, and they're told so.
+    let mut s = stack();
+    s.script = "on errorDialog msg\n  global caught\n  put msg into caught\nend errorDialog".into();
+    let mut i = interp_with(s);
+    assert_eq!(run(&mut i, "put there is a scriptingLanguage AppleScript"), "false");
+    assert_eq!(run(&mut i, "put there is no scriptingLanguage \"AppleScript\""), "true");
+    assert_eq!(run(&mut i, "put the version of scriptingLanguage \"AppleScript\""), "0");
+    assert_eq!(run(&mut i, "request \"name of stack\" of program \"Mac:HyperCard\"\nput the result"), "Can't find program \"Mac:HyperCard\"");
+    assert!(run(&mut i, "send \"gossip\" to program \"Mac:HyperCard\" without reply\nput the result").starts_with("Can't find program"));
+    run(&mut i, "request appleEvent data\nreply \"done\" with keyword \"errn\"");
+    assert_eq!(run(&mut i, "put it"), "");
+    assert_eq!(run(&mut i, "do \"beep\" as AppleScript\nput the result"), "There is no scripting language \"AppleScript\"");
+    // With error dialogs locked, an error goes to errorDialog instead.
+    run(&mut i, "lock error dialogs\nput 1 / zzz into x");
+    assert!(run(&mut i, "global caught\nput caught").contains("zzz"));
+    assert!(lock(&i.world).requests.iter().all(|r| !matches!(r, UiRequest::ScriptError { .. })));
+    assert_eq!(run(&mut i, "put the lockErrorDialogs"), "false");
+    assert_eq!(run(&mut i, "put there is a movie \"Intro\""), "false");
+    // Empty is in nothing, as HyperCard answers.
+    assert_eq!(run(&mut i, "put (empty is in \"abc\") && (\"abc\" contains empty) && (empty is not in \"abc\")"), "false false true");
+}
+
+#[test]
+fn send_domenu_to_hypercard_skips_the_stacks_handler() {
+    // AppleScript Library's doMenu handler sends "doMenu Delete Card" to
+    // HyperCard: that's the menu item, not the handler again.
+    let mut s = stack();
+    s.script = "on doMenu what\n  if what is \"Next\" then send \"doMenu Next\" to HyperCard\n  else pass doMenu\nend doMenu".into();
+    let mut i = interp_with(s);
+    run(&mut i, "doMenu \"Next\"");
+    assert_eq!(run(&mut i, "put the number of this card"), "2");
+}
+
+#[test]
+fn new_background_edits_the_background() {
+    // As in HyperCard 2.4.1, New Background leaves you editing it, so
+    // Readymade Buttons' Help button gets background fields.
+    let mut i = interp_with(stack());
+    run(&mut i, "doMenu \"New Background\"\ndoMenu \"New Field\"");
+    assert_eq!(run(&mut i, "put the editBkgnd && the number of bg flds && the number of cd flds"), "true 1 0");
+}
+
+#[test]
+fn the_navigator_palette() {
+    // HyperCard's Navigator came with the application: a stack without a
+    // palette of that name gets RandomCard's, with the same menu commands.
+    let mut i = interp_with(stack());
+    run(&mut i, "palette \"Navigator\", \"10,10\"");
+    assert_eq!(run(&mut i, "put the number of lines of the commands of window \"Navigator\""), "11");
+    assert_eq!(run(&mut i, "put line 7 of the commands of window \"Navigator\""), "doMenu \"Next\"");
+    i.handle_event(Event::PaletteButton("Navigator".into(), 6));
+    assert_eq!(run(&mut i, "put the number of this card"), "2");
+}
+
+#[test]
+fn quicktime_tools_questions() {
+    // QuickTime Tools asks the version of QuickTime, a stack's report
+    // templates, and sets a property named by an expression.
+    let mut i = interp_with(stack());
+    assert_eq!(run(&mut i, "put the version of QuickTime"), "3.0");
+    // Dividing by zero, as HyperCard 2.4.1 answers it.
+    assert_eq!(run(&mut i, "put (1/0) && (-2/0) && (0/0) && (1/empty)"), "INF -INF -NAN(000) INF");
+    assert!(run(&mut i, "put 5 div 0").contains("Can't DIV by zero"));
+    assert_eq!(run(&mut i, "put the reportTemplates of this stack"), "");
+    run(&mut i, "put \"textSize\" into prop\nset (prop) of bg field 1 to 18");
+    assert_eq!(run(&mut i, "put the textSize of bg field 1"), "18");
 }

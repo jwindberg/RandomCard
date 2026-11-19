@@ -3,18 +3,27 @@
 # "slow:" ones run only with RANDOMCARD_HC241_SLOW=1.
 About HyperCard...
 Addresses
+AppleScript Stacks/AppleScript Library
+AppleScript Stacks/AppleScript Mail Merge
 AppleScript Stacks/HyperCard AppleScript Reference
 AppleScript Stacks/Language at a Glance
 Color Tools
+Home
+HyperCard Help/Apple Event Primer
 HyperCard Help/Help Extras
 HyperCard Help/HyperCard Help
+HyperCard Help/HyperTalk Reference
 HyperCard Stacks/Art Bits
 HyperCard Stacks/Audio Help
+HyperCard Stacks/Graph Maker
+HyperCard Stacks/New Features
 HyperCard Stacks/Phone Dialer
+HyperCard Stacks/QuickTime Tools
 More Stacks/Alternate Home Stacks/Home (Browser)/Home
 More Stacks/Alternate Home Stacks/Home (Small)/Home
 More Stacks/Background Art
 More Stacks/Power Tools
+More Stacks/Readymade Buttons
 More Stacks/Readymade Fields
 More Stacks/Stack Templates
 PaintTest

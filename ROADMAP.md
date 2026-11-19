@@ -615,54 +615,36 @@ alternate Home stacks, Readymade Fields, Practice, About HyperCard and
 PaintTest) and 19 have errors. Two files there aren't stacks: HyperCard
 Fonts (a font suitcase) and Simple Movie (a QuickTime movie, which plays).
 
-To do, roughly in order. Most errors come from a script that doesn't
-parse, which takes all its handlers with it, so the syntax comes first.
+Now (2026-11-19) 28 of the 29 click clean. Done along the way: the
+destination, Apple's palette XCMDs (GeneralPalette, FieldPalette,
+StackTemplatePal), ShowList, the picture command, the Resource Mover,
+`type … with commandKey` and scripts' part Copy and Paste, the Navigator
+palette (drawn by RandomCard), `lock error dialogs` and errorDialog,
+`delete menuItem … from menu`, `select line 0` of a popup, the global
+textHeight, `the version of QuickTime`, movie scale and matrix,
+`there is a movie`, windows by id and by number, `set (TheProperty) of
+…`, `the reportTemplates` (empty), moviePath, AppleScript and Apple
+events answered as absent (`there is a scriptingLanguage`, `the version
+of scriptingLanguage`, `request`/`send … to program`, `request
+appleEvent`, `reply`, `do … as AppleScript`), and these, each checked in
+the emulator: New Background leaves you editing the background, empty is
+in nothing, `/` by zero is INF (div and mod by zero are errors), passing
+a message reaches a stack the handler just started using, a stack keeps
+its key while it's the current one, and `start using` empties the result.
 
-1. **HyperTalk syntax not parsed yet:**
-   - ~~`lock recent`~~ (done) and `lock error dialogs`, and its `unlock`
-     (AppleScript Library)
-   - `delete menuItem x from menu 3` (Audio Help's stack script, which
-     Home's Take the Tour goes through)
-   - `the number of bgs in this stack`
-   - button families: `cd btn i of family 1` (New Features)
-   - `selectedLine of me`, written as a property (Help stacks)
-   - `find word 1 of it in fld "X"`, `find theType theText in theField`
-   - `print (number of cards in bg "Body") cards`
-   - windows by id: `set the zoomed of window id N`, `send "x" to window id N`
-   - a property named by an expression: `set (TheProperty) of window X`
-   - ~~`dial` as Phone Dialer writes it~~ (done: a bare `dial` goes to the
-     stack's own dial handler, a handler that takes `dial` gets the number
-     itself, and `the dialingTime`, `the dialingVolume` and the message
-     box's size are in; Phone Dialer dials, and its Shrink Window works)
-2. **Movies** (QuickTime Tools): `there is a movie X`, `the version of
-   QuickTime`, ~~`the number of windows`~~ (done); tracks (`track 1 of movie 1`) give
-   a clear error rather than stopping the script.
-3. **Functions and properties:** ~~`the destination`~~ (done: HyperCard
-   Help and the AppleScript Reference now click clean, with a fix step for
-   their colon paths), `the number of cd
-   btns`, `textHeight` in Graph Maker, ~~setting `the rect of card window`~~
-   (done; see The card window in Suggested order), New Features' "The button has no line 0".
-4. **Externals:** ~~Enviro~~ (done; with `lock recent`, the message box
-   as `window "message"`, and AddColor pictures, Color Tools now runs
-   clean, its Demo included), ~~the palettes Power Tools, Art Bits, Background Art and Stack
-   Templates use (`generalPalette`, `fieldPalette`, `hidePalette`)~~ (done:
-   built in, and `the stacks` now gives a converted stack's file, as its
-   long name does, so their `wrongStack()` checks pass), ~~ShowList~~ (done; Power
-   Tools' list dialog), the Navigator palette (Readymade Buttons), ~~the
-   `picture` command~~ (done: HyperCard 2's Picture XCMD, its windows,
-   properties and messages, and windows by number), ~~the Resource
-   Mover~~ (done: Resources, CopyRes, ResRemove and EditResource, on a
-   stack's icons, sounds, palettes, pictures and songs; with `type …
-   with commandKey` choosing menu items and scripts' Copy and Paste of
-   parts, Power Tools now runs clean), and
-   `stackIsBeingUsed` and `tips`, which may be handlers in another stack.
-5. **AppleScript and Apple events:** `there is a scriptingLanguage
-   AppleScript`, `the version of scriptingLanguage "AppleScript"`,
-   `request … of program`, `send … to program`, `request appleEvent
-   sender`. Parsing them and answering that there's no AppleScript would
-   let most of the Apple Event Primer and the three AppleScript stacks run;
-   real support is the AppleEvents design question.
-6. **The Color Editor** (the Color Tools stack): its Editor and
+Still to do:
+
+1. **AppleScript Text Controls** keeps its handlers in a compiled
+   AppleScript script, so it needs AppleScript itself: the AppleEvents
+   design question (Suggested order).
+2. **Syntax no click reached yet**, still to parse: `the number of bgs in
+   this stack`, button families (`cd btn i of family 1`), `selectedLine of
+   me` written as a property, `find word 1 of it in fld "X"` and `find
+   theType theText in theField`, `print (number of cards in bg "Body")
+   cards`.
+3. **Movie tracks** (`track 1 of movie 1`) give a clear error rather than
+   stopping the script.
+4. **The Color Editor** (the Color Tools stack): its Editor and
    AddColorPalette externals are HyperCard 2.4's color-editing tools, to
    be built in as a feature of RandomCard's own (Color, step 8).
 

@@ -172,6 +172,28 @@ impl Interp {
                 let f = self.frame();
                 if n == 0 { f.message.clone() } else { f.params.get((n - 1) as usize).cloned().unwrap_or_default() }
             }
+            // `window id 4302`: the name of the window with that id, a
+            // movie, palette or picture window.
+            "__windowbyid" => {
+                let id = arg(0).trim().to_string();
+                let w = self.w();
+                let movie = w.movies.iter().find(|m| m.id.to_string() == id).map(|m| m.name.clone());
+                let other = || {
+                    w.script_windows.iter().find_map(|t| match t.kind {
+                        super::world::WindowKind::Palette { id: n, .. } | super::world::WindowKind::Picture { id: n, .. } if n.to_string() == id => {
+                            Some(t.name.clone())
+                        }
+                        _ => None,
+                    })
+                };
+                match movie.or_else(other) {
+                    Some(name) => name,
+                    None => {
+                        drop(w);
+                        return err(format!("No such window id {id}"));
+                    }
+                }
+            }
             // `close picture 1`: which picture window.
             "__picturename" => self.picture_window_name(&arg(0)),
             // Where navigation is going, as its close messages are sent.

@@ -631,6 +631,11 @@ impl Parser {
         // Web verbs, only with `to url` on the line: a stack's own `post`
         // or `query` handler is still a message.
         let web = matches!(w.as_str(), "post" | "patch" | "query" | "request") && self.to_url_ahead()
+            // Apple events: `request "x" of program p`, `request appleEvent
+            // data`, `reply "x"`. A stack's own handlers by these names
+            // still get other uses.
+            || w == "request" && (self.is_at(1, "appleevent") || self.of_program_ahead())
+            || w == "reply" && !self.at_stmt_end_at(1)
             || w == "load" && self.is_at(1, "url")
             // `flush keys`; a stack's own `flush` handler is still a message.
             || w == "flush" && self.is_at(1, "keys")
@@ -850,6 +855,17 @@ impl Parser {
             }
             "set" => {
                 self.accept("the");
+                // `set (TheProperty) of window w to x`: the property named
+                // by an expression, run as the statement it makes, in this
+                // handler.
+                if self.is_sym("(") {
+                    let name = self.term()?;
+                    let start = self.pos;
+                    self.rest_of_line();
+                    let rest = format!(" {}", self.source_text(start, self.pos));
+                    let set = Expr::Binary(BinOp::Concat, Box::new(Expr::Lit("set ".into())), Box::new(name));
+                    return Ok(Cmd::Do(Expr::Binary(BinOp::Concat, Box::new(set), Box::new(Expr::Lit(rest)))));
+                }
                 let mut prop = self.symbol()?;
                 if matches!(prop.as_str(), "long" | "short" | "abbr" | "abbrev" | "abbreviated") {
                     prop = self.symbol()?;
@@ -879,7 +895,7 @@ impl Parser {
                 }
                 if of && self.is("window") && self.starts_term_at(1) {
                     self.advance();
-                    let window = self.term()?;
+                    let window = self.window_named(false)?;
                     self.expect("to")?;
                     Cmd::SetWindowProp {
                         prop,
@@ -1002,10 +1018,19 @@ impl Parser {
             }
             "send" => {
                 let msg = self.list_expr()?;
+                // `send "gossip" to program remoteHyperCard [without reply]`.
+                if self.is("to") && self.is_at(1, "program") {
+                    self.pos += 2;
+                    let program = self.expr()?;
+                    if self.accept_any(&["with", "without"]).is_some() {
+                        self.accept("reply");
+                    }
+                    return Ok(Cmd::ToProgram { msg, program });
+                }
                 let target = if self.accept("to") {
                     // `send "select" to window "Notes"`: to a HyperCard 2 window.
                     if self.accept("window") {
-                        return Ok(Cmd::SendToWindow { msg, window: self.expr()? });
+                        return Ok(Cmd::SendToWindow { msg, window: self.window_named(true)? });
                     }
                     // `send "rewind" to movie 1`
                     if let Some(window) = self.movie_ref()? {
@@ -1017,11 +1042,21 @@ impl Parser {
                 };
                 Cmd::Send { msg, target }
             }
+            // `reply "x" [with keyword "y"]`, `reply error "x"`: to an Apple
+            // event, of which there are none.
+            "reply" => {
+                self.rest_of_line();
+                Cmd::NoOp
+            }
             "do" => {
                 // `do ShowCategory CardNum,2`: HyperCard evaluated each word
                 // and ran the result, "ShowCategory 3,2", as a statement.
                 let mut e = self.expr()?;
                 while !self.at_newline() && !self.at_eof() && !self.is("else") {
+                    // `do theScript as AppleScript`.
+                    if self.accept("as") {
+                        return Ok(Cmd::DoAs(e, self.expr()?));
+                    }
                     let (op, comma) = if self.accept_sym(",") { (BinOp::Concat, true) } else { (BinOp::ConcatSpace, false) };
                     if comma {
                         e = Expr::Binary(BinOp::Concat, Box::new(e), Box::new(Expr::Lit(",".into())));
@@ -1050,7 +1085,10 @@ impl Parser {
                 Cmd::Show { what, at }
             }
             "lock" => {
-                if self.accept("messages") {
+                if self.accept("error") {
+                    self.expect("dialogs")?;
+                    Cmd::LockErrorDialogs(true)
+                } else if self.accept("messages") {
                     Cmd::LockMessages
                 } else if self.accept("recent") {
                     Cmd::LockRecent(true)
@@ -1060,7 +1098,10 @@ impl Parser {
                 }
             }
             "unlock" => {
-                if self.accept("messages") {
+                if self.accept("error") {
+                    self.expect("dialogs")?;
+                    Cmd::LockErrorDialogs(false)
+                } else if self.accept("messages") {
                     Cmd::UnlockMessages
                 } else if self.accept("recent") {
                     Cmd::LockRecent(false)
@@ -1147,7 +1188,17 @@ impl Parser {
             }
             // `request "OPTIONS" to url "…"`, `request m with body to url "…"`.
             "request" => {
+                // `request appleEvent data`, `request appleEvent sender`.
+                if self.accept("appleevent") {
+                    self.rest_of_line();
+                    return Ok(Cmd::RequestAppleEvent);
+                }
                 let method = self.expr()?;
+                // `request "name of stack" of program remoteHyperCard`.
+                if (self.is("of") || self.is("from")) && self.is_at(1, "program") {
+                    self.pos += 2;
+                    return Ok(Cmd::ToProgram { msg: method, program: self.expr()? });
+                }
                 let body = if self.accept("with") { Some(self.expr()?) } else { None };
                 self.expect("to")?;
                 self.expect("url")?;
@@ -1250,7 +1301,7 @@ impl Parser {
                 if self.accept("file") {
                     Cmd::CloseFile(self.expr()?)
                 } else if self.accept("window") {
-                    Cmd::CloseWindow(self.expr()?)
+                    Cmd::CloseWindow(self.window_named(true)?)
                 } else if self.accept("picture") {
                     // `close picture "Klee"`, or `close picture 1`.
                     Cmd::CloseWindow(Expr::Call("__picturename".into(), vec![self.expr()?]))
@@ -1508,6 +1559,30 @@ impl Parser {
     }
 
     /// Whether `to url` comes later on this line.
+    /// `of program` or `from program` on the rest of the line: an Apple
+    /// event request (`request "x" of program p`).
+    /// The window after `window`: by name, or `id n` (`send "x" to window
+    /// id wdID`), which comes to the name of the window with that id. A
+    /// whole expression where the statement allows one.
+    fn window_named(&mut self, whole: bool) -> PResult<Expr> {
+        if self.is("id") && self.starts_term_at(1) {
+            self.advance();
+            return Ok(Expr::Call("__windowbyid".into(), vec![self.term()?]));
+        }
+        if whole { self.expr() } else { self.term() }
+    }
+
+    fn of_program_ahead(&self) -> bool {
+        let mut n = 1;
+        while !self.at_stmt_end_at(n) {
+            if (self.is_at(n, "of") || self.is_at(n, "from")) && self.is_at(n + 1, "program") {
+                return true;
+            }
+            n += 1;
+        }
+        false
+    }
+
     fn to_url_ahead(&self) -> bool {
         let mut n = 1;
         while !self.at_stmt_end_at(n) {
@@ -1709,7 +1784,7 @@ impl Parser {
         }
         if self.is("window") && self.starts_term_at(1) {
             self.advance();
-            return Ok(ShowHide::Window(self.expr()?));
+            return Ok(ShowHide::Window(self.window_named(true)?));
         }
         if let Some(movie) = self.movie_ref()? {
             return Ok(ShowHide::Window(movie));
@@ -2067,6 +2142,17 @@ impl Parser {
                 let test = Expr::MenuExists(Box::new(r));
                 return Ok(if positive { test } else { Expr::Unary(UnOp::Not, Box::new(test)) });
             }
+            // `there is a scriptingLanguage AppleScript`: there's none.
+            if self.accept("scriptinglanguage") {
+                self.term()?;
+                return Ok(Expr::Lit((!positive).to_string()));
+            }
+            // `there is a movie "Intro"`: an open movie window.
+            if self.is("movie") && self.starts_term_at(1) {
+                self.advance();
+                let test = Expr::Call("__windowexists".into(), vec![self.term()?]);
+                return Ok(if positive { test } else { Expr::Unary(UnOp::Not, Box::new(test)) });
+            }
             if let Some(kind) = self.accept_any(&["file", "folder", "window"]) {
                 let call = match kind.as_str() {
                     "window" => "__windowexists",
@@ -2399,6 +2485,17 @@ impl Parser {
                 self.pos += 2;
                 return Ok(Expr::Call("__windowprop".into(), vec![Expr::Lit(name), Expr::Lit(window)]));
             }
+            // `the version of scriptingLanguage "AppleScript"`: 0, as it is
+            // when the language isn't there.
+            if name == "version" && self.accept("scriptinglanguage") {
+                self.term()?;
+                return Ok(Expr::Lit("0".into()));
+            }
+            // `the version of QuickTime`: RandomCard plays movies, so it
+            // answers as HyperCard 2.4.1 with its QuickTime 3 did.
+            if name == "version" && self.accept("quicktime") {
+                return Ok(Expr::Lit("3.0".into()));
+            }
             // A picture window: `the name of picture 1`.
             if self.is("picture") && self.starts_term_at(1) {
                 self.advance();
@@ -2408,7 +2505,7 @@ impl Parser {
             // A window a script opened: `the text of window "Notes"`.
             if self.is("window") && self.starts_term_at(1) {
                 self.advance();
-                return Ok(Expr::Call("__windowprop".into(), vec![Expr::Lit(name), self.term()?]));
+                return Ok(Expr::Call("__windowprop".into(), vec![Expr::Lit(name), self.window_named(false)?]));
             }
             let obj = self.term()?;
             let obj = match obj {
@@ -2447,7 +2544,9 @@ impl Parser {
         if kind != "menuitem" {
             return Ok(MenuRef::Menu(which));
         }
-        if !(self.accept("of") || self.accept("in")) {
+        // `delete menuItem x from menu 3`, as Audio Help writes it.
+        let from = self.is("from") && self.is_at(1, "menu") && self.accept("from");
+        if !(from || self.accept("of") || self.accept("in")) {
             return Err(self.err_here("Expected \"of menu\""));
         }
         let menu = match self.word().and_then(ordinal_of) {

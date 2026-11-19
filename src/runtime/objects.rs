@@ -446,10 +446,12 @@ impl Interp {
             "brushcolor" => crate::model::color::color_text(rgb(w.fill_color)),
             "textfont" => w.paint_font.clone(),
             "textsize" => w.paint_text_size.to_string(),
+            "textheight" => w.paint_text_height.unwrap_or((w.paint_text_size * 4).div_ceil(3)).to_string(),
             "textstyle" => w.paint_text_style.clone(),
             "cursor" => "1".into(),
             "dragspeed" => "0".into(),
             "textarrows" | "blindtyping" | "usermodify" => "true".into(),
+            "lockerrordialogs" => bool_str(self.lock_error_dialogs),
             "powerkeys" => bool_str(w.power_keys),
             "grid" => bool_str(w.grid),
             "centered" => bool_str(w.centered),
@@ -506,7 +508,13 @@ impl Interp {
             }
             // With no object, the text properties are those of painted text.
             "textfont" => self.w().paint_font = v.to_string(),
-            "textsize" => self.w().paint_text_size = to_int(v)?.clamp(6, 128) as u32,
+            "textsize" => {
+                // A new size brings its own line height, as in HyperCard.
+                let mut w = self.w();
+                w.paint_text_size = to_int(v)?.clamp(6, 128) as u32;
+                w.paint_text_height = None;
+            }
+            "textheight" => self.w().paint_text_height = Some(to_int(v)?.clamp(1, 512) as u32),
             "textstyle" => self.w().paint_text_style = v.to_string(),
             "userlevel" => {
                 // A stack's protection caps how high the level can go.
@@ -523,11 +531,12 @@ impl Interp {
             }
             "tracedelay" => self.w().trace_delay = to_int(v)?.clamp(0, 600) as u32,
             "lockrecent" => self.w().lock_recent = to_bool(v)?,
+            "lockerrordialogs" => self.lock_error_dialogs = to_bool(v)?,
             "dialingtime" => self.w().dialing_time = to_int(v)?.max(0) as u32,
             "dialingvolume" => self.w().dialing_volume = to_int(v)?.clamp(0, 7) as u32,
             "cursor" | "dragspeed" | "textarrows" | "blindtyping" | "usermodify"
             | "language" | "messagewatcher"
-            | "variablewatcher" | "textalign" | "textheight" | "scripttextfont" | "scripttextsize" | "debugger"
+            | "variablewatcher" | "textalign" | "scripttextfont" | "scripttextsize" | "debugger"
             | "scripteditor" => {}
             _ => return err(format!("No such property \"{name}\"")),
         }
@@ -733,6 +742,9 @@ impl Interp {
                         format!("{sx},{sy}")
                     }
                     "zoomed" => bool_str(w.zoomed_from.is_some()),
+                    // Report templates aren't brought in from HyperCard
+                    // stacks yet (report printing is on the roadmap).
+                    "reporttemplates" => String::new(),
                     _ => {
                         drop(w);
                         return err(format!("Stacks have no property \"{name}\""));

@@ -213,6 +213,9 @@ From first to last in precedence:
 | `or` | either |
 
 Comparisons ignore case. Text that looks like numbers compares as numbers.
+Empty text is in nothing: `empty is in "abc"` is false. Dividing by zero
+with `/` gives `INF` (or `-INF`, and `-NAN(000)` for `0/0`), as HyperCard
+2.4.1's arithmetic did; `div` and `mod` by zero are errors.
 
 ```hypertalk
 on mouseUp
@@ -329,10 +332,10 @@ stack stays current.
 | go | `go to card "Index"`, `go next`, `go back`, `go home`, `go to stack "Addresses"`, `go to stack "Addresses" in a new window` |
 | hide, show | `hide button "Secret"`, `show field 2 at 10,10`, `hide menuBar`, `show 5 cards` |
 | import paint | `import paint from file "Frog.png"` |
-| lock, unlock | `lock screen`, `unlock screen with dissolve`, `lock messages`, `unlock messages`, `lock recent` and `unlock recent` (cards visited stay off the Recent list) |
+| lock, unlock | `lock screen`, `unlock screen with dissolve`, `lock messages`, `unlock messages`, `lock recent` and `unlock recent` (cards visited stay off the Recent list); `lock error dialogs` sends errors to an errorDialog handler instead of a dialog |
 | mark, unmark | `mark card 3`, `mark cards where field "Done" is true`, `unmark all cards` |
 | open | `open file "Notes.txt"`, `open printing`, `open "Report.pdf"` (in its own program) |
-| palette | `palette "Tools", "330,110"` |
+| palette | `palette "Tools", "330,110"`; `palette "Navigator"` is HyperCard's own, drawn by RandomCard, for stacks that don't have one |
 | play | `play "boing"`, `play "harpsichord" tempo 200 "c4q e g c5h"`, `play stop` |
 | pop, push | `push this card`, `pop card` |
 | print | `print this card`, `print 5 cards`, `print field "Notes"`, `print "Hello"` |
@@ -341,8 +344,8 @@ stack stays current.
 | reset | `reset menuBar` |
 | save | `save this stack`, `save this stack as "Copy"` |
 | select | `select line 2 of field 1`, `select text of field "Name"`, `select button 1`, `select empty` |
-| send | `send "update" to card "Index"` |
-| set | `set the hilite of button 1 to true`, `set the textStyle of word 2 of field 1 to bold` |
+| send | `send "update" to card "Index"`, `send "close" to window id 4302`; `send "doMenu Next" to HyperCard` runs the menu item itself, past any doMenu handler |
+| set | `set the hilite of button 1 to true`, `set the textStyle of word 2 of field 1 to bold`, `set (theProperty) of window "Intro" to true` (a property named by an expression) |
 | sort | `sort lines of field 1`, `sort items of x descending numeric`, `sort cards by field "Name"`, `sort cards of this background by the short name of this card` |
 | speak | `speak "Hello"` |
 | start using, stop using | `start using stack "Library"` |
@@ -429,7 +432,7 @@ is 2 and `round(3.5)` is 4. `random(n)` is a whole number from 1 to n.
 on several kinds of object; `get`, `put` and `set` read and change them.
 
 **Global:** `blindTyping`, `cursor`, `dialingTime`, `dialingVolume`, `dragSpeed`, `editBkgnd`,
-`itemDelimiter`, `language`, `lockMessages`, `lockRecent`, `lockScreen`,
+`itemDelimiter`, `language`, `lockErrorDialogs`, `lockMessages`, `lockRecent`, `lockScreen`,
 `messageWatcher`, `numberFormat`, `powerKeys`, `soundChannel`,
 `soundVolume`, `textArrows`, `traceDelay`, `userLevel`, `userModify`,
 `variableWatcher`, and the web's `httpHeaders`, `httpTimeout`,
@@ -437,7 +440,8 @@ on several kinds of object; `get`, `put` and `set` read and change them.
 
 **Painting:** `brush`, `centered`, `filled`, `grid`, `lineSize`,
 `multiple`, `multiSpace`, `pattern`, `polySides`, `textFont`, `textSize`,
-`textStyle`, `textAlign`, `textHeight`, and beyond HyperCard: color
+`textStyle`, `textAlign`, `textHeight` (a third more than the size unless
+set, and back to that when the size changes), and beyond HyperCard: color
 (`penColor`, `brushColor`) and the spray can (`spraySize`,
 `sprayDensity`).
 
@@ -521,6 +525,7 @@ RandomCard sends these as HyperCard did:
 | Making and removing | `newCard`, `deleteCard`, `newBackground`, `deleteBackground`, `newButton`, `deleteButton`, `newField`, `deleteField`, `newStack`, `deleteStack` |
 | RandomCard itself | `startUp`, `resume`, `suspend`, `quit`, `idle`, `help` |
 | Menus and palettes | `doMenu`, `openPalette`, `closePalette` |
+| Errors | `errorDialog message`, after `lock error dialogs` (or `set the lockErrorDialogs to true`): the error goes to the handler instead of a dialog, until the event is over |
 | Sliders (RandomCard's own) | `sliderMoved`, `sliderChanged` |
 | Movies | `openMovie`, `closeMovie`, `movieRateChanged`, `movieTimeChanged`, `mouseDownInMovie` (see [Movies](#movies)) |
 
@@ -607,7 +612,13 @@ movie's in its window.
 | `badge`, `passMovieClick` | The badge that shows the controller when clicked, and clicks reaching the movie: a click pauses it, a double-click plays it |
 | `rect`, `loc`, `topLeft`, `left`, `top`, `width`, ... | Where it is (see above) |
 | `name`, `movie`, `id`, `number`, `owner` | A window's name can change; setting a window's `movie` puts another file in it |
-| `defaultRect`, `scale`, `preferredRate`, `preferredSoundVolume`, `timeScale`, `layer` | Read only |
+| `scale` (`movieScale`), `matrix` | The movie's size in its window, as factors of its own: `"2,2"`, `"double"`, `"half,1"`, `"normal"`, `"fullscreen"`; its `matrix` is the same scale as QuickTime's 3×3 transform. `send "resizeToMovie"` fits the window to it |
+| `defaultRect`, `preferredRate`, `preferredSoundVolume`, `timeScale`, `layer` | Read only |
+
+`the version of QuickTime` is 3.0, as with HyperCard 2.4.1's QuickTime 3,
+and `there is a movie "Intro"` whether one is open. `window id n` names
+a movie, palette or picture window by its id: `send "resizeToMovie" to
+window id wdID`.
 
 Other QuickTime properties (`fastIdle`, `seeAllFrames`, `dontErase`,
 `highQualityMode` and the like) keep what scripts set without doing
@@ -878,8 +889,12 @@ ran on:
   our copies ([FIX_STEPS.tsv](FIX_STEPS.tsv)).
 - **Compiled externals don't run.** The common ones are built in (see
   above); stacks that need others say "Can't understand".
-- **AppleEvents, AppleScript and other programs** aren't there yet: see
-  COMPLIANCE.md.
+- **AppleEvents, AppleScript and other programs** aren't there yet, and
+  scripts that ask are told so: `there is a scriptingLanguage AppleScript`
+  is false, `the version of scriptingLanguage "AppleScript"` is 0,
+  `request … of program` and `send … to program` leave an error in the
+  result, `answer program` comes back canceled, and `do … as AppleScript`
+  says there's no such language. See COMPLIANCE.md.
 - **What's still missing** from HyperCard 2.4.1 (report printing, some
   window properties and a few messages) is
   listed in COMPLIANCE.md and on the roadmap.

@@ -81,9 +81,8 @@ impl Interp {
             Cmd::Add { value, dest } => self.arith(dest, value, |a, b| Ok(a + b)),
             Cmd::Subtract { value, dest } => self.arith(dest, value, |a, b| Ok(a - b)),
             Cmd::Multiply { dest, value } => self.arith(dest, value, |a, b| Ok(a * b)),
-            Cmd::Divide { dest, value } => self.arith(dest, value, |a, b| {
-                if b == 0.0 { err("Can't divide by zero") } else { Ok(a / b) }
-            }),
+            // As `/` does: by zero is INF.
+            Cmd::Divide { dest, value } => self.arith(dest, value, |a, b| Ok(a / b)),
             Cmd::Answer { prompt, buttons } => {
                 let prompt = self.eval(prompt)?;
                 let mut labels = Vec::new();
@@ -138,6 +137,31 @@ impl Interp {
                     crate::print::open_in_viewer(&path).or_else(err)?;
                 }
                 self.printed.push(path);
+                Ok(())
+            }
+            Cmd::LockErrorDialogs(on) => {
+                self.lock_error_dialogs = *on;
+                Ok(())
+            }
+            // Apple events: there are no other programs to talk to.
+            Cmd::ToProgram { msg, program } => {
+                self.eval(msg)?;
+                let program = self.eval(program)?;
+                self.set_var("it", String::new());
+                self.result = format!("Can't find program \"{}\"", program.trim());
+                Ok(())
+            }
+            Cmd::RequestAppleEvent => {
+                self.set_var("it", String::new());
+                self.result = String::new();
+                Ok(())
+            }
+            // Scripts in other languages: AppleScript isn't there.
+            Cmd::DoAs(script, language) => {
+                self.eval(script)?;
+                let language = self.eval(language)?;
+                self.set_var("it", String::new());
+                self.result = format!("There is no scripting language \"{}\"", language.trim());
                 Ok(())
             }
             Cmd::AnswerProgram(prompt) => {
@@ -897,6 +921,13 @@ impl Interp {
                         }
                     }
                 }
+                // `send "doMenu Delete Card" to HyperCard`: the menu item
+                // itself, past the stack's own doMenu handler, which is
+                // often the one sending it.
+                StmtKind::Cmd { cmd: Cmd::DoMenu(e), .. } if target == ObjRef::HyperCard => {
+                    let item = self.eval(e)?;
+                    self.perform_menu(&item)?;
+                }
                 // Built-in commands sent to an object simply run.
                 _ => self.exec(s)?,
             }
@@ -1152,9 +1183,18 @@ impl Interp {
                 p.is_file() && p.file_name().is_some_and(|n| wanted.contains(&n.to_string_lossy().to_lowercase()))
             })
         };
+        // Hidden folders aren't searched: the Finder information and
+        // resource forks beside copied Mac files (.finf, .rsrc) hold files
+        // named like the stacks, which aren't stacks.
         let subfolders = |dir: &Path| -> Vec<PathBuf> {
-            let mut v: Vec<PathBuf> =
-                std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+            let hidden = |p: &PathBuf| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.'));
+            let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.is_dir() && !hidden(p))
+                .collect();
             v.sort();
             v
         };
@@ -1236,7 +1276,10 @@ impl Interp {
 
     /// `start using stack "Library"`: its script joins the message path,
     /// after the current stack and before Home.
+    /// `start using stack`: it goes in the message path after the current
+    /// stack. The result is empty when it worked, as scripts check.
     fn start_using(&mut self, name: &str) -> R<()> {
+        self.result = String::new();
         match self.stack_ref(name)? {
             Some(ObjRef::OtherStack(k)) => {
                 {
@@ -1368,7 +1411,11 @@ impl Interp {
         self.send_leaving(Some(key), &["closeCard", "closeBackground", "closeStack"], false)?;
         let Some(stack) = self.w().take_other(key) else { return Ok(()) };
         self.scripts_changed();
-        self.w().replace_stack(stack);
+        {
+            let mut w = self.w();
+            w.replace_stack(stack);
+            w.current_key = Some(key);
+        }
         let card = self.current_card_ref();
         for m in ["openStack", "openBackground", "openCard"] {
             self.send_system(card, m)?;
@@ -1991,7 +2038,7 @@ impl Interp {
             [r] if matches!(r.kind, ChunkKind::Line) => r.start,
             _ => return err("Can only select a line of a button"),
         };
-        if line < 1 || line > contents.split('\n').count() as i64 {
+        if line < 0 || line > contents.split('\n').count() as i64 {
             return err(format!("The button has no line {line}"));
         }
         let mut w = self.w();
@@ -2432,6 +2479,13 @@ impl Interp {
                     (id, bg)
                 };
                 self.go_card_with(id, true, Some("newBackground"))?;
+                // HyperCard 2.4.1 leaves you editing the new background:
+                // a field made next is a background field.
+                {
+                    let mut w = self.w();
+                    w.edit_bg = true;
+                    w.keep_paint();
+                }
                 self.send_system(ObjRef::Card(id), "newCard")
             }
             "new button" | "new field" => {
