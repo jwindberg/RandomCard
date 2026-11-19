@@ -25,7 +25,7 @@ impl App {
     pub(super) fn open_icon_editor(&mut self, icon: Option<i32>) {
         let icon = icon.or_else(|| {
             let w = self.world();
-            let from_button = self.selected.and_then(|o| match o {
+            let from_button = self.selected_part().and_then(|o| match o {
                 crate::runtime::world::ObjRef::Part { layer, id, card } => w.stack.part(card, layer, id).map(|p| p.icon),
                 _ => None,
             });

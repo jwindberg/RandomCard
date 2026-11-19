@@ -2,19 +2,13 @@
 //! buttons, fields and paint selections, undo and redo, and part order.
 
 use crate::model::styles::StyleRun;
-use crate::model::{Layer, Part, PartKind, Picture};
+use crate::model::{Layer, Part, PartKind};
 use crate::paint::Region;
+pub use crate::runtime::world::Clip;
 use crate::runtime::world::{EditOp, ObjRef, Tool};
 
 use super::App;
 use super::painting::Marquee;
-
-pub enum Clip {
-    /// A button or field, with the text and hilite it had on its card.
-    Part { part: Box<Part>, text: String, styles: Vec<StyleRun>, hilite: bool },
-    /// Painted pixels and where they came from.
-    Picture { pixels: Picture, rect: (i32, i32, i32, i32) },
-}
 
 #[derive(Clone, Copy)]
 pub enum Order {
@@ -26,9 +20,9 @@ pub enum Order {
 
 impl App {
     /// The button or field selected with the Button or Field tool.
-    fn selected_part(&self) -> Option<ObjRef> {
-        let tool = self.world().tool;
-        matches!(tool, Tool::Button | Tool::Field).then_some(self.selected).flatten()
+    fn selected_tool_part(&self) -> Option<ObjRef> {
+        let w = self.world();
+        matches!(w.tool, Tool::Button | Tool::Field).then_some(w.selected_part).flatten()
     }
 
     fn paint_selection(&mut self) -> Option<Region> {
@@ -48,7 +42,7 @@ impl App {
                 return w.selection.as_ref().filter(|r| r.start < r.end).map(|_| "Text");
             }
         }
-        if let Some(ObjRef::Part { layer, id, card }) = self.selected_part() {
+        if let Some(ObjRef::Part { layer, id, card }) = self.selected_tool_part() {
             let w = self.world();
             return w.stack.part(card, layer, id).map(|p| if p.kind == PartKind::Button { "Button" } else { "Field" });
         }
@@ -59,7 +53,7 @@ impl App {
         if self.world().tool == Tool::Browse && self.editing.is_some() {
             return Some("Text");
         }
-        match &self.clipboard {
+        match &self.world().clipboard {
             Some(Clip::Part { part, .. }) => Some(if part.kind == PartKind::Button { "Button" } else { "Field" }),
             Some(Clip::Picture { .. }) => Some("Picture"),
             // Maybe an image from another program: looking would mean
@@ -100,16 +94,12 @@ impl App {
 
     /// Copy the selected part or paint selection; returns whether there was one.
     fn copy_selection(&mut self) -> bool {
-        if let Some(ObjRef::Part { layer, id, card }) = self.selected_part() {
-            let w = self.world();
-            let Some(part) = w.stack.part(card, layer, id).cloned() else { return false };
-            let text = w.stack.field_text(card, layer, id);
-            let styles = w.stack.field_styles(card, layer, id);
-            let hilite = w.stack.hilite(card, layer, id);
-            drop(w);
-            self.clipboard = Some(Clip::Part { part: Box::new(part), text, styles, hilite });
+        if let Some(obj) = self.selected_tool_part() {
+            let mut w = self.world();
+            let Some(clip) = w.copy_part(obj) else { return false };
+            w.clipboard = Some(clip);
             // A button or field stays in RandomCard: nothing other programs read.
-            self.world().clip_types.clear();
+            w.clip_types.clear();
             return true;
         }
         let Some(region) = self.paint_selection() else { return false };
@@ -119,13 +109,14 @@ impl App {
             // Lift from a copy, leaving the picture as it is.
             region.lift(&mut pic.clone())
         };
-        self.clipboard = Some(Clip::Picture { pixels, rect: region.rect });
-        self.world().clip_types = "PICT".into();
+        let mut w = self.world();
+        w.clipboard = Some(Clip::Picture { pixels, rect: region.rect });
+        w.clip_types = "PICT".into();
         true
     }
 
     fn clear_selection(&mut self) {
-        if let Some(obj) = self.selected_part() {
+        if let Some(obj) = self.selected_tool_part() {
             self.delete_part(obj);
         } else if let Some(region) = self.paint_selection() {
             self.push_undo();
@@ -140,7 +131,8 @@ impl App {
             self.paste_image(pic, None);
             return;
         }
-        match &self.clipboard {
+        let clip = self.world().clipboard.clone();
+        match &clip {
             Some(Clip::Part { part, text, styles, hilite }) => {
                 let (part, text, styles, hilite) = ((**part).clone(), text.clone(), styles.clone(), *hilite);
                 self.paste_part(part, text, styles, hilite);
@@ -162,63 +154,16 @@ impl App {
     }
 
     /// Paste a part onto the layer being edited, keeping its text and hilite.
-    fn paste_part(&mut self, mut part: Part, text: String, styles: Vec<StyleRun>, hilite: bool) {
+    fn paste_part(&mut self, part: Part, text: String, styles: Vec<StyleRun>, hilite: bool) {
         let kind = part.kind;
-        let obj = {
-            let mut w = self.world();
-            let layer = w.current_layer();
-            w.record_parts(layer);
-            let (card, bg) = (w.card_id, w.bg_id());
-            let id = w.stack.alloc_id();
-            part.id = id;
-            match layer {
-                Layer::Card => {
-                    if kind == PartKind::Field {
-                        part.contents = text;
-                        part.styles = styles;
-                    }
-                    part.hilite = hilite;
-                    if let Some(c) = w.stack.card_mut(card) {
-                        c.parts.push(part);
-                    }
-                }
-                Layer::Background => {
-                    // Background text and hilites may belong to each card.
-                    let per_card_text = kind == PartKind::Field && !part.shared_text;
-                    let per_card_hilite = kind == PartKind::Button && !part.shared_hilite;
-                    if kind == PartKind::Field {
-                        part.contents = if per_card_text { String::new() } else { text.clone() };
-                        part.styles = if per_card_text { Vec::new() } else { styles.clone() };
-                    }
-                    if let Some(c) = w.stack.card_mut(card) {
-                        if per_card_text {
-                            c.bg_text.insert(id, text);
-                            if !styles.is_empty() {
-                                c.bg_styles.insert(id, styles);
-                            }
-                        }
-                        if per_card_hilite {
-                            c.bg_hilite.insert(id, hilite);
-                        }
-                    }
-                    if !per_card_hilite {
-                        part.hilite = hilite;
-                    }
-                    if let Some(b) = w.stack.background_mut(bg) {
-                        b.parts.push(part);
-                    }
-                }
-            }
-            w.dirty = true;
-            ObjRef::Part { layer, id, card }
-        };
+        let obj = self.world().paste_part(part, text, styles, hilite);
         self.choose_tool(if kind == PartKind::Button { Tool::Button } else { Tool::Field });
-        self.selected = Some(obj);
+        self.set_selected(Some(obj));
     }
 
     /// Move the selected part in front of or behind the others.
     pub(super) fn reorder_selected(&mut self, order: Order) {
-        let Some(ObjRef::Part { layer, id, card }) = self.selected else { return };
+        let Some(ObjRef::Part { layer, id, card }) = self.selected_part() else { return };
         let mut w = self.world();
         w.record_parts(layer);
         let bg = w.bg_id();
@@ -259,10 +204,10 @@ impl App {
     fn after_undo(&mut self) {
         self.marquee = None;
         self.polygon = None;
-        if let Some(ObjRef::Part { layer, id, card }) = self.selected
+        if let Some(ObjRef::Part { layer, id, card }) = self.selected_part()
             && self.world().stack.part(card, layer, id).is_none()
         {
-            self.selected = None;
+            self.set_selected(None);
         }
     }
 }

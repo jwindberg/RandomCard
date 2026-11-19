@@ -202,6 +202,45 @@ pub fn standard_menus() -> Vec<Menu> {
     ]
 }
 
+/// The menu item a Command key chooses, as the menus give them (and the
+/// UI's keys): what `type "c" with commandKey` does. Option picks the
+/// script editors; Shift with + or - brings a part to the front or back.
+pub fn command_key_item(key: &str, shift: bool, option: bool) -> Option<&'static str> {
+    let key = key.to_lowercase();
+    Some(match (key.as_str(), shift, option) {
+        ("c", _, true) => "Card Script",
+        ("b", _, true) => "Bkgnd Script",
+        ("s", _, true) => "Stack Script",
+        ("z", true, _) => "Redo",
+        ("z", ..) => "Undo",
+        ("x", ..) => "Cut",
+        ("c", ..) => "Copy",
+        ("v", ..) => "Paste",
+        ("a", ..) => "Select All",
+        ("n", ..) => "New Card",
+        ("1", ..) => "First",
+        ("2", ..) => "Prev",
+        ("3", ..) => "Next",
+        ("4", ..) => "Last",
+        ("m", ..) => "Message",
+        ("h", ..) => "Home",
+        ("b", ..) => "Background",
+        ("o", ..) => "Open Stack…",
+        ("w", ..) => "Close Stack",
+        ("p", ..) => "Print Card",
+        ("f", ..) => "Find…",
+        ("r", ..) => "Recent",
+        ("q", ..) => "Quit RandomCard",
+        ("s", ..) => "Save Stack",
+        ("k", ..) => "Keep",
+        ("+" | "=", true, _) => "Bring to Front",
+        ("+" | "=", ..) => "Bring Closer",
+        ("-" | "_", true, _) => "Send to Back",
+        ("-" | "_", ..) => "Send Farther",
+        _ => return None,
+    })
+}
+
 /// A menu by name or number.
 pub fn menu_index(menus: &[Menu], which: &str) -> Option<usize> {
     if let Ok(n) = which.trim().parse::<usize>() {

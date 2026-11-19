@@ -14,6 +14,7 @@ HyperCard Stacks/Phone Dialer
 More Stacks/Alternate Home Stacks/Home (Browser)/Home
 More Stacks/Alternate Home Stacks/Home (Small)/Home
 More Stacks/Background Art
+More Stacks/Power Tools
 More Stacks/Readymade Fields
 More Stacks/Stack Templates
 PaintTest

@@ -4744,3 +4744,59 @@ fn resources_lists_a_stacks_resources() {
     run(&mut i, "choose the browse tool");
     assert_eq!(run(&mut i, "put the tool"), "browse tool");
 }
+
+#[test]
+fn scripts_copy_and_paste_parts() {
+    // Power Tools' overview: a background field selected, Command-C, then
+    // Command-V pastes it onto the card, with its text, for the next line.
+    let mut i = interp_with(stack());
+    run(&mut i, "put \"Overview\" into bg field \"Name\"");
+    run(&mut i, "select bg field \"Name\"\ntype \"C\" with cmdKey\ntype \"V\" with shiftKey, cmdKey");
+    assert_eq!(run(&mut i, "put the number of card fields && card field \"Name\""), "1 Overview");
+    assert_eq!(run(&mut i, "set the scroll of card field \"Name\" to 0\nput the tool"), "field tool");
+    // The pasted field is selected: Cut takes it away again, and Paste
+    // brings it back.
+    run(&mut i, "doMenu \"Cut Field\"");
+    assert_eq!(run(&mut i, "put the number of card fields"), "0");
+    run(&mut i, "doMenu \"Paste Field\"");
+    assert_eq!(run(&mut i, "put the number of card fields"), "1");
+    // Other Command keys choose their menu items.
+    run(&mut i, "choose browse tool\ntype \"3\" with commandKey");
+    assert_eq!(run(&mut i, "put the number of this card"), "2");
+}
+
+#[test]
+fn resource_mover() {
+    // Power Tools' CopyRes, ResRemove and EditResource, on stacks' icons,
+    // sounds, palettes, pictures and songs. Another stack's changes are
+    // saved to its file.
+    let dir = std::env::temp_dir().join(format!("randomcard-resmover-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let lib_path = dir.join("Lib.rcstack");
+    let mut lib = stack();
+    lib.name = "Lib".into();
+    lib.icons.insert(128, crate::model::Icon { name: "Taken".into(), picture: crate::model::Picture::new(32, 32) });
+    lib.path = Some(lib_path.clone());
+    lib.save(&lib_path).unwrap();
+    let mut s = stack();
+    s.icons.insert(128, crate::model::Icon { name: "Star".into(), picture: crate::model::Picture::new(32, 32) });
+    s.palettes.insert(300, crate::model::Palette { name: "Tools".into(), picture: crate::model::Picture::new(4, 4), buttons: vec![] });
+    let mut i = interp_with(s);
+    let lib = lib_path.display().to_string();
+    // Copied, and renumbered where the id is taken; a palette with its PICT.
+    run(&mut i, &format!("CopyRes \"ICON\", 128, \"\", \"{lib}\""));
+    assert_eq!(run(&mut i, "put the result"), "");
+    run(&mut i, &format!("CopyRes \"PLTE\", 300, \"\", \"{lib}\"\nCopyRes \"PICT\", 300, \"\", \"{lib}\""));
+    assert_eq!(run(&mut i, &format!("put Resources(\"{lib}\")")), "ICON 128 128 Taken\nICON 129 128 Star\nPLTE 300 24 Tools\nPICT 300 16 Tools");
+    let saved = Stack::load(&lib_path).unwrap();
+    assert_eq!(saved.icons[&129].name, "Star");
+    // Renamed and renumbered, then removed.
+    run(&mut i, &format!("EditResource \"{lib}\", \"ICON\", 129, \"Big Star\", 500"));
+    assert_eq!(run(&mut i, &format!("put line 2 of Resources(\"{lib}\")")), "ICON 500 128 Big Star");
+    run(&mut i, &format!("ResRemove \"{lib}\", \"PLTE\", 300"));
+    assert_eq!(run(&mut i, &format!("put the number of lines of Resources(\"{lib}\")")), "2");
+    // Problems go in the result.
+    run(&mut i, "ResRemove \"\", \"ICON\", 999");
+    assert_eq!(run(&mut i, "put the result"), "Error: there's no ICON 999.");
+    std::fs::remove_dir_all(&dir).ok();
+}

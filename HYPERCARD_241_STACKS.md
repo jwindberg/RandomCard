@@ -17,7 +17,7 @@ don't pause, with no one watching, so all of them take seconds. A stack
 joins the list when this page is written again after a fix. What breaks
 the others is in the roadmap's "HyperCard 2.4.1's own stacks" section.
 
-**18 of 29 stacks are clean** (2026-11-19).
+**19 of 29 stacks are clean** (2026-11-19).
 
 ## Clean
 
@@ -36,6 +36,7 @@ the others is in the roadmap's "HyperCard 2.4.1's own stacks" section.
 | More Stacks/Alternate Home Stacks/Home (Browser)/Home | 28 | 1 |
 | More Stacks/Alternate Home Stacks/Home (Small)/Home | 21 | 0 |
 | More Stacks/Background Art | 20 | 0 |
+| More Stacks/Power Tools | 68 | 0 |
 | More Stacks/Readymade Fields | 8 | 0 |
 | More Stacks/Stack Templates | 95 | 0 |
 | PaintTest | 0 | 0 |
@@ -55,7 +56,6 @@ the others is in the roadmap's "HyperCard 2.4.1's own stacks" section.
 | HyperCard Stacks/Graph Maker | 20 | 1 | card 2 button "frame": No such property "textheight" |
 | HyperCard Stacks/New Features | 14 | 3 | openStack: The button has no line 0 |
 | HyperCard Stacks/QuickTime Tools | 169 | 14 | openStack: No such object "QuickTime" |
-| More Stacks/Power Tools | 68 | 1 | card 15 button "": No such card field |
 | More Stacks/Readymade Buttons | 85 | 2 | card 5 button "Show Navigator": Can't find palette "Navigator" |
 
 ## Not stacks

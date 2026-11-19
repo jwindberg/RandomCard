@@ -359,6 +359,10 @@ impl Interp {
                 let v = self.eval(e)?;
                 let Some(t) = Tool::parse(&v) else { return err(format!("No such tool \"{v}\"")) };
                 let mut w = self.w();
+                // A new tool leaves no part selected.
+                if w.tool != t {
+                    w.selected_part = None;
+                }
                 w.tool = t;
                 w.focus = None;
                 Ok(())
@@ -599,6 +603,7 @@ impl Interp {
             Cmd::Select(Select::Empty) => {
                 let mut w = self.w();
                 w.focus = None;
+                w.selected_part = None;
                 w.set_selection(None);
                 Ok(())
             }
@@ -626,6 +631,7 @@ impl Interp {
                 let Some(kind) = w.stack.part(card, layer, id).map(|p| p.kind) else { return err("No such part") };
                 w.tool = if kind == PartKind::Button { Tool::Button } else { Tool::Field };
                 w.focus = None;
+                w.selected_part = Some(obj);
                 w.requests.push(UiRequest::SelectPart(obj));
                 Ok(())
             }
@@ -695,13 +701,31 @@ impl Interp {
             Cmd::Type(e, keys) => {
                 let text = self.eval(e)?;
                 let mut w = self.w();
-                let held = |k: &str| keys.iter().any(|x| x == k || x.trim_end_matches("key") == k.trim_end_matches("key"));
+                // cmdKey is commandKey.
+                let base = |k: &str| {
+                    let k = k.trim_end_matches("key");
+                    if k == "cmd" { "command".to_string() } else { k.to_string() }
+                };
+                let held = |k: &str| keys.iter().any(|x| base(x) == base(k));
                 // Command-Shift-E shows the card window's size box; the next
                 // click drags it (the develop stacks resize their window this
                 // way). RandomCard shows the whole card, so the drag changes
                 // nothing, but the click goes to the box, not the card.
                 if held("commandkey") && held("shiftkey") && text.eq_ignore_ascii_case("e") {
                     w.size_box = true;
+                    return Ok(());
+                }
+                // Other Command keys choose their menu items, as typing
+                // them would: `type "c" with commandKey` copies.
+                if held("commandkey") {
+                    drop(w);
+                    let Some(item) = super::menus::command_key_item(&text, held("shiftkey"), held("optionkey")) else {
+                        return Ok(());
+                    };
+                    let card = self.current_card_ref();
+                    if !self.send_message(card, "doMenu", &[item.to_string()])? {
+                        self.perform_menu(item)?;
+                    }
                     return Ok(());
                 }
                 // With the text tool, type paints text where `click at` put the cursor.
@@ -2167,6 +2191,73 @@ impl Interp {
 
     // ----- deleting -----
 
+    /// Delete a button or field, telling it deleteButton or deleteField
+    /// first.
+    fn delete_part(&mut self, obj: ObjRef) -> R<()> {
+        let ObjRef::Part { layer, id, card } = obj else { return Ok(()) };
+        let msg = {
+            let w = self.w();
+            match w.stack.part(card, layer, id).map(|p| p.kind) {
+                Some(PartKind::Button) => "deleteButton",
+                _ => "deleteField",
+            }
+        };
+        self.send_system(obj, msg)?;
+        let mut w = self.w();
+        w.record_parts(layer);
+        let bg = w.bg_id();
+        let parts = match layer {
+            Layer::Card => w.stack.card_mut(card).map(|c| &mut c.parts),
+            Layer::Background => w.stack.background_mut(bg).map(|b| &mut b.parts),
+        };
+        if let Some(parts) = parts {
+            parts.retain(|p| p.id != id);
+        }
+        if w.selected_part == Some(obj) {
+            w.selected_part = None;
+        }
+        w.dirty = true;
+        Ok(())
+    }
+
+    /// Cut, Copy, Clear and Paste of a button or field, from a script: done
+    /// now, so the script's next line finds the pasted part. False when
+    /// there's no selected part (or part to paste), for the UI to do it.
+    fn edit_part(&mut self, op: EditOp) -> R<bool> {
+        let selected = {
+            let w = self.w();
+            matches!(w.tool, Tool::Button | Tool::Field).then_some(w.selected_part).flatten()
+        };
+        match op {
+            EditOp::Copy | EditOp::Cut | EditOp::Clear => {
+                let Some(obj) = selected else { return Ok(false) };
+                if op != EditOp::Clear {
+                    let mut w = self.w();
+                    let Some(clip) = w.copy_part(obj) else { return Ok(false) };
+                    w.clipboard = Some(clip);
+                    w.clip_types.clear();
+                }
+                if op != EditOp::Copy {
+                    self.delete_part(obj)?;
+                }
+                Ok(true)
+            }
+            EditOp::Paste => {
+                let mut w = self.w();
+                let Some(super::world::Clip::Part { part, text, styles, hilite }) = w.clipboard.clone() else {
+                    return Ok(false);
+                };
+                let kind = part.kind;
+                let obj = w.paste_part(*part, text, styles, hilite);
+                w.tool = if kind == PartKind::Button { Tool::Button } else { Tool::Field };
+                w.focus = None;
+                w.selected_part = Some(obj);
+                w.requests.push(UiRequest::SelectPart(obj));
+                Ok(true)
+            }
+        }
+    }
+
     fn delete(&mut self, e: &Expr) -> R<()> {
         if is_menu(e) {
             return Ok(());
@@ -2185,28 +2276,7 @@ impl Interp {
             return Ok(());
         }
         match self.resolve_dynamic(e)? {
-            ObjRef::Part { layer, id, card } => {
-                let msg = {
-                    let w = self.w();
-                    match w.stack.part(card, layer, id).map(|p| p.kind) {
-                        Some(PartKind::Button) => "deleteButton",
-                        _ => "deleteField",
-                    }
-                };
-                self.send_system(ObjRef::Part { layer, id, card }, msg)?;
-                let mut w = self.w();
-                w.record_parts(layer);
-                let bg = w.bg_id();
-                let parts = match layer {
-                    Layer::Card => w.stack.card_mut(card).map(|c| &mut c.parts),
-                    Layer::Background => w.stack.background_mut(bg).map(|b| &mut b.parts),
-                };
-                if let Some(parts) = parts {
-                    parts.retain(|p| p.id != id);
-                }
-                w.dirty = true;
-                Ok(())
-            }
+            obj @ ObjRef::Part { .. } => self.delete_part(obj),
             ObjRef::Card(id) => self.delete_card(id),
             ObjRef::MsgBox => {
                 self.w().msg.clear();
@@ -2470,6 +2540,11 @@ impl Interp {
             // With the Browse tool and text selected, they act on the text
             // ("Copy Text"), keeping its styles.
             _ if edit_op(&key).is_some_and(|op| self.edit_text(op)) => Ok(()),
+            _ if let Some(op) = edit_op(&key)
+                && self.edit_part(op)? =>
+            {
+                Ok(())
+            }
             _ if edit_op(&key).is_some() => self.request(UiRequest::Edit(edit_op(&key).unwrap())),
             // The Paint menu's Select, while painting; otherwise the tool.
             "select" if self.w().tool.is_paint() => self.request(UiRequest::SelectPainted),

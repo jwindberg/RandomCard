@@ -650,7 +650,11 @@ parse, which takes all its handlers with it, so the syntax comes first.
    long name does, so their `wrongStack()` checks pass), ~~ShowList~~ (done; Power
    Tools' list dialog), the Navigator palette (Readymade Buttons), ~~the
    `picture` command~~ (done: HyperCard 2's Picture XCMD, its windows,
-   properties and messages, and windows by number), and
+   properties and messages, and windows by number), ~~the Resource
+   Mover~~ (done: Resources, CopyRes, ResRemove and EditResource, on a
+   stack's icons, sounds, palettes, pictures and songs; with `type …
+   with commandKey` choosing menu items and scripts' Copy and Paste of
+   parts, Power Tools now runs clean), and
    `stackIsBeingUsed` and `tips`, which may be handlers in another stack.
 5. **AppleScript and Apple events:** `there is a scriptingLanguage
    AppleScript`, `the version of scriptingLanguage "AppleScript"`,

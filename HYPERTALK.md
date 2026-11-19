@@ -347,7 +347,7 @@ stack stays current.
 | speak | `speak "Hello"` |
 | start using, stop using | `start using stack "Library"` |
 | stop sound | `stop sound` (every channel) |
-| type | `type "Hello" with commandKey` |
+| type | `type "Hello"`; with `commandKey` (or `cmdKey`) it chooses that key's menu item, as typing it would: `type "c" with commandKey` copies, `type "+" with shiftKey, commandKey` brings the selected part to the front |
 | visual effect | `visual effect dissolve slowly`, `visual effect iris open to black` |
 | wait | `wait 2 seconds`, `wait 10 ticks`, `wait until the mouseClick`, `wait while the sound is not "done"` |
 | write | `write field "Notes" to file "Notes.txt"` |
@@ -689,6 +689,7 @@ became of it.
 | SysPrefs | the preferences file's path (in RandomCard's settings folder) |
 | Dialog | `answer` |
 | ListSelect | a list dialog for choosing lines |
+| CopyRes, ResRemove, EditResource (Apple's Power Tools) | copy a stack's icon, sound, palette, picture or song to another stack, remove one, or rename and renumber one: `CopyRes "ICON", 128, "", "Other Stack"` (an empty name is this stack); problems go in the result |
 | Resources (Apple's Power Tools) | a stack's icons, sounds, palettes, pictures and songs, as the resources they were: `Resources(line 1 of the stacks)` gives "ICON 128 128 Star" a line |
 | ShowList (Apple's Power Tools) | the same list dialog with up to four named buttons: `get showList(lines, prompt, multiSelect, typingSelect, "OK,Cancel^", hilitedLine)` answers the button, then the chosen lines' numbers |
 | PopUpMenu, PopMenu | a popup menu at a point |

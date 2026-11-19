@@ -94,7 +94,7 @@ struct PartDrag {
 }
 
 use crate::runtime::settings::{Settings, level_name};
-use editing::{Clip, Order};
+use editing::Order;
 use menus::MenuState;
 use levels::PasswordPrompt;
 use painting::{Marquee, PaintStroke, TextEntry};
@@ -147,10 +147,8 @@ pub struct App {
     scroll_bar_zones: Vec<Rect>,
     last_repeat_msg: Instant,
     editing: Option<Editing>,
-    selected: Option<ObjRef>,
     part_drag: Option<PartDrag>,
     stroke: Option<PaintStroke>,
-    clipboard: Option<Clip>,
     settings: Settings,
     /// Where the card's top left corner was on screen last frame, and the
     /// window's outer top left, for moving the window when a script asks.
@@ -321,10 +319,8 @@ impl App {
             scroll_bar_zones: Vec::new(),
             last_repeat_msg: Instant::now(),
             editing: None,
-            selected: None,
             part_drag: None,
             stroke: None,
-            clipboard: None,
             marquee: None,
             floating: None,
             polygon: None,
@@ -390,6 +386,16 @@ impl App {
 
     fn world(&self) -> std::sync::MutexGuard<'_, World> {
         lock(&self.rt.world)
+    }
+
+    /// The button or field selected with the Button or Field tool. It's
+    /// kept in the world, so a script's `select` and Copy see it too.
+    fn selected_part(&self) -> Option<ObjRef> {
+        self.world().selected_part
+    }
+
+    fn set_selected(&mut self, obj: Option<ObjRef>) {
+        self.world().selected_part = obj;
     }
 
     fn do_menu(&self, item: &str) {
@@ -655,7 +661,7 @@ impl App {
         self.commit_marquee();
         self.commit_text();
         self.polygon = None;
-        self.selected = None;
+        self.set_selected(None);
         let mut w = self.world();
         w.tool = t;
         w.focus = None;
@@ -759,7 +765,7 @@ impl App {
                     }
                 }
                 UiRequest::Quit => self.request_quit(ctx),
-                UiRequest::PrintSelectedField => match self.selected {
+                UiRequest::PrintSelectedField => match self.selected_part() {
                     Some(ObjRef::Part { layer, id, card })
                         if self.world().stack.part(card, layer, id).map(|p| p.kind) == Some(PartKind::Field) =>
                     {
@@ -768,7 +774,7 @@ impl App {
                     }
                     _ => self.alert("Select a field first, with the Field tool, or click into one.".into()),
                 },
-                UiRequest::SelectedPartInfo => match self.selected {
+                UiRequest::SelectedPartInfo => match self.selected_part() {
                     Some(o) => self.open_info(InfoTarget::Part(o)),
                     None => self.alert("Select a button or field first, with the Button or Field tool.".into()),
                 },
@@ -793,7 +799,7 @@ impl App {
                 UiRequest::CopyText(text) => ctx.copy_text(text),
                 UiRequest::Redo => self.redo(),
                 UiRequest::Undo => self.undo(),
-                UiRequest::SelectPart(o) => self.selected = Some(o),
+                UiRequest::SelectPart(o) => self.set_selected(Some(o)),
                 UiRequest::Key(target, action) => self.key_action(ctx, target, action),
                 UiRequest::PaintOp(op) => self.apply_paint_op(op),
                 UiRequest::SelectAll => self.select_all(),
@@ -1063,7 +1069,7 @@ impl App {
     /// Drop selections and windows that belong to the stack being left.
     fn forget_stack_view(&mut self) {
         self.editing = None;
-        self.selected = None;
+        self.set_selected(None);
         self.marquee = None;
         self.polygon = None;
         self.text_entry = None;
@@ -1288,7 +1294,7 @@ impl App {
         let tool = self.world().tool;
         let delete = ctx.input(|i| i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace));
         if delete {
-            if let (Tool::Button | Tool::Field, Some(obj)) = (tool, self.selected) {
+            if let (Tool::Button | Tool::Field, Some(obj)) = (tool, self.selected_part()) {
                 self.delete_part(obj);
             } else if let Some(Marquee::Selected { region }) = self.marquee.take() {
                 self.push_undo();
@@ -1301,7 +1307,7 @@ impl App {
         if ctx.input(|i| i.key_pressed(Key::Escape)) {
             self.commit_marquee();
             self.marquee = None;
-            self.selected = None;
+            self.set_selected(None);
             self.polygon = None;
         }
         if tool == Tool::Browse {
@@ -1572,7 +1578,7 @@ impl App {
         }
         w.dirty = true;
         drop(w);
-        self.selected = None;
+        self.set_selected(None);
         self.infos.retain(|i| i.target != InfoTarget::Part(obj));
         self.editors.retain(|e| e.obj != obj);
     }
@@ -1585,7 +1591,7 @@ impl App {
         let kind = if tool == Tool::Button { PartKind::Button } else { PartKind::Field };
         let to_card = |q: Pos2| ((q.x - origin.x) as i32, (q.y - origin.y) as i32);
         if resp.double_clicked()
-            && let Some(o) = self.selected
+            && let Some(o) = self.selected_part()
         {
             self.open_info(InfoTarget::Part(o));
             return;
@@ -1596,7 +1602,7 @@ impl App {
             let hit = scene.parts.iter().rev().find(|pv| pv.part.kind == kind && pv.part.rect.contains(p.0, p.1));
             match hit {
                 Some(pv) => {
-                    self.selected = Some(pv.obj);
+                    self.set_selected(Some(pv.obj));
                     let r = pv.part.rect;
                     let near_corner = (p.0 - r.right).abs() <= 6 && (p.1 - r.bottom).abs() <= 6;
                     let kind = if near_corner { DragKind::Resize } else { DragKind::Move };
@@ -1610,11 +1616,11 @@ impl App {
                 None if resp.drag_started_by(PointerButton::Primary) && resp.ctx.input(|i| i.modifiers.command) => {
                     // Command-drag creates a new part, as in HyperCard.
                     let obj = self.create_part(kind, CardRect::new(p.0, p.1, p.0 + 1, p.1 + 1));
-                    self.selected = Some(obj);
+                    self.set_selected(Some(obj));
                     self.part_drag =
                         Some(PartDrag { obj, kind: DragKind::Resize, start: p, rect: CardRect::new(p.0, p.1, p.0, p.1) });
                 }
-                None => self.selected = None,
+                None => self.set_selected(None),
             }
         }
         if resp.dragged()
@@ -2436,7 +2442,7 @@ impl App {
                     let r = render::part_rect(&pv.part, origin);
                     let color = if pv.part.visible { Color32::BLACK } else { Color32::from_gray(160) };
                     render::dashed_rect(&painter, r, color);
-                    if Some(pv.obj) == self.selected {
+                    if Some(pv.obj) == self.selected_part() {
                         render::selection_handles(&painter, r);
                     }
                 }

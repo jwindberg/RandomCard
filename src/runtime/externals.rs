@@ -326,6 +326,9 @@ impl Interp {
         if name == "picture" {
             return Some(self.picture_command(args));
         }
+        if let Some(r) = self.resource_mover(name, args) {
+            return Some(r);
+        }
         if name == "addcolor" {
             return Some(self.addcolor(args));
         }

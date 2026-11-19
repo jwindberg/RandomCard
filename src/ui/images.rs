@@ -38,7 +38,8 @@ impl App {
     /// Copying a picture also puts it on the system clipboard. Copying a
     /// part notes what image is there, so Paste knows if a newer one comes.
     pub(super) fn copied_to_clipboard(&mut self, ctx: &egui::Context) {
-        match &self.clipboard {
+        let clip = self.world().clipboard.clone();
+        match &clip {
             Some(Clip::Picture { pixels, .. }) => {
                 let size = [pixels.width as usize, pixels.height as usize];
                 ctx.copy_image(egui::ColorImage::from_rgba_unmultiplied(size, &image_file::rgba_bytes(pixels)));
@@ -56,7 +57,7 @@ impl App {
             return None;
         }
         let pic = system_image()?;
-        let newer = match &self.clipboard {
+        let newer = match &self.world().clipboard {
             None => true,
             Some(Clip::Picture { pixels, .. }) => !same_look(pixels, &pic),
             Some(Clip::Part { .. }) => self.system_image_at_copy != Some(fingerprint(&pic)),

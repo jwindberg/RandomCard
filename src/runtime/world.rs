@@ -755,6 +755,11 @@ pub struct World {
     /// A zoomRect animation: from, to, and when it started.
     pub zoom: Option<(crate::model::Rect, crate::model::Rect, std::time::Instant)>,
     pub dialog: Option<Dialog>,
+    /// The button or field selected with the Button or Field tool, by the
+    /// user or by `select button 1`.
+    pub selected_part: Option<ObjRef>,
+    /// What Copy and Cut last put on RandomCard's clipboard.
+    pub clipboard: Option<Clip>,
     /// A script is running.
     pub busy: bool,
     pub found: Option<FieldRange>,
@@ -1016,6 +1021,8 @@ impl World {
             palette_locs: HashMap::new(),
             zoom: None,
             dialog: None,
+            selected_part: None,
+            clipboard: None,
             busy: false,
             found: None,
             selection: None,
@@ -1508,4 +1515,86 @@ pub fn names_stack(s: &Stack, name: &str) -> bool {
             p.to_string_lossy().eq_ignore_ascii_case(name)
                 || p.file_stem().is_some_and(|f| f.to_string_lossy().eq_ignore_ascii_case(name))
         })
+}
+
+/// What Copy and Cut put on RandomCard's own clipboard: a part, or painted
+/// pixels. (Text goes on the system's.)
+#[derive(Clone, Debug)]
+pub enum Clip {
+    /// A button or field, with the text and hilite it had on its card.
+    Part { part: Box<crate::model::Part>, text: String, styles: Vec<crate::model::styles::StyleRun>, hilite: bool },
+    /// Painted pixels and where they came from.
+    Picture { pixels: crate::model::Picture, rect: (i32, i32, i32, i32) },
+}
+
+impl World {
+    /// A part as Copy takes it: with the text and hilite it has on this card.
+    pub fn copy_part(&self, obj: ObjRef) -> Option<Clip> {
+        let ObjRef::Part { layer, id, card } = obj else { return None };
+        let part = self.stack.part(card, layer, id).cloned()?;
+        Some(Clip::Part {
+            part: Box::new(part),
+            text: self.stack.field_text(card, layer, id),
+            styles: self.stack.field_styles(card, layer, id),
+            hilite: self.stack.hilite(card, layer, id),
+        })
+    }
+
+    /// Paste a part onto the layer being edited, keeping its text and
+    /// hilite; the new part's reference.
+    pub fn paste_part(
+        &mut self,
+        mut part: crate::model::Part,
+        text: String,
+        styles: Vec<crate::model::styles::StyleRun>,
+        hilite: bool,
+    ) -> ObjRef {
+        use crate::model::{Layer, PartKind};
+        let kind = part.kind;
+        let layer = self.current_layer();
+        self.record_parts(layer);
+        let (card, bg) = (self.card_id, self.bg_id());
+        let id = self.stack.alloc_id();
+        part.id = id;
+        match layer {
+            Layer::Card => {
+                if kind == PartKind::Field {
+                    part.contents = text;
+                    part.styles = styles;
+                }
+                part.hilite = hilite;
+                if let Some(c) = self.stack.card_mut(card) {
+                    c.parts.push(part);
+                }
+            }
+            Layer::Background => {
+                // Background text and hilites may belong to each card.
+                let per_card_text = kind == PartKind::Field && !part.shared_text;
+                let per_card_hilite = kind == PartKind::Button && !part.shared_hilite;
+                if kind == PartKind::Field {
+                    part.contents = if per_card_text { String::new() } else { text.clone() };
+                    part.styles = if per_card_text { Vec::new() } else { styles.clone() };
+                }
+                if let Some(c) = self.stack.card_mut(card) {
+                    if per_card_text {
+                        c.bg_text.insert(id, text);
+                        if !styles.is_empty() {
+                            c.bg_styles.insert(id, styles);
+                        }
+                    }
+                    if per_card_hilite {
+                        c.bg_hilite.insert(id, hilite);
+                    }
+                }
+                if !per_card_hilite {
+                    part.hilite = hilite;
+                }
+                if let Some(b) = self.stack.background_mut(bg) {
+                    b.parts.push(part);
+                }
+            }
+        }
+        self.dirty = true;
+        ObjRef::Part { layer, id, card }
+    }
 }
