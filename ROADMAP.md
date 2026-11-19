@@ -644,8 +644,10 @@ parse, which takes all its handlers with it, so the syntax comes first.
    (done; see The card window in Suggested order), New Features' "The button has no line 0".
 4. **Externals:** ~~Enviro~~ (done; with `lock recent`, the message box
    as `window "message"`, and AddColor pictures, Color Tools now runs
-   clean, its Demo included), the palettes Power Tools, Art Bits, Background Art and Stack
-   Templates use (`generalPalette`, `fieldPalette`, `hidePalette`), the
+   clean, its Demo included), ~~the palettes Power Tools, Art Bits, Background Art and Stack
+   Templates use (`generalPalette`, `fieldPalette`, `hidePalette`)~~ (done:
+   built in, and `the stacks` now gives a converted stack's file, as its
+   long name does, so their `wrongStack()` checks pass), the
    Navigator palette (Readymade Buttons), the `picture` command, and
    `stackIsBeingUsed` and `tips`, which may be handlers in another stack.
 5. **AppleScript and Apple events:** `there is a scriptingLanguage

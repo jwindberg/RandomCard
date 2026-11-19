@@ -189,6 +189,7 @@ impl Interp {
                     dirty: false,
                     locked: false,
                     palette: None,
+                    apple: None,
                 });
                 String::new()
             }
@@ -294,6 +295,9 @@ impl Interp {
         if let Some(r) = self.rinaldi_command(name, args) {
             return Some(r);
         }
+        if let Some(r) = self.apple_palette(name, args) {
+            return Some(r);
+        }
         if name == "addcolor" {
             return Some(self.addcolor(args));
         }
@@ -335,6 +339,7 @@ impl Interp {
                     dirty: false,
                     locked: false,
                     palette: None,
+                    apple: None,
                 };
                 let mut w = self.w();
                 w.script_windows
@@ -381,6 +386,7 @@ impl Interp {
                     dirty: false,
                     locked: false,
                     palette: Some(palette),
+                    apple: None,
                 });
                 drop(w);
                 let card = self.current_card_ref();

@@ -579,6 +579,16 @@ impl Interp {
             }
         }
         r?;
+        // A built-in Apple palette tells the card paletteDismiss, as its
+        // XCMD did.
+        if t.apple.is_some() {
+            self.apple_palette_closed(&t);
+            return if by_user {
+                self.dispatch_top(card, "paletteDismiss", vec![])
+            } else {
+                self.send_message(card, "paletteDismiss", &[]).map(|_| ())
+            };
+        }
         if let super::world::WindowKind::Palette { id, .. } = t.kind {
             let args = vec![t.name.clone(), id.to_string()];
             if by_user {
@@ -1134,6 +1144,17 @@ impl Interp {
                 }
                 if matches!(args[2], Expr::Chunk(..) | Expr::Selection) {
                     return self.chunk_property(&args[2], &prop.to_ascii_lowercase());
+                }
+                // `number of theObjs`, with "cd btns" in theObjs: the
+                // variable names what to count, as Power Tools' listObjects
+                // has it.
+                if prop.eq_ignore_ascii_case("number") && !matches!(args[2], Expr::Object(_)) {
+                    let text = self.eval(&args[2])?;
+                    if let Ok(Expr::Number(c)) = crate::hypertalk::parser::parse_expression(&format!("the number of {text}")) {
+                        return self.count(&c);
+                    }
+                    let obj = self.parse_object_text(&text)?;
+                    return self.get_property(obj, &prop, length);
                 }
                 let obj = self.resolve_dynamic(&args[2])?;
                 self.get_property(obj, &prop, length)

@@ -233,6 +233,9 @@ pub struct ScriptWindow {
     pub locked: bool,
     /// A palette window's palette.
     pub palette: Option<std::sync::Arc<crate::model::Palette>>,
+    /// What a built-in Apple palette (GeneralPalette and the like) was
+    /// made from, to draw it again.
+    pub apple: Option<Box<super::apple_palettes::ApplePalette>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -287,6 +290,8 @@ impl ScriptWindow {
                 WindowKind::Palette { hilited, .. } => hilited.to_string(),
                 _ => return None,
             },
+            // FieldPalette's three lines.
+            "fields" => self.apple.as_ref().filter(|a| a.layout == super::apple_palettes::Layout::Field)?.fields.clone(),
             "properties" => match self.kind {
                 WindowKind::Progress(_) => "width,text,fraction,textFont,textSize".into(),
                 WindowKind::Text => "text,textFont,textSize,lockText".into(),
@@ -342,6 +347,14 @@ impl ScriptWindow {
                         .parse::<f64>()
                         .map_err(|_| format!("Expected a number, not \"{v}\""))?;
                     self.kind = WindowKind::Progress(f.clamp(0.0, 1.0));
+                }
+                _ => return Ok(false),
+            },
+            // FieldPalette's three lines, drawn on it.
+            "fields" => match &mut self.apple {
+                Some(a) if a.layout == super::apple_palettes::Layout::Field => {
+                    a.fields = v.to_string();
+                    self.palette = Some(std::sync::Arc::new(a.render()));
                 }
                 _ => return Ok(false),
             },

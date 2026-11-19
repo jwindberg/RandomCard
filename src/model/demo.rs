@@ -287,6 +287,38 @@ fn frame(p: &mut Picture, l: i32, t: i32, r: i32, b: i32) {
     vline(p, r, t, b);
 }
 
+/// The picture GeneralPalette draws (as Apple's stacks carry it, by the
+/// XCMD's name): two arrow buttons and a wide one between, each framed with
+/// a shadow. The XCMD puts its button's name in the middle one.
+fn general_palette_picture() -> Picture {
+    let mut p = Picture::new(212, 33);
+    for y in 0..33 {
+        for x in 0..212 {
+            p.set(x, y, Pixel::WHITE);
+        }
+    }
+    for (l, r) in [(5, 33), (45, 163), (177, 205)] {
+        frame(&mut p, l, 4, r, 28);
+        hline(&mut p, l + 2, r + 2, 29);
+        hline(&mut p, l + 2, r + 2, 30);
+        vline(&mut p, r + 1, 6, 30);
+        vline(&mut p, r + 2, 6, 30);
+    }
+    // The arrows: a point, then a shaft, each way.
+    for (tip, dir) in [(10, 1), (200, -1)] {
+        let back = tip + dir * 9;
+        let end = tip + dir * 17;
+        line(&mut p, tip, 16, back, 8);
+        line(&mut p, tip, 16, back, 24);
+        vline(&mut p, back, 8, 12);
+        vline(&mut p, back, 20, 24);
+        hline(&mut p, back.min(end), back.max(end), 12);
+        hline(&mut p, back.min(end), back.max(end), 20);
+        vline(&mut p, end, 12, 20);
+    }
+    p
+}
+
 fn circle(p: &mut Picture, cx: i32, cy: i32, r: i32, filled: bool) {
     for y in -r..=r {
         for x in -r..=r {
@@ -353,6 +385,36 @@ on openCard
     put "Card" && the number of this card && "of" && the number of cards into background field "Page"
   end if
 end openCard
+
+-- GeneralPalette's buttons, wherever it's opened (Palettes card).
+on goPrev
+  visual effect scroll right fast
+  go to previous card
+end goPrev
+
+on goNext
+  visual effect scroll left fast
+  go to next card
+end goNext
+
+on goCategories
+  go to card "Contents"
+end goCategories
+
+on paletteDismiss
+  if there is a card field "Said" then put "paletteDismiss: GeneralPalette closed." into card field "Said"
+end paletteDismiss
+
+-- The palette is the Tour's: it goes when the Tour does.
+on closeStack
+  if there is a window "GeneralPalette" then close window "GeneralPalette"
+  pass closeStack
+end closeStack
+
+on suspendStack
+  if there is a window "GeneralPalette" then close window "GeneralPalette"
+  pass suspendStack
+end suspendStack
 
 function plural n, noun
   if n = 1 then return n && noun
@@ -1588,6 +1650,16 @@ end mouseUp"#,
         "on mouseUp\n  choose select tool\n  doMenu \"Select All\"\n  put \"All selected: the Paint menu's commands are active now. Click the card and they grey out again.\" into field \"Said\"\nend mouseUp",
     );
     b.card_part(c, menu);
+    // GeneralPalette, the XCMD Apple's own stacks (Art Bits, Power Tools)
+    // made their navigation palettes with, built in. It draws the picture
+    // the stack carries by its name; the Tour has one of its own.
+    b.stack.color_pictures.insert(crate::model::color_picture_key("GeneralPalette", false), std::sync::Arc::new(general_palette_picture()));
+    let apple = b.button(
+        "Apple's Palette",
+        Rect::new(196, 164, 336, 188),
+        "on mouseUp\n  global HaveGeneralPalette\n  if HaveGeneralPalette is true then\n    close window \"GeneralPalette\"\n    exit mouseUp\n  end if\n  put the loc of card window into here\n  GeneralPalette \"Contents\", item 1 of here + 150, item 2 of here + 250\n  put \"GeneralPalette, from Apple's own stacks: its arrows go back and forth, Contents goes there.\" into field \"Said\"\nend mouseUp",
+    );
+    b.card_part(c, apple);
     // Peeking, as in HyperCard, finds a button you can't see.
     let keys = if cfg!(target_os = "macos") { "Command-Option (⌘⌥)" } else { "Ctrl+Alt" };
     let peek = b.button(
@@ -1603,7 +1675,7 @@ end mouseUp"#,
     let mut said = b.label("Said", Rect::new(36, 192, 476, 226), "", 12);
     said.text_style = "italic".into();
     b.card_part(c, said);
-    b.stack.cards[c].script = "on openPalette name, id\n  put \"openPalette\" && name && id into field \"Said\"\nend openPalette\n\non closePalette name\n  put \"closePalette\" && name into field \"Said\"\nend closePalette\n\n-- Leaving for a stack in another window: the destination says which.\non suspendStack\n  set the itemDelimiter to the pathSeparator\n  put \"suspendStack, for\" && last item of the destination & \": the destination\" into field \"Said\"\n  pass suspendStack\nend suspendStack".into();
+    b.stack.cards[c].script = "on openPalette name, id\n  put \"openPalette\" && name && id into field \"Said\"\nend openPalette\n\non closePalette name\n  put \"closePalette\" && name into field \"Said\"\nend closePalette\n\n-- Leaving for a stack in another window: the destination says which.\non suspendStack\n  if there is a window \"GeneralPalette\" then close window \"GeneralPalette\"\n  set the itemDelimiter to the pathSeparator\n  put \"suspendStack, for\" && last item of the destination & \": the destination\" into field \"Said\"\n  pass suspendStack\nend suspendStack".into();
     // Stacks in windows of their own.
     let windows = b.label(
         "Windows",

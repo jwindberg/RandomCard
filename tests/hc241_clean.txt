@@ -2,14 +2,20 @@
 # Written by tools/hc241.py; the hypercard_241_stacks_stay_clean test keeps them clean.
 # "slow:" ones run only with RANDOMCARD_HC241_SLOW=1.
 About HyperCard...
+Addresses
+AppleScript Stacks/HyperCard AppleScript Reference
 AppleScript Stacks/Language at a Glance
 Color Tools
 HyperCard Help/Help Extras
+HyperCard Help/HyperCard Help
+HyperCard Stacks/Art Bits
 HyperCard Stacks/Audio Help
 HyperCard Stacks/Phone Dialer
 More Stacks/Alternate Home Stacks/Home (Browser)/Home
 More Stacks/Alternate Home Stacks/Home (Small)/Home
+More Stacks/Background Art
 More Stacks/Readymade Fields
+More Stacks/Stack Templates
 PaintTest
 Practice
 Your Tour of HyperCard/HyperCard Tour

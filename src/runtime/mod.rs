@@ -1,6 +1,7 @@
 //! Running stacks: the shared world state and the HyperTalk interpreter.
 
 pub mod addcolor;
+mod apple_palettes;
 mod builtins;
 pub mod web;
 mod commands;

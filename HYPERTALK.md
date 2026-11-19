@@ -641,6 +641,7 @@ became of it.
 | PrintOut | `print` with text settings |
 | StringWidth | `textWidth` |
 | ProgressWindoid | a progress window |
+| GeneralPalette, FieldPalette, StackTemplatePal (Apple's Art Bits, Background Art, Power Tools and Stack Templates) | palettes from a picture the stack carries by that name: `GeneralPalette "Categories", left, top`, then `hide`, `show` and `close window "GeneralPalette"`; closing sends `paletteDismiss` |
 | MakeSendMe4, MakeSendMe5 | a new message in the user's mail program |
 | GetVol | the mounted volumes |
 | FileCopy, EraseFile, FullMove, FullRename, GetDir, GetFInfo, GetBootVol, GetSysFolder, LeafName | files and folders (Frédéric Rinaldi's collection) |

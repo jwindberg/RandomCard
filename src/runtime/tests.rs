@@ -614,6 +614,16 @@ fn demo_stack_runs() {
     assert!(run(&mut i, "put field \"Said\"").contains("icon shows its setting"));
     assert_eq!(click(&mut i, "Palettes", "Peek"), None);
     assert!(run(&mut i, "put field \"Said\"").contains("hidden button"));
+    // GeneralPalette, built in: its center button goes to Contents, and
+    // closing it sends paletteDismiss.
+    assert_eq!(click(&mut i, "Palettes", "Apple's Palette"), None);
+    assert_eq!(run(&mut i, "global HaveGeneralPalette\nput HaveGeneralPalette && there is a window \"GeneralPalette\""), "true true");
+    i.handle_event(Event::PaletteButton("GeneralPalette".into(), 1));
+    assert_eq!(current(&i), "Contents");
+    run(&mut i, "go to card \"Palettes\"");
+    assert_eq!(click(&mut i, "Palettes", "Apple's Palette"), None);
+    assert_eq!(run(&mut i, "global HaveGeneralPalette\nput HaveGeneralPalette && there is a window \"GeneralPalette\""), "false false");
+    assert_eq!(run(&mut i, "put field \"Said\""), "paletteDismiss: GeneralPalette closed.");
     // The card window: smaller and scrolled, zoomed, and bigger cards, all
     // put back on leaving.
     lock(&i.world).screen_rect = crate::model::Rect::new(0, 0, 1024, 768);
@@ -4499,4 +4509,68 @@ fn the_destination() {
     // A variable can still be called destination.
     assert_eq!(run(&mut i, "put \"Two\" into destination\nput destination"), "Two");
     std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn apple_palettes() {
+    // GeneralPalette, FieldPalette and StackTemplatePal, Apple's palette
+    // XCMDs, built in: each draws the picture the stack carries by its name.
+    let mut s = stack();
+    for (name, w, h) in [("FieldPalette", 212, 88), ("StackTemplatePal", 189, 69), ("GeneralPalette", 212, 33)] {
+        let key = crate::model::color_picture_key(name, false);
+        s.color_pictures.insert(key, std::sync::Arc::new(crate::model::Picture::new(w, h)));
+    }
+    s.script = "on paletteDismiss\n  put \"dismissed\" into msg\nend paletteDismiss\non createStack\n  put \"create\" into msg\nend createStack".into();
+    let mut i = interp_with(s);
+    lock(&i.world).window_origin = (100, 50);
+    // Opened at a point on the screen; the window is on the card.
+    run(&mut i, "FieldPalette \"Categories\", 150, 250");
+    assert_eq!(run(&mut i, "put the result"), "");
+    assert_eq!(run(&mut i, "put the rect of window \"FieldPalette\""), "50,200,262,288");
+    assert_eq!(run(&mut i, "global HaveFieldPalette, FieldPaletteLoc\nput HaveFieldPalette && FieldPaletteLoc"), "true 150,250");
+    assert_eq!(run(&mut i, "put the id of window \"FieldPalette\""), "4000");
+    assert_eq!(run(&mut i, "put the commands of window \"FieldPalette\""), "goPrev\ngoCategories\ngoNext");
+    // Its three lines are drawn on it.
+    let before = lock(&i.world).script_windows[0].palette.clone().unwrap();
+    run(&mut i, "set the fields of window \"FieldPalette\" to \"Books\" & return & \"2 of 10\" & return & \"Spiral\"");
+    assert_eq!(run(&mut i, "put line 2 of the fields of window \"FieldPalette\""), "2 of 10");
+    let after = lock(&i.world).script_windows[0].palette.clone().unwrap();
+    assert_ne!(before.picture, after.picture);
+    // Only one at a time; a problem goes in the result.
+    run(&mut i, "FieldPalette \"Again\", 0, 0");
+    assert_eq!(run(&mut i, "put the result"), "Error:  There already is a FieldPalette window.");
+    // Moved, then sent back to its Loc.
+    run(&mut i, "set the loc of window \"FieldPalette\" to 5,5");
+    run(&mut i, "send \"move\" to window \"FieldPalette\"");
+    assert_eq!(run(&mut i, "put the loc of window \"FieldPalette\""), "50,200");
+    // Closing: paletteDismiss, and the globals say where it was.
+    run(&mut i, "set the loc of window \"FieldPalette\" to 10,20");
+    run(&mut i, "close window \"FieldPalette\"");
+    assert_eq!(lock(&i.world).msg, "dismissed");
+    assert_eq!(run(&mut i, "global HaveFieldPalette, FieldPaletteLoc\nput HaveFieldPalette && FieldPaletteLoc"), "false 110,70");
+    // StackTemplatePal takes two names; its top button sends createStack.
+    run(&mut i, "StackTemplatePal \"Create Stack\", \"Templates\", 100, 50");
+    assert_eq!(run(&mut i, "put the commands of window \"StackTemplatePal\""), "showInfo\ncreateStack\ngoHome\ngoCategories\ngoPrev\ngoNext");
+    i.handle_event(Event::PaletteButton("StackTemplatePal".into(), 1));
+    assert_eq!(lock(&i.world).msg, "create");
+    // GeneralPalette with a title is taller; with too few names, an error.
+    run(&mut i, "GeneralPalette \"Contents\", \"Art\", 100, 50");
+    assert_eq!(run(&mut i, "put the height of window \"GeneralPalette\""), "53");
+    run(&mut i, "close window \"GeneralPalette\"\nGeneralPalette 100, 50");
+    assert_eq!(run(&mut i, "put the result"), "Error:  Incorrect number of parameters.");
+    // No picture, no palette.
+    lock(&i.world).stack.color_pictures.clear();
+    run(&mut i, "GeneralPalette \"Contents\", 100, 50");
+    assert_eq!(run(&mut i, "put the result"), "Error:  Can't access GeneralPalette PICT.");
+}
+
+#[test]
+fn number_of_what_a_variable_names() {
+    // `number of theObjs` counts what the variable names, as Power Tools'
+    // listObjects has it; a variable naming one object still gives its number.
+    let mut i = interp_with(stack());
+    assert_eq!(run(&mut i, "put \"cd btns\" into theObjs\nput number of theObjs"), "1");
+    assert_eq!(run(&mut i, "put \"cards\" into what\nput the number of what"), "3");
+    assert_eq!(run(&mut i, "put \"card 2\" into theCard\nput the number of theCard"), "2");
+    assert_eq!(run(&mut i, "put \"cd btn\" into theObj\nput number of (theObj & \"s\")"), "1");
 }

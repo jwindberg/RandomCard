@@ -688,7 +688,8 @@ pub struct Stack {
     pub fonts: Vec<StackFont>,
     /// AddColor's color pictures, by `color_picture_key`: PICT resources
     /// from the HyperCard stack's resource fork, and PICT files beside it,
-    /// kept in the stack so they go where it goes.
+    /// kept in the stack so they go where it goes. Pictures the stack's
+    /// built-in externals draw (GeneralPalette's) are kept here too.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub color_pictures: BTreeMap<String, std::sync::Arc<Picture>>,
     /// The paint pattern palette: 40 patterns of 8 rows, numbered from 1.

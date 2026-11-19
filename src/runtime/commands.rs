@@ -232,6 +232,13 @@ impl Interp {
                         drop(w);
                         self.close_script_window(name, false)
                     }
+                    // A built-in Apple palette goes back where its Loc
+                    // global says.
+                    "move" if w.script_windows[at].apple.is_some() => {
+                        drop(w);
+                        self.apple_palette_move(name);
+                        Ok(())
+                    }
                     _ => Ok(()),
                 }
             }
@@ -2779,7 +2786,8 @@ fn is_text_menu_item(key: &str) -> bool {
 }
 
 /// How a script sees where a stack is: its path, or its name if it has
-/// no file yet.
+/// no file yet. A stack converted from HyperCard is still the file it came
+/// from until it's saved, as in its long name.
 pub(super) fn place_of(s: &crate::model::Stack) -> String {
-    s.path.as_ref().map_or(s.name.clone(), |p| super::paths::shown(p))
+    super::world::stack_file(s).map_or(s.name.clone(), super::paths::shown)
 }

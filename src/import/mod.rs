@@ -99,10 +99,25 @@ pub fn import_bytes(bytes: &[u8], path: &Path, password: Option<&str>) -> Result
         stack.palettes = resources::palettes(&fork, enc);
         addcolor::apply(&mut stack, &resources::parse(&fork, enc), enc);
         addcolor::pictures(&mut stack, &resources::parse(&fork, enc), path);
+        external_pictures(&mut stack, &resources::parse(&fork, enc));
     }
     add_chain_resources(&mut stack, path, enc);
     stack.imported_from = Some(path.to_path_buf());
     Ok(stack)
+}
+
+/// Pictures an external draws: a PICT named like one of the stack's XCMDs or
+/// XFCNs, as GeneralPalette's palette is. They're kept by name with the
+/// stack's other pictures, for the externals RandomCard has built in.
+fn external_pictures(stack: &mut Stack, res: &[resources::Resource]) {
+    let externals: HashSet<String> =
+        res.iter().filter(|r| &r.kind == b"XCMD" || &r.kind == b"XFCN").map(|r| r.name.to_lowercase()).collect();
+    for r in res.iter().filter(|r| &r.kind == b"PICT" && externals.contains(&r.name.to_lowercase())) {
+        if let Some(p) = pict::decode(r.data) {
+            let key = crate::model::color_picture_key(&r.name, false);
+            stack.color_pictures.insert(key, std::sync::Arc::new(p.to_color_picture()));
+        }
+    }
 }
 
 /// Fetch icons the stack's buttons use, and icons and sounds its scripts

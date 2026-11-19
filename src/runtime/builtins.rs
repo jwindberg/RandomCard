@@ -199,8 +199,7 @@ impl Interp {
             // Every open stack, the current one first.
             "stacks" => {
                 let w = self.w();
-                let names: Vec<String> =
-                    w.open_stacks().map(|s| s.path.as_ref().map(|p| super::paths::shown(p)).unwrap_or_else(|| s.name.clone())).collect();
+                let names: Vec<String> = w.open_stacks().map(super::commands::place_of).collect();
                 names.join("\n")
             }
             "stacksinuse" => {
@@ -209,7 +208,7 @@ impl Interp {
                     .in_use
                     .iter()
                     .filter_map(|n| w.find_other(n, None).and_then(|k| w.other(k)))
-                    .map(|s| s.path.as_ref().map(|p| super::paths::shown(p)).unwrap_or_else(|| s.name.clone()))
+                    .map(super::commands::place_of)
                     .collect();
                 names.join("\n")
             }
