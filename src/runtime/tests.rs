@@ -600,6 +600,15 @@ fn demo_stack_runs() {
     i.canned_answers.push(DialogReply::Button("OK".into()));
     assert_eq!(click(&mut i, "Palettes", "Ask Home"), None);
     assert_eq!(current(&i), "Palettes");
+    // HyperCard's Navigator, drawn by RandomCard: its Next goes on, and
+    // the button closes it again.
+    assert_eq!(click(&mut i, "Palettes", "Navigator"), None);
+    assert!(run(&mut i, "put field \"Said\"").starts_with("HyperCard's Navigator"));
+    i.handle_event(Event::PaletteButton("Navigator".into(), 6));
+    assert_eq!(current(&i), "Card Window");
+    run(&mut i, "go to card \"Palettes\"");
+    assert_eq!(click(&mut i, "Palettes", "Navigator"), None);
+    assert_eq!(run(&mut i, "put there is a window \"Navigator\""), "false");
     // The palette moved and put back, then shown with `show pattern window`.
     lock(&i.world).palette_state.rect = crate::model::Rect::new(10, 60, 146, 256);
     assert_eq!(click(&mut i, "Palettes", "Move the Tools"), None);

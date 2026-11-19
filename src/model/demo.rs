@@ -1748,7 +1748,7 @@ end mouseUp"#,
         &format!("on mouseUp\n  put \"There's a hidden button below. Hold {keys} to outline every button, and add Shift for fields too.\" into field \"Said\"\nend mouseUp"),
     );
     b.card_part(c, peek);
-    let mut secret = b.button("Secret", Rect::new(360, 278, 470, 302), "on mouseUp\n  put \"You found the hidden button.\" into field \"Said\"\nend mouseUp");
+    let mut secret = b.button("Secret", Rect::new(410, 278, 490, 302), "on mouseUp\n  put \"You found the hidden button.\" into field \"Said\"\nend mouseUp");
     secret.style = PartStyle::Transparent;
     secret.show_name = false;
     b.card_part(c, secret);
@@ -1766,16 +1766,24 @@ end mouseUp"#,
     b.card_part(c, windows);
     let open = b.button(
         "Home in a Window",
-        Rect::new(36, 278, 196, 302),
+        Rect::new(36, 278, 166, 302),
         "on mouseUp\n  go to stack \"Home\" in a new window\n  if the result is not empty then answer the result\nend mouseUp",
     );
     b.card_part(c, open);
     let ask = b.button(
         "Ask Home",
-        Rect::new(206, 278, 346, 302),
+        Rect::new(176, 278, 276, 302),
         "on mouseUp\n  answer \"Home has\" && the number of cards of stack \"Home\" && \"cards. The first is called\" && quote & the short name of card 1 of stack \"Home\" & quote & \".\"\nend mouseUp",
     );
     b.card_part(c, ask);
+    // HyperCard's Navigator came with the application, not a stack, so
+    // RandomCard draws its own: palette "Navigator" works anywhere.
+    let navigator = b.button(
+        "Navigator",
+        Rect::new(286, 278, 396, 302),
+        "on mouseUp\n  if there is a window \"Navigator\" then\n    close window \"Navigator\"\n    exit mouseUp\n  end if\n  palette \"Navigator\", \"330,110\"\n  put \"HyperCard's Navigator: Back, Home, Help, Recent; First, Prev, Next, Last; Find, Message, Next Window.\" into field \"Said\"\nend mouseUp",
+    );
+    b.card_part(c, navigator);
 
     // ----- The card window: smaller than the card and scrolled, zoomed,
     // and the size of every card. All of it fits in the top-left corner,
