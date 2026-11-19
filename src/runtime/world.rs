@@ -690,6 +690,9 @@ pub struct World {
     pub edit_bg: bool,
     pub msg: String,
     pub msg_visible: bool,
+    /// Where a script's `type` goes in the message box, in characters, when
+    /// it has the insertion point (after Find): Enter then runs it.
+    pub msg_insert: Option<usize>,
     /// Where scripts have put the message box. It's drawn under the card
     /// whatever this says, but scripts read back what they set.
     pub msg_rect: crate::model::Rect,
@@ -997,6 +1000,7 @@ impl World {
             edit_bg: false,
             msg: String::new(),
             msg_visible: false,
+            msg_insert: None,
             msg_rect,
             window_origin: (0, 0),
             card_scroll: (0, 0),

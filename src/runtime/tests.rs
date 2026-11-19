@@ -4930,3 +4930,17 @@ fn quicktime_tools_questions() {
     run(&mut i, "put \"textSize\" into prop\nset (prop) of bg field 1 to 18");
     assert_eq!(run(&mut i, "put the textSize of bg field 1"), "18");
 }
+
+#[test]
+fn a_script_types_into_find() {
+    // The French Help stack's demo: Find, the letters typed one by one,
+    // then Enter, as a person would.
+    let mut i = interp_with(stack());
+    run(&mut i, "put \"zebra\" into bg field 1 of card 3");
+    let card = lock(&i.world).card_id;
+    set_script(&i, ObjRef::Card(card), "on findIt\n  doMenu \"Find…\"\n  type \"z\"\n  type \"e\"\n  enterKey\nend findIt");
+    run(&mut i, "findIt");
+    assert_eq!(run(&mut i, "put the number of this card"), "3");
+    // XCMD.Flush's flush drops events waiting, as flush keys does.
+    run(&mut i, "flush");
+}

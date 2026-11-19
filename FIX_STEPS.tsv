@@ -37,3 +37,4 @@ HyperCard Help	lastItem(":",destination())	lastItem(the pathSeparator,destinatio
 Help Extras	lastItem(":",destination())	lastItem(the pathSeparator,destination())	Mac colon paths: the folder separator is the pathSeparator on other systems
 HyperCard AppleScript Reference	lastItem(":",destination())	lastItem(the pathSeparator,destination())	Mac colon paths: the folder separator is the pathSeparator on other systems
 Audio Help	(":" & helpMItem & return) is not in (the stacksInUse & return)	(the pathSeparator & helpMItem & return) is not in (the stacksInUse & return)	Mac colon paths: the folder separator is the pathSeparator on other systems
+Aide	domenu "Chercher (find)..."	domenu "Find…"	The French HyperCard named its Find menu item "Chercher (find)..."; RandomCard's is Find…

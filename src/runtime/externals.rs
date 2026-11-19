@@ -335,6 +335,11 @@ impl Interp {
         if name == "picture" {
             return Some(self.picture_command(args));
         }
+        // Flush (XCMD.Flush): events waiting are dropped, as `flush keys`.
+        if name == "flush" && args.is_empty() {
+            self.keys_flushed = Some(std::time::Instant::now());
+            return Some(Ok(()));
+        }
         if let Some(r) = self.resource_mover(name, args) {
             return Some(r);
         }

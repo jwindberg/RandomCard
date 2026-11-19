@@ -1535,7 +1535,8 @@ impl Parser {
                 self.advance();
                 Cmd::ResetMenuBar
             }
-            "tabkey" | "enterkey" | "returnkey" | "enterinfield" | "returninfield" => Cmd::NoOp,
+            "enterkey" | "returnkey" => Cmd::EnterKey,
+            "tabkey" | "enterinfield" | "returninfield" => Cmd::NoOp,
             "print" => Cmd::Print(self.print_what()?),
             "debug" if self.is("checkpoint") => {
                 self.advance();

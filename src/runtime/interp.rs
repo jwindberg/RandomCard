@@ -486,7 +486,7 @@ impl Interp {
         self.open_stack_messages()
     }
 
-    fn run_msgbox(&mut self, text: &str) -> R<()> {
+    pub(super) fn run_msgbox(&mut self, text: &str) -> R<()> {
         let stmts = parse_statements(text).or_else(err)?;
         let card = self.current_card_ref();
         let mut frame = Frame::new(card, card, "", vec![]);

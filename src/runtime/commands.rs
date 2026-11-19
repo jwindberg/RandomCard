@@ -151,6 +151,16 @@ impl Interp {
                 self.result = format!("Can't find program \"{}\"", program.trim());
                 Ok(())
             }
+            Cmd::EnterKey => {
+                let text = {
+                    let mut w = self.w();
+                    w.msg_insert.take().filter(|_| w.msg_visible).map(|_| w.msg.clone())
+                };
+                match text {
+                    Some(text) => self.run_msgbox(&text),
+                    None => Ok(()),
+                }
+            }
             Cmd::RequestAppleEvent => {
                 self.set_var("it", String::new());
                 self.result = String::new();
@@ -771,6 +781,16 @@ impl Interp {
                     let card = w.card_id;
                     let cur = w.stack.field_text(card, layer, id);
                     w.stack.set_field_text(card, layer, id, cur + &text);
+                } else if w.msg_visible
+                    && let Some(at) = w.msg_insert
+                {
+                    // Into the message box, where Find left the insertion
+                    // point, as a person typing would.
+                    let mut chars: Vec<char> = w.msg.chars().collect();
+                    let at = at.min(chars.len());
+                    chars.splice(at..at, text.chars());
+                    w.msg = chars.into_iter().collect();
+                    w.msg_insert = Some(at + text.chars().count());
                 }
                 Ok(())
             }
@@ -2556,6 +2576,7 @@ impl Interp {
                 let mut w = self.w();
                 w.msg = "find \"\"".into();
                 w.msg_visible = true;
+                w.msg_insert = Some(6);
                 w.requests.push(UiRequest::FocusMessage(6));
                 Ok(())
             }

@@ -364,6 +364,9 @@ pub enum Cmd {
     ToProgram { msg: Expr, program: Expr },
     /// `request appleEvent data`: there's no Apple event to ask about.
     RequestAppleEvent,
+    /// `enterKey`, `returnKey`: with the message box ready to type in
+    /// (after Find), run it, as pressing the key there would.
+    EnterKey,
     /// `do script as AppleScript`: a script in another language.
     DoAs(Expr, Expr),
     VisualEffect(Effect),
