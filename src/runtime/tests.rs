@@ -4726,3 +4726,21 @@ fn a_chunk_of_a_value_names_an_object() {
     run(&mut i, "put \"Hello world\" into bg field 1\nset the textStyle of word 2 of bg field 1 to bold");
     assert_eq!(run(&mut i, "put the textStyle of word 2 of bg field 1"), "bold");
 }
+
+#[test]
+fn resources_lists_a_stacks_resources() {
+    // Power Tools' Resources XFCN: "type id size name" a line, from what
+    // the stack keeps of its resource fork.
+    let mut s = stack();
+    s.icons.insert(128, crate::model::Icon { name: "Star".into(), picture: crate::model::Picture::new(32, 32) });
+    s.pictures.insert(200, crate::model::NamedPicture { name: "Klee".into(), picture: crate::model::Picture::new(10, 10) });
+    s.palettes.insert(300, crate::model::Palette { name: "Tools".into(), picture: crate::model::Picture::new(4, 4), buttons: vec![] });
+    let mut i = interp_with(s);
+    assert_eq!(run(&mut i, "put Resources()"), "ICON 128 128 Star\nPLTE 300 24 Tools\nPICT 300 16 Tools\nPICT 200 100 Klee");
+    assert_eq!(run(&mut i, "put line 1 of Resources(line 1 of the stacks)"), "ICON 128 128 Star");
+    // `choose the browse tool`, as Power Tools has it.
+    run(&mut i, "choose the button tool");
+    assert_eq!(run(&mut i, "put the tool"), "button tool");
+    run(&mut i, "choose the browse tool");
+    assert_eq!(run(&mut i, "put the tool"), "browse tool");
+}

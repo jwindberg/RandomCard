@@ -1155,6 +1155,10 @@ impl Parser {
                 Cmd::Http { method, body, url, message: self.with_message()? }
             }
             "choose" => {
+                // `choose the browse tool`, as Power Tools writes it.
+                if !self.is_at(1, "of") {
+                    self.accept("the");
+                }
                 if self.accept("tool") {
                     return Ok(Cmd::ChooseTool(self.expr()?));
                 }

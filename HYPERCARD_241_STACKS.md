@@ -55,7 +55,7 @@ the others is in the roadmap's "HyperCard 2.4.1's own stacks" section.
 | HyperCard Stacks/Graph Maker | 20 | 1 | card 2 button "frame": No such property "textheight" |
 | HyperCard Stacks/New Features | 14 | 3 | openStack: The button has no line 0 |
 | HyperCard Stacks/QuickTime Tools | 169 | 14 | openStack: No such object "QuickTime" |
-| More Stacks/Power Tools | 68 | 2 | card 15 button "Install Palette...": No such function "resources" |
+| More Stacks/Power Tools | 68 | 1 | card 15 button "": No such card field |
 | More Stacks/Readymade Buttons | 85 | 2 | card 5 button "Show Navigator": Can't find palette "Navigator" |
 
 ## Not stacks

@@ -689,6 +689,7 @@ became of it.
 | SysPrefs | the preferences file's path (in RandomCard's settings folder) |
 | Dialog | `answer` |
 | ListSelect | a list dialog for choosing lines |
+| Resources (Apple's Power Tools) | a stack's icons, sounds, palettes, pictures and songs, as the resources they were: `Resources(line 1 of the stacks)` gives "ICON 128 128 Star" a line |
 | ShowList (Apple's Power Tools) | the same list dialog with up to four named buttons: `get showList(lines, prompt, multiSelect, typingSelect, "OK,Cancel^", hilitedLine)` answers the button, then the chosen lines' numbers |
 | PopUpMenu, PopMenu | a popup menu at a point |
 | Prompt | a "please wait" window: `Prompt 1, "Working…"` and `Prompt 3` |

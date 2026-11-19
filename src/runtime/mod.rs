@@ -3,6 +3,7 @@
 pub mod addcolor;
 mod apple_palettes;
 mod pictures;
+mod resource_mover;
 mod builtins;
 pub mod web;
 mod commands;

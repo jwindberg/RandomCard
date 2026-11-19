@@ -68,6 +68,10 @@ impl Interp {
         if let Some(v) = self.rinaldi_function(name, args) {
             return Some(v);
         }
+        // Power Tools' Resources XFCN: the stack's resources, listed.
+        if name == "resources" {
+            return Some(self.resources_function(args));
+        }
         // Power Tools' ShowList XFCN.
         if name == "showlist" {
             return Some(self.show_list(args));

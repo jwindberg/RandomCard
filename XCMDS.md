@@ -309,7 +309,7 @@ they never call.
 | GetDocIcon | XFCN | 1 stack, called in 1 | Copies a document's icon into the stack. | Stub | As GetAppIcon | Planned |
 | KillResID | XCMD | 1 stack, called in 1 | Deletes an icon or other resource from a stack. | Built in | As removing a stack's icons and sounds | Planned |
 | Rescopy | XCMD | 1 stack, called in 1 | Copies resources between stacks. | Built in | As copying a stack's icons and sounds | Planned |
-| Resources | XFCN | 1 stack, called in 0 | Lists a file's resources (not called). | Built in | As listing a stack's icons and sounds | Planned |
+| Resources | XFCN | 1 stack, called in 0; HyperCard 2.4.1's Power Tools, called | Lists a file's resources, "type id size name" a line. | Built in | src/runtime/resource_mover.rs: a stack's icons, sounds, palettes (PLTE and PICT), pictures and songs, as the resources they were | Done |
 | UpdateResFork | XCMD | 1 stack, called in 1 | Saves changes to a resource fork. | Stub | RandomCard saves stacks itself | Planned |
 | ClipToPICTRes | XCMD | 1 stack, called in 0 | Saves the clipboard as a picture resource (not called). | Stub | Resource forks don't exist on modern systems | Planned |
 
