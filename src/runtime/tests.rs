@@ -321,13 +321,13 @@ fn startup_comes_before_open_stack_once() {
 fn demo_stack_runs() {
     let mut i = interp_with(Stack::demo());
     i.handle_event(Event::Startup);
-    assert_eq!(run(&mut i, "put field \"Page\""), "Card 1 of 21");
+    assert_eq!(run(&mut i, "put field \"Page\""), "Card 1 of 22");
     let current = |i: &Interp| {
         let w = lock(&i.world);
         w.stack.card(w.card_id).unwrap().name.clone()
     };
     // The stack's own Tour menu.
-    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "20");
+    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "21");
     i.handle_event(Event::DoMenu("Dice".into()));
     assert_eq!(current(&i), "Dice");
     i.handle_event(Event::DoMenu("First".into()));
@@ -761,7 +761,7 @@ fn demo_stack_runs() {
     assert_eq!(run(&mut i, "put the number of cards of this background"), "4");
     i.canned_answers.push(DialogReply::Button("Delete".into()));
     assert_eq!(click(&mut i, "", "Delete"), None);
-    assert_eq!(run(&mut i, "put the number of cards"), "21");
+    assert_eq!(run(&mut i, "put the number of cards"), "22");
     assert_eq!(click(&mut i, "Grace Hopper", "Contents"), None);
     assert_eq!(current(&i), "Contents");
     assert_eq!(run(&mut i, "put the userLevel"), "5");
@@ -4598,4 +4598,115 @@ fn show_list() {
     t.canned_answers.push(DialogReply::List(vec![0], "Flash".into()));
     assert_eq!(click(&mut t, "Debugging", "List Objects"), None);
     assert_eq!(run(&mut t, "put cd fld \"Answer\""), "ShowList answered \"Flash\" and line 1.");
+}
+
+#[test]
+fn picture_windows() {
+    // The picture command (HyperCard's Picture XCMD): a picture from a file
+    // or the stack's own, in a window named for it.
+    let dir = std::env::temp_dir().join(format!("randomcard-picture-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    image::RgbaImage::from_pixel(40, 30, image::Rgba([200, 0, 0, 255])).save(dir.join("Klee.png")).unwrap();
+    let mut s = stack();
+    s.path = Some(dir.join("Pics.rcstack"));
+    s.pictures.insert(26760, crate::model::NamedPicture { name: "Pelican".into(), picture: crate::model::Picture::new(20, 10) });
+    s.script = "on openPicture n, i\n  put \"open\" && n && i & \",\" after msg\nend openPicture\non closePicture n, i\n  put \"close\" && n && i & \",\" after msg\nend closePicture".into();
+    let mut i = interp_with(s);
+    assert_eq!(run(&mut i, "picture \"Klee.png\", file, shadow"), "open Klee.png 1001,");
+    assert_eq!(run(&mut i, "put the result"), "");
+    assert_eq!(run(&mut i, "put the owner of window \"Klee.png\" && the pictureWidth of window \"Klee.png\""), "Picture 40");
+    // In the middle of the card, at its own size.
+    assert_eq!(run(&mut i, "put the rect of window \"Klee.png\""), "236,156,276,186");
+    // From the stack's pictures, by number or name; the window takes the
+    // picture's name. An invisible one is still a window.
+    run(&mut i, "picture 26760, resource, windoid, false");
+    assert_eq!(run(&mut i, "put the visible of window \"Pelican\" && there is a window \"Pelican\""), "false true");
+    assert_eq!(run(&mut i, "put the number of pictures"), "2");
+    // Closed by number, front first, or by name.
+    lock(&i.world).msg.clear();
+    assert_eq!(run(&mut i, "close picture 1"), "close Pelican 1002,");
+    run(&mut i, "close picture \"Klee.png\"");
+    assert_eq!(run(&mut i, "put the number of pictures"), "0");
+    run(&mut i, "open picture \"Klee.png\"");
+    assert_eq!(run(&mut i, "put the number of pictures"), "1");
+    // Problems go in the result.
+    run(&mut i, "picture \"Nowhere.png\"");
+    assert!(run(&mut i, "put the result").starts_with("Couldn't display picture."));
+    run(&mut i, "picture \"Klee.png\", file, sideways");
+    assert!(run(&mut i, "put the result").starts_with("Couldn't display picture."));
+    run(&mut i, "picture \"Gull\", resource");
+    assert!(run(&mut i, "put the result").starts_with("Couldn't display picture."));
+    // TNPict, from the Technical Notes stacks, shows its file the same way.
+    run(&mut i, "TNPict \"Klee.png\"");
+    assert_eq!(run(&mut i, "put the result & the owner of window \"Klee.png\""), "Picture");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn picture_window_properties() {
+    // A picture window's own properties: where it is on the screen, what
+    // part of the picture it shows and how big, zooming, and clicks.
+    let dir = std::env::temp_dir().join(format!("randomcard-picprops-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    image::RgbaImage::from_pixel(400, 300, image::Rgba([0, 0, 0, 255])).save(dir.join("Big.png")).unwrap();
+    let mut s = stack();
+    s.path = Some(dir.join("Pics.rcstack"));
+    s.script = "on mouseDownInPicture n, p\n  put \"down\" && n && p into msg\nend mouseDownInPicture".into();
+    let mut i = interp_with(s);
+    {
+        let mut w = lock(&i.world);
+        w.window_origin = (100, 50);
+        w.screen_rect = crate::model::Rect::new(0, 0, 1024, 768);
+    }
+    run(&mut i, "picture \"Big.png\"");
+    assert_eq!(run(&mut i, "put the name of picture 1"), "Big.png");
+    assert_eq!(run(&mut i, "put the globalLoc of picture 1"), "156,71");
+    run(&mut i, "set the globalLoc of picture 1 to 200,100");
+    assert_eq!(run(&mut i, "put the loc of window \"Big.png\""), "100,50");
+    // Made smaller than the picture, it scrolls, within the picture.
+    run(&mut i, "set the rect of window \"Big.png\" to 0,0,100,100");
+    run(&mut i, "set the scroll of window \"Big.png\" to 50,500");
+    assert_eq!(run(&mut i, "put the scroll of window \"Big.png\""), "50,200");
+    // Twice the size shows half as much, so it can scroll further.
+    run(&mut i, "set the scale of picture 1 to 1\nset the scroll of picture 1 to 999,999");
+    assert_eq!(run(&mut i, "put the scale of picture 1 && the scroll of picture 1"), "1 350,250");
+    // Zoomed out, as big as the picture at its scale allows; in again, back.
+    run(&mut i, "set the scale of picture 1 to 0\nset the zoom of picture 1 to out");
+    assert_eq!(run(&mut i, "put the zoom of picture 1 && the rect of picture 1"), "out 0,0,400,300");
+    run(&mut i, "set the zoom of picture 1 to in");
+    assert_eq!(run(&mut i, "put the zoom of picture 1 && the rect of picture 1"), "in 0,0,100,100");
+    // The screen words center it on the screen.
+    run(&mut i, "set the loc of picture 1 to cardScreen");
+    assert_eq!(run(&mut i, "put the globalRect of picture 1"), "462,334,562,434");
+    // Clicks come to the card at their point in the picture.
+    i.handle_event(Event::PictureMouse { name: "Big.png".into(), down: true, at: (3, 4) });
+    assert_eq!(lock(&i.world).msg, "down Big.png 3,4");
+    assert_eq!(run(&mut i, "put the number of windows > the number of pictures"), "true");
+    // Windows by number, as the windows lists them, front first.
+    assert_eq!(run(&mut i, "put the name of window 1 && the owner of window 1"), "Big.png Picture");
+    run(&mut i, "close window 1");
+    assert_eq!(run(&mut i, "put the number of pictures"), "0");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn tour_pictures() {
+    // The Tour's Pictures card: a picture the Tour carries, in a window
+    // that's scaled, zoomed and centered, and that tells the card.
+    let mut i = interp_with(Stack::demo());
+    lock(&i.world).screen_rect = crate::model::Rect::new(0, 0, 1024, 768);
+    run(&mut i, "go to card \"Pictures\"");
+    assert_eq!(click(&mut i, "Pictures", "Show Picture"), None);
+    assert_eq!(run(&mut i, "put field \"Picture Messages\""), "openPicture Rainbow 1001");
+    assert_eq!(run(&mut i, "put the rect of window \"Rainbow\""), "60,130,208,210");
+    assert_eq!(click(&mut i, "Pictures", "Bigger"), None);
+    assert_eq!(click(&mut i, "Pictures", "Zoom"), None);
+    assert_eq!(run(&mut i, "put field \"Picture Messages\""), "zoom out, the rect 60,130,356,290");
+    assert_eq!(click(&mut i, "Pictures", "Center"), None);
+    assert!(run(&mut i, "put field \"Picture Messages\"").starts_with("Centered on the screen"));
+    i.handle_event(Event::PictureMouse { name: "Rainbow".into(), down: true, at: (70, 40) });
+    assert_eq!(run(&mut i, "put field \"Picture Messages\""), "mouseDownInPicture Rainbow at 70,40");
+    // Leaving closes it.
+    run(&mut i, "go to next card");
+    assert_eq!(run(&mut i, "put the number of pictures"), "0");
 }

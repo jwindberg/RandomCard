@@ -14,6 +14,7 @@ mod list_dialog;
 #[cfg(target_os = "macos")]
 mod native_menu;
 mod painting;
+mod picture_windows;
 mod popup;
 mod recent;
 mod render;
@@ -226,6 +227,8 @@ pub struct App {
     /// Palette pictures, normal and inverted, by window name, with the
     /// palette each was made from.
     palette_tex: std::collections::HashMap<String, (std::sync::Arc<crate::model::Palette>, egui::TextureHandle, egui::TextureHandle)>,
+    /// Picture windows' textures, by window name.
+    picture_tex: std::collections::HashMap<String, (std::sync::Arc<crate::model::Picture>, egui::TextureHandle)>,
     /// Each movie window's picture, and the movie whose slider is held.
     movie_tex: movies::MovieTextures,
     movie_scrub: Option<movies::Scrub>,
@@ -346,6 +349,7 @@ impl App {
             recent_open: false,
             popup: None,
             palette_tex: std::collections::HashMap::new(),
+            picture_tex: std::collections::HashMap::new(),
             movie_tex: Default::default(),
             movie_scrub: None,
             palette_press: None,

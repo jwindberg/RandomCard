@@ -383,6 +383,11 @@ impl Interp {
             Countable::MarkedCards => self.w().stack.cards.iter().filter(|c| c.marked).count(),
             Countable::Menus => self.w().menus.len(),
             Countable::Movies => self.w().movies.len(),
+            Countable::Pictures => self.picture_count(),
+            Countable::Windows => {
+                let all = self.builtin("windows", NameLength::Default, vec![])?;
+                all.lines().count()
+            }
             Countable::MenuItems(m) => self.count_menu_items(m)?,
             Countable::Backgrounds => self.w().stack.backgrounds.len(),
             Countable::Parts { kind, layer, of } => {

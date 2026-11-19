@@ -863,6 +863,13 @@ impl Parser {
                         return Ok(Cmd::SetWindowProp { prop, window: movie, value: self.list_expr()? });
                     }
                 }
+                // `set the globalLoc of picture 1 to 0,0`: a picture window.
+                if of && self.is("picture") && self.starts_term_at(1) {
+                    self.advance();
+                    let window = Expr::Call("__picturename".into(), vec![self.term()?]);
+                    self.expect("to")?;
+                    return Ok(Cmd::SetWindowProp { prop, window, value: self.window_value()? });
+                }
                 // `set the visible of tool window to true`
                 if of && matches!(self.word(), Some("tool" | "pattern" | "patterns")) && self.is_at(1, "window") {
                     let name = format!("{} window", self.word().unwrap_or_default());
@@ -877,7 +884,7 @@ impl Parser {
                     Cmd::SetWindowProp {
                         prop,
                         window,
-                        value: self.list_expr()?,
+                        value: self.window_value()?,
                     }
                 } else {
                     let obj = if of { Some(self.term()?) } else { None };
@@ -1205,6 +1212,11 @@ impl Parser {
             "mark" => Cmd::Mark(self.mark_what()?),
             "unmark" => Cmd::Unmark(self.mark_what()?),
             "open" => {
+                // `open picture [file] "Klee"`: the picture command.
+                if self.accept("picture") {
+                    self.accept("file");
+                    return Ok(Cmd::OpenPicture(if self.at_stmt_end() { None } else { Some(self.expr()?) }));
+                }
                 // `open movie "Intro"`: open a movie file in a movie window.
                 if self.accept("movie") {
                     return Ok(Cmd::OpenMovie(if self.at_stmt_end() { None } else { Some(self.expr()?) }));
@@ -1235,6 +1247,9 @@ impl Parser {
                     Cmd::CloseFile(self.expr()?)
                 } else if self.accept("window") {
                     Cmd::CloseWindow(self.expr()?)
+                } else if self.accept("picture") {
+                    // `close picture "Klee"`, or `close picture 1`.
+                    Cmd::CloseWindow(Expr::Call("__picturename".into(), vec![self.expr()?]))
                 } else if let Some(movie) = self.movie_ref()? {
                     Cmd::CloseWindow(movie)
                 } else if self.accept("printing") {
@@ -1498,6 +1513,17 @@ impl Parser {
             n += 1;
         }
         false
+    }
+
+    /// What a window's property is set to: a value, or a bare `in` or `out`,
+    /// as `set the zoom of window "Klee" to out` has it.
+    fn window_value(&mut self) -> PResult<Expr> {
+        if matches!(self.word(), Some("in" | "out")) && self.at_stmt_end_at(1) {
+            let word = self.word().unwrap_or_default().to_string();
+            self.advance();
+            return Ok(Expr::Lit(word));
+        }
+        self.list_expr()
     }
 
     fn at_stmt_end_at(&self, n: usize) -> bool {
@@ -2369,6 +2395,12 @@ impl Parser {
                 self.pos += 2;
                 return Ok(Expr::Call("__windowprop".into(), vec![Expr::Lit(name), Expr::Lit(window)]));
             }
+            // A picture window: `the name of picture 1`.
+            if self.is("picture") && self.starts_term_at(1) {
+                self.advance();
+                let window = Expr::Call("__picturename".into(), vec![self.term()?]);
+                return Ok(Expr::Call("__windowprop".into(), vec![Expr::Lit(name), window]));
+            }
             // A window a script opened: `the text of window "Notes"`.
             if self.is("window") && self.starts_term_at(1) {
                 self.advance();
@@ -2430,6 +2462,12 @@ impl Parser {
     fn countable(&mut self) -> PResult<Option<Countable>> {
         if self.accept("menus") {
             return Ok(Some(Countable::Menus));
+        }
+        if self.accept("pictures") {
+            return Ok(Some(Countable::Pictures));
+        }
+        if self.accept("windows") {
+            return Ok(Some(Countable::Windows));
         }
         if self.accept("movies") {
             return Ok(Some(Countable::Movies));

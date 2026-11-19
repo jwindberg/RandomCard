@@ -172,7 +172,7 @@ they never call.
 | KrsShowMenu | XCMD | 1 stack, called in 1 | Shows a menu (HyperKRS). | Built in | As the menus RandomCard draws | Planned |
 | Prompt | XCMD | 2 stacks, called in 2 | Shows a "please wait" message (`prompt 1, "…"`) and hides it (`prompt 3`) (by Frédéric Rinaldi). | Built in | src/runtime/rinaldi.rs; a locked text window named "Prompt" | Done |
 | TEXWindow | XCMD | 2 stacks, called in 2 | Shows text in a window of its own. | Built in | As a text window (with roadmap item 8, windows) | Done |
-| TNPict | XCMD | 9 stacks, called in 9 | Shows a picture file in a window (Technical Notes stacks). | Built in | As HyperCard 2's `picture` command | Part done: no PICT pictures yet |
+| TNPict | XCMD | 9 stacks, called in 9 | Shows a picture file in a window (Technical Notes stacks). | Built in | As HyperCard 2's `picture` command, a document window | Done |
 | SelectLineXCMD | XCMD | 8 stacks, called in 8 | Selects a line in a field. | Built in | As `select line … of field`, which RandomCard has | Done |
 | SpinAbout | XCMD | 8 stacks, called in 8 | An animated About box (by Andrew Shebanow, Apple, 1989). | Stub | A bit of fun from 1989; it can do nothing | Done |
 | ZoomRect | XCMD | 3 stacks (Prototyping Interactive Video, Prototyping Toolkit 2.0), called in 3 | Draws the Finder's zoom: a trail of rectangles from one rect to another. | Built in | As `zoomRect rect1, rect2`, drawn over the card | Done |

@@ -521,6 +521,15 @@ pub struct Card {
     pub colors: Vec<color::ColorItem>,
 }
 
+/// A picture the stack carries (a PICT resource in HyperCard), for the
+/// `picture` command to show.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NamedPicture {
+    pub name: String,
+    pub picture: Picture,
+}
+
 /// A 32×32 button icon. Clear pixels are transparent.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -675,6 +684,9 @@ pub struct Stack {
     pub icons: BTreeMap<i32, Icon>,
     /// Sounds by resource id; scripts play them by name.
     pub sounds: BTreeMap<i32, Sound>,
+    /// Pictures by resource id, for `picture name, "resource"`.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub pictures: BTreeMap<i32, NamedPicture>,
     /// Palettes by resource id, for the `palette` command.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub palettes: BTreeMap<i32, Palette>,
@@ -760,6 +772,7 @@ impl Stack {
             songs: BTreeMap::new(),
             fonts: Vec::new(),
             palettes: BTreeMap::new(),
+            pictures: BTreeMap::new(),
             color_pictures: BTreeMap::new(),
             patterns: default_patterns(),
             path: None,

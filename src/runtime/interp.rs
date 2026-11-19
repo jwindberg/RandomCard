@@ -326,6 +326,8 @@ impl Interp {
             Event::CloseWindow(name) => self.close_script_window(&name, true),
             Event::CloseMovie(id) => self.close_movie(id),
             Event::OpenMovie(path) => self.open_dropped_movie(&path),
+            Event::PictureMouse { name, down, at } => self.picture_mouse(&name, down, at),
+            Event::PictureZoom(name) => self.toggle_picture_zoom(&name),
             Event::PaletteButton(name, n) => {
                 let card = ObjRef::Card(self.w().card_id);
                 let message = {
@@ -394,7 +396,7 @@ impl Interp {
         }
     }
 
-    fn dispatch_top(&mut self, target: ObjRef, message: &str, args: Vec<String>) -> R<()> {
+    pub(super) fn dispatch_top(&mut self, target: ObjRef, message: &str, args: Vec<String>) -> R<()> {
         let card = self.current_card_ref();
         self.frames.push(Frame::new(card, target, message, args.clone()));
         let handled = self.send_message(target, message, &args);
@@ -587,6 +589,14 @@ impl Interp {
                 self.dispatch_top(card, "paletteDismiss", vec![])
             } else {
                 self.send_message(card, "paletteDismiss", &[]).map(|_| ())
+            };
+        }
+        if let super::world::WindowKind::Picture { id, .. } = t.kind {
+            let args = vec![t.name.clone(), id.to_string()];
+            return if by_user {
+                self.dispatch_top(card, "closePicture", args)
+            } else {
+                self.send_message(card, "closePicture", &args).map(|_| ())
             };
         }
         if let super::world::WindowKind::Palette { id, .. } = t.kind {

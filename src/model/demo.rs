@@ -365,14 +365,14 @@ fn house(p: &mut Picture) {
 const STACK_SCRIPT: &str = r#"-- A menu of the stack's own. Its items arrive as doMenu messages.
 on openStack
   if there is no menu "Tour" then create menu "Tour"
-  put "Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Movies,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,Card Window,The Web,Japanese,-,Address Book" into menu "Tour"
+  put "Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Movies,Pictures,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,Card Window,The Web,Japanese,-,Address Book" into menu "Tour"
 end openStack
 
 on doMenu what
   if what is "Address Book" then
     visual effect zoom open
     go to first card of background "Address"
-  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Movies,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,Card Window,The Web,Japanese," then
+  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Movies,Pictures,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,Card Window,The Web,Japanese," then
     visual effect dissolve
     go to card what
   else
@@ -521,6 +521,7 @@ pub fn build() -> Stack {
         ("Animation", "on mouseUp\n  visual effect venetian blinds\n  go to card \"Animation\"\nend mouseUp"),
         ("Sound", "on mouseUp\n  visual effect barn door open\n  go to card \"Sound\"\nend mouseUp"),
         ("Movies", "on mouseUp\n  visual effect iris open\n  go to card \"Movies\"\nend mouseUp"),
+        ("Pictures", "on mouseUp\n  visual effect zoom open\n  go to card \"Pictures\"\nend mouseUp"),
         ("Keys", "on mouseUp\n  visual effect wipe up\n  go to card \"Keys\"\nend mouseUp"),
         ("Fields & Text", "on mouseUp\n  visual effect dissolve\n  go to card \"Fields\"\nend mouseUp"),
         ("Print & Find", "on mouseUp\n  visual effect scroll left\n  go to card \"Print & Find\"\nend mouseUp"),
@@ -1159,6 +1160,57 @@ on closeCard
     close movie 1
   end repeat
   pass closeCard
+end closeCard"#
+        .into();
+
+    // ----- Pictures: the picture command (HyperCard's Picture XCMD), with
+    // a picture the Tour carries as a stack carried its PICTs.
+    let c = b.card(main, "Pictures");
+    let t = b.label("Heading", Rect::new(20, 10, 492, 36), "Pictures", 20);
+    b.card_part(c, t);
+    let about = b.label(
+        "About",
+        Rect::new(20, 42, 492, 92),
+        "The picture command shows a picture in a window of its own, from a file, the stack or the clipboard. Its window can be scaled, scrolled and zoomed, and clicks in it come to the card.",
+        12,
+    );
+    b.card_part(c, about);
+    b.stack.pictures.insert(128, crate::model::NamedPicture { name: "Rainbow".into(), picture: rainbow() });
+    let picture_buttons = [
+        ("Show Picture", "on mouseUp\n  if there is a window \"Rainbow\" then exit mouseUp\n  picture \"Rainbow\", resource, windoid\n  set the loc of window \"Rainbow\" to 60,130\nend mouseUp"),
+        ("Close Picture", "on mouseUp\n  if there is a window \"Rainbow\" then close picture \"Rainbow\"\nend mouseUp"),
+        ("Bigger", "on mouseUp\n  if there is no window \"Rainbow\" then exit mouseUp\n  set the scale of window \"Rainbow\" to the scale of window \"Rainbow\" + 1\n  put \"scale\" && the scale of window \"Rainbow\" & \": Zoom to see it all.\" into field \"Picture Messages\"\nend mouseUp"),
+        ("Smaller", "on mouseUp\n  if there is no window \"Rainbow\" then exit mouseUp\n  set the scale of window \"Rainbow\" to the scale of window \"Rainbow\" - 1\n  put \"scale\" && the scale of window \"Rainbow\" into field \"Picture Messages\"\nend mouseUp"),
+        ("Zoom", "on mouseUp\n  if there is no window \"Rainbow\" then exit mouseUp\n  if the zoom of window \"Rainbow\" is \"in\" then set the zoom of window \"Rainbow\" to out\n  else set the zoom of window \"Rainbow\" to in\n  put \"zoom\" && the zoom of window \"Rainbow\" & \", the rect\" && the rect of window \"Rainbow\" into field \"Picture Messages\"\nend mouseUp"),
+        ("Center", "on mouseUp\n  if there is no window \"Rainbow\" then exit mouseUp\n  set the loc of window \"Rainbow\" to cardScreen\n  put \"Centered on the screen: its globalLoc is\" && the globalLoc of window \"Rainbow\" into field \"Picture Messages\"\nend mouseUp"),
+        ("Choose a File…", "on mouseUp\n  picture\n  if the result is not empty then put the result into field \"Picture Messages\"\nend mouseUp"),
+    ];
+    for (i, (name, script)) in picture_buttons.iter().enumerate() {
+        let (col, row) = ((i % 2) as i32, (i / 2) as i32);
+        let x = 286 + col * 104;
+        let y = 104 + row * 30;
+        let p = b.button(name, Rect::new(x, y, x + 98, y + 24), script);
+        b.card_part(c, p);
+    }
+    let said = b.label("Picture Messages", Rect::new(286, 226, 492, 300), "", 11);
+    b.card_part(c, said);
+    // The messages the Picture XCMD sent the card; its windows stay open
+    // from card to card, so the Tour's closes on leaving.
+    b.stack.cards[c].script = r#"on openPicture name, id
+  put "openPicture" && name && id into field "Picture Messages"
+end openPicture
+
+on closePicture name, id
+  put "closePicture" && name && id into field "Picture Messages"
+end closePicture
+
+on mouseDownInPicture name, where
+  put "mouseDownInPicture" && name && "at" && where into field "Picture Messages"
+end mouseDownInPicture
+
+on closeCard
+  if there is a window "Rainbow" then close picture "Rainbow"
+  put empty into field "Picture Messages"
 end closeCard"#
         .into();
 

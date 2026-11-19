@@ -46,14 +46,17 @@ HyperCard; the stacks in BUGHUNT.md test that.
 
 **HyperCard 2 windows.** `the globalLoc` and `globalRect`, `the hBarLoc` and
 `vBarLoc` (the card window's scroll), `the zoom`; `hide window` and `show
-window` for named windows; the moveWindow and sizeWindow messages. A start was
+window` for named windows (the card window's moveWindow and sizeWindow
+messages are done, and picture windows have their globalLoc and globalRect). A start was
 made with TEXWindow's text windows (`the text of window`, `close window`).
 
-**Picture windows.** (Palettes are done: the `palette` command, openPalette
-and closePalette, and the buttonCount, commands and hilitedButton of a
-palette; HyperCard's own Navigator palette isn't there yet.) The `picture` command (Apple's Picture XCMD, built
-into 2.x), with the openPicture, closePicture, mouseDownInPicture and
-mouseUpInPicture messages and the `dithering` and `zoom` properties.
+**Picture windows.** Done: the `picture` command (Apple's Picture XCMD,
+built into 2.x), with its window styles, the openPicture, closePicture,
+mouseDownInPicture and mouseUpInPicture messages, and the globalLoc,
+globalRect, scroll, scale, zoom, dithering, pictureWidth and pictureHeight
+properties. Palettes are done too (the `palette` command, openPalette and
+closePalette, and the buttonCount, commands and hilitedButton of a
+palette); HyperCard's own Navigator palette isn't there yet.
 
 **AppleEvents and other programs.** `answer program`, `request … from
 program`, `request appleEvent`, `reply`, the appleEvent message, `the

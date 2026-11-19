@@ -452,6 +452,10 @@ impl Interp {
                 if is_palette_name(&name) {
                     return self.set_palette_prop(prop, &value);
                 }
+                // A picture window's own, and the screen words.
+                if self.set_picture_property(name.trim(), prop, &value)? {
+                    return Ok(());
+                }
                 let mut w = self.w();
                 let Some(win) = w
                     .script_windows
@@ -466,6 +470,13 @@ impl Interp {
                     Err(e) => err(e),
                 }
             }
+            Cmd::OpenPicture(e) => {
+                let args = match e {
+                    Some(e) => vec![self.eval(e)?],
+                    None => vec![],
+                };
+                self.picture_command(&args)
+            }
             Cmd::OpenMovie(e) => {
                 let file = match e {
                     Some(e) => self.eval(e)?,
@@ -475,6 +486,8 @@ impl Interp {
             }
             Cmd::CloseWindow(e) => {
                 let name = self.eval(e)?;
+                // `close window 3`: by number, as the windows lists them.
+                let name = self.window_by_number(&name)?.unwrap_or(name);
                 if let Some((i, _)) = self.movie_named(&name) {
                     let id = self.w().movies[i].id;
                     return self.close_movie(id);

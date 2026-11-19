@@ -29,9 +29,10 @@ differ, the "Differences from HyperCard" section says why.
 8. [Properties](#properties)
 9. [System messages](#system-messages)
 10. [Movies](#movies)
-11. [Old externals, built in](#old-externals-built-in)
-12. [RandomCard's additions](#randomcards-additions)
-13. [Differences from HyperCard](#differences-from-hypercard)
+11. [Pictures](#pictures)
+12. [Old externals, built in](#old-externals-built-in)
+13. [RandomCard's additions](#randomcards-additions)
+14. [Differences from HyperCard](#differences-from-hypercard)
 
 ## Scripts and handlers
 
@@ -612,6 +613,56 @@ name, id`; `movieRateChanged name, id, rate` when it plays, pauses or stops
 at its end; `movieTimeChanged name, id, time` when the controller's slider
 is let go; and `mouseDownInMovie name, id, where, time, "movie", id`.
 
+## Pictures
+
+`picture` shows a picture in a window of its own, as HyperCard 2's Picture
+XCMD did: `picture name [, source [, style [, visible]]]`. The source is
+`file` (the default: a PICT, MacPaint, PNG, JPEG, GIF or BMP file, as given,
+beside the stack, or in a folder beside it), `resource` (one of the
+stack's own pictures, by name or number) or `clipboard` (an image there).
+With no name, the user chooses a file; canceling puts "cancel" in the
+result. The window takes the picture's name and goes in the middle of the
+card; a problem leaves the result starting "Couldn't display picture."
+
+```hypertalk
+on mouseUp
+  picture "Rainbow", resource, windoid
+  set the loc of window "Rainbow" to 60,130
+  set the scale of window "Rainbow" to 1   -- twice the size
+  set the zoom of window "Rainbow" to out  -- big enough to show it all
+end mouseUp
+```
+
+**Styles:** `zoom` (the default) and `document` have a title bar with the
+name and a close box (`zoom` adds a zoom box); `windoid` a thin bar;
+`plain`, `rect`, `shadow`, `dialog`, `roundRect` and `borderless` only a
+border, so only a script moves or closes them.
+
+`open picture "Klee"` is `picture "Klee"`; `close picture "Klee"` or
+`close picture 1` closes one, front first; `the number of pictures` counts
+them, and `the windows` lists them.
+
+| Property | |
+| --- | --- |
+| `loc`, `rect` | On the card, as other windows' |
+| `globalLoc`, `globalRect` | On the screen |
+| `scroll` | The part of the picture shown, from its top left, in the picture's pixels |
+| `scale` | From -5 to 5: each step doubles or halves the picture |
+| `zoom` | `out` to show the whole picture, as the screen allows; `in` to go back |
+| `pictureWidth`, `pictureHeight` | The picture's own size (read only) |
+| `owner` | "Picture" (read only) |
+| `dithering` | Kept, and does nothing |
+
+The rect and loc properties also take `cardScreen`, `largestScreen`,
+`deepestScreen` and `mainScreen` (or `card`, `largest`, `deepest`,
+`main`), which center the window on the screen the card window is on, a
+rect also making it as big as the screen allows.
+
+**Messages** go to the current card: `openPicture name, id` and
+`closePicture name, id`; `mouseDownInPicture name, where` and
+`mouseUpInPicture name, where`, with the point in the picture as if it
+weren't scaled.
+
 ## Old externals, built in
 
 HyperCard stacks extended the language with compiled externals, which no
@@ -636,7 +687,7 @@ became of it.
 | PopUpMenu, PopMenu | a popup menu at a point |
 | Prompt | a "please wait" window: `Prompt 1, "Working…"` and `Prompt 3` |
 | TEXWindow | a text window |
-| TNPict | the `picture` window (pictures as PNG for now) |
+| TNPict | the [picture](#pictures) window, as a document window |
 | SelectLineXCMD | `select line … of field` |
 | ZoomRect | `zoomRect rect1, rect2`: the Finder's zoom |
 | PrintOut | `print` with text settings |
@@ -821,6 +872,6 @@ ran on:
   above); stacks that need others say "Can't understand".
 - **AppleEvents, AppleScript and other programs** aren't there yet: see
   COMPLIANCE.md.
-- **What's still missing** from HyperCard 2.4.1 (the `picture` command's
-  windows, report printing, some window properties and a few messages) is
+- **What's still missing** from HyperCard 2.4.1 (report printing, some
+  window properties and a few messages) is
   listed in COMPLIANCE.md and on the roadmap.

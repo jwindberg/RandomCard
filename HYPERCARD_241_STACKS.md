@@ -54,9 +54,9 @@ the others is in the roadmap's "HyperCard 2.4.1's own stacks" section.
 | HyperCard Help/HyperTalk Reference | 29 | 1 | card 1 button "Next": There is no menu "" |
 | HyperCard Stacks/Graph Maker | 20 | 1 | card 2 button "frame": No such property "textheight" |
 | HyperCard Stacks/New Features | 14 | 3 | openStack: The button has no line 0 |
-| HyperCard Stacks/QuickTime Tools | 173 | 2 | openStack: No such object "QuickTime" |
-| More Stacks/Power Tools | 68 | 2 | card 9 button "": Can't understand "picture" |
-| More Stacks/Readymade Buttons | 85 | 3 | card 5 button "Show Navigator": Can't find palette "Navigator" |
+| HyperCard Stacks/QuickTime Tools | 169 | 20 | openStack: No such object "QuickTime" |
+| More Stacks/Power Tools | 68 | 4 | card 12 button "": No such object "card field 1,card field 2,card field 3" |
+| More Stacks/Readymade Buttons | 85 | 2 | card 5 button "Show Navigator": Can't find palette "Navigator" |
 
 ## Not stacks
 

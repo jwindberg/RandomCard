@@ -155,6 +155,10 @@ pub enum Countable {
     MenuItems(Box<ChunkIndex>),
     /// `the number of movies`: open movie windows.
     Movies,
+    /// `the number of pictures`: picture windows (the `picture` command).
+    Pictures,
+    /// `the number of windows`: every window `the windows` lists.
+    Windows,
 }
 
 /// `menu "Edit"`, `menuItem 2 of menu "Go"`, `last menuItem of menu 3`.
@@ -384,6 +388,8 @@ pub enum Cmd {
     /// `open movie "Intro"`: open a movie file in a movie window, or ask
     /// for one.
     OpenMovie(Option<Expr>),
+    /// `open picture [file] "Klee"`: the picture command, from a file.
+    OpenPicture(Option<Expr>),
     /// `close window "Notes"`: a window a script opened.
     CloseWindow(Expr),
     /// `send "select" to window "Notes"`: a message to a window.

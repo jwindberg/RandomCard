@@ -194,6 +194,7 @@ impl Interp {
                     locked: false,
                     palette: None,
                     apple: None,
+                    image: None,
                 });
                 String::new()
             }
@@ -318,6 +319,9 @@ impl Interp {
         if let Some(r) = self.apple_palette(name, args) {
             return Some(r);
         }
+        if name == "picture" {
+            return Some(self.picture_command(args));
+        }
         if name == "addcolor" {
             return Some(self.addcolor(args));
         }
@@ -360,6 +364,7 @@ impl Interp {
                     locked: false,
                     palette: None,
                     apple: None,
+                    image: None,
                 };
                 let mut w = self.w();
                 w.script_windows
@@ -407,6 +412,7 @@ impl Interp {
                     locked: false,
                     palette: Some(palette),
                     apple: None,
+                    image: None,
                 });
                 drop(w);
                 let card = self.current_card_ref();
@@ -483,13 +489,17 @@ impl Interp {
             // bare name ("HIN 017 - Figure 1"), found beside the stack or in
             // a folder there. Errors are reported in the result, as TNPict
             // reported them.
+            // It's the picture command's window, as a document window.
             "tnpict" => {
-                self.result = match self.find_beside_stack(&arg(0)) {
-                    None => "Error file not found".into(),
-                    // RandomCard can't read PICT pictures yet.
-                    Some(_) => "Error RandomCard can't show PICT pictures yet.".into(),
-                };
-                Ok(())
+                if self.find_beside_stack(&arg(0)).is_none() {
+                    self.result = "Error file not found".into();
+                    return Some(Ok(()));
+                }
+                let r = self.picture_command(&[arg(0), "file".into(), "document".into()]);
+                if let Some(why) = self.result.strip_prefix("Couldn't display picture. ") {
+                    self.result = format!("Error {why}");
+                }
+                r
             }
             _ => return None,
         })

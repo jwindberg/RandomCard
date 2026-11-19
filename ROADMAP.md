@@ -635,7 +635,7 @@ parse, which takes all its handlers with it, so the syntax comes first.
      itself, and `the dialingTime`, `the dialingVolume` and the message
      box's size are in; Phone Dialer dials, and its Shrink Window works)
 2. **Movies** (QuickTime Tools): `there is a movie X`, `the version of
-   QuickTime`, `the number of windows`; tracks (`track 1 of movie 1`) give
+   QuickTime`, ~~`the number of windows`~~ (done); tracks (`track 1 of movie 1`) give
    a clear error rather than stopping the script.
 3. **Functions and properties:** ~~`the destination`~~ (done: HyperCard
    Help and the AppleScript Reference now click clean, with a fix step for
@@ -648,8 +648,9 @@ parse, which takes all its handlers with it, so the syntax comes first.
    Templates use (`generalPalette`, `fieldPalette`, `hidePalette`)~~ (done:
    built in, and `the stacks` now gives a converted stack's file, as its
    long name does, so their `wrongStack()` checks pass), ~~ShowList~~ (done; Power
-   Tools' list dialog), the Navigator palette (Readymade Buttons), the
-   `picture` command (next for Power Tools), and
+   Tools' list dialog), the Navigator palette (Readymade Buttons), ~~the
+   `picture` command~~ (done: HyperCard 2's Picture XCMD, its windows,
+   properties and messages, and windows by number), and
    `stackIsBeingUsed` and `tips`, which may be handlers in another stack.
 5. **AppleScript and Apple events:** `there is a scriptingLanguage
    AppleScript`, `the version of scriptingLanguage "AppleScript"`,

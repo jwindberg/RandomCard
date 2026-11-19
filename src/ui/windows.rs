@@ -1066,6 +1066,7 @@ impl App {
                         });
                 }
                 WindowKind::Palette { hilited, .. } => self.palette_window(ctx, &t, at, hilited),
+                WindowKind::Picture { style, view, .. } => self.picture_window(ctx, &t, at, style, view),
                 WindowKind::Mouse | WindowKind::Info => self.live_window(ctx, &t, at, font),
                 WindowKind::Text => {
                     let mut open = true;

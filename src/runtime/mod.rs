@@ -2,6 +2,7 @@
 
 pub mod addcolor;
 mod apple_palettes;
+mod pictures;
 mod builtins;
 pub mod web;
 mod commands;

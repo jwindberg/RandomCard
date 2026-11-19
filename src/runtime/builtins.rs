@@ -26,6 +26,21 @@ fn up_down(b: bool) -> String {
 }
 
 impl Interp {
+    /// The name of window `n`, when a window is named by its number in
+    /// the windows (and no window has that number for a name).
+    pub(super) fn window_by_number(&mut self, which: &str) -> R<Option<String>> {
+        let which = which.trim();
+        let Ok(n) = which.parse::<usize>() else { return Ok(None) };
+        if self.w().script_windows.iter().any(|t| t.name == which) {
+            return Ok(None);
+        }
+        let all = self.builtin("windows", NameLength::Default, vec![])?;
+        match all.lines().nth(n.wrapping_sub(1)) {
+            Some(name) => Ok(Some(name.to_string())),
+            None => err(format!("No such window \"{which}\"")),
+        }
+    }
+
     pub fn builtin(&mut self, name: &str, len: NameLength, args: Vec<String>) -> R<String> {
         let arg = |i: usize| args.get(i).cloned().unwrap_or_default();
         let num = |i: usize| to_number(&args.get(i).cloned().unwrap_or_default());
@@ -157,6 +172,8 @@ impl Interp {
                 let f = self.frame();
                 if n == 0 { f.message.clone() } else { f.params.get((n - 1) as usize).cloned().unwrap_or_default() }
             }
+            // `close picture 1`: which picture window.
+            "__picturename" => self.picture_window_name(&arg(0)),
             // Where navigation is going, as its close messages are sent.
             "destination" => self.destination(),
             "target" => {
@@ -231,6 +248,14 @@ impl Interp {
             // The text, rect or name of a window a script opened.
             "__movie" => return self.movie_reference(&arg(0), &arg(1)),
             "__windowprop" => {
+                // `the name of window 3`: by number, as the windows lists
+                // them. Any window's name answers from there.
+                if let Some(name) = self.window_by_number(&arg(1))? {
+                    if matches!(arg(0).to_ascii_lowercase().as_str(), "name" | "short name") {
+                        return Ok(name);
+                    }
+                    return self.builtin("__windowprop", len, vec![arg(0), name]);
+                }
                 if let Some((i, as_window)) = self.movie_named(&arg(1)) {
                     return self.movie_property(i, as_window, &arg(0));
                 }
@@ -278,6 +303,10 @@ impl Interp {
                         "name" => "Tools".into(),
                         other => return err(format!("Windows have no property \"{other}\"")),
                     });
+                }
+                // A picture window's own: its scale, scroll, global loc.
+                if let Some(v) = self.picture_property(arg(1).trim(), &arg(0)) {
+                    return Ok(v);
                 }
                 let w = self.w();
                 let Some(t) = w

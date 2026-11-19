@@ -240,6 +240,7 @@ impl Interp {
             locked: false,
             palette: Some(palette),
             apple: Some(Box::new(built)),
+            image: None,
         });
         drop(w);
         self.globals.insert(format!("have{}", window.to_lowercase()), "true".into());

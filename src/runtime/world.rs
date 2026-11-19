@@ -236,6 +236,59 @@ pub struct ScriptWindow {
     /// What a built-in Apple palette (GeneralPalette and the like) was
     /// made from, to draw it again.
     pub apple: Option<Box<super::apple_palettes::ApplePalette>>,
+    /// A picture window's picture (the `picture` command).
+    pub image: Option<std::sync::Arc<crate::model::Picture>>,
+}
+
+/// What a picture window shows of its picture: from where (in the
+/// picture's own pixels), how magnified (each step of the scale doubles or
+/// halves it), and the rect to go back to after zooming out.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PictureView {
+    pub scroll: (i32, i32),
+    pub scale: i32,
+    pub dithering: bool,
+    pub unzoomed: Option<crate::model::Rect>,
+}
+
+impl PictureView {
+    /// How many screen pixels a picture pixel takes.
+    pub fn factor(&self) -> f32 {
+        2f32.powi(self.scale.clamp(-5, 5))
+    }
+}
+
+/// How a picture window is framed: HyperCard's Picture XCMD's styles.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PictureStyle {
+    /// A document window with a title bar, close box and zoom box.
+    Zoom,
+    Document,
+    /// A small floating window with a thin title bar and close box.
+    Windoid,
+    Plain,
+    Rect,
+    Shadow,
+    Dialog,
+    RoundRect,
+    Borderless,
+}
+
+impl PictureStyle {
+    pub fn named(s: &str) -> Option<PictureStyle> {
+        Some(match s.trim().to_ascii_lowercase().as_str() {
+            "" | "zoom" => PictureStyle::Zoom,
+            "document" => PictureStyle::Document,
+            "windoid" | "palette" => PictureStyle::Windoid,
+            "plain" => PictureStyle::Plain,
+            "rect" => PictureStyle::Rect,
+            "shadow" => PictureStyle::Shadow,
+            "dialog" => PictureStyle::Dialog,
+            "roundrect" => PictureStyle::RoundRect,
+            "borderless" => PictureStyle::Borderless,
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -248,6 +301,9 @@ pub enum WindowKind {
     /// A palette (the `palette` command): its id, and the button that
     /// stays highlighted (from 1), or -1 for none.
     Palette { id: i32, hilited: i32 },
+    /// A picture window (the `picture` command): its id, style, and what
+    /// part of the picture it shows.
+    Picture { id: i32, style: PictureStyle, view: PictureView },
     /// A windoid the UI keeps up to date: the mouse's position (Mousoid).
     Mouse,
     /// A windoid the UI keeps up to date: what's under the mouse (Infoid).
@@ -278,7 +334,7 @@ impl ScriptWindow {
                 _ => return None,
             },
             "id" => match self.kind {
-                WindowKind::Palette { id, .. } => id.to_string(),
+                WindowKind::Palette { id, .. } | WindowKind::Picture { id, .. } => id.to_string(),
                 _ => return None,
             },
             "buttoncount" => self.palette.as_ref()?.buttons.len().to_string(),
@@ -292,7 +348,18 @@ impl ScriptWindow {
             },
             // FieldPalette's three lines.
             "fields" => self.apple.as_ref().filter(|a| a.layout == super::apple_palettes::Layout::Field)?.fields.clone(),
+            // The external that made it, as HyperCard 2.1 answered.
+            "owner" => match self.kind {
+                WindowKind::Picture { .. } => "Picture".into(),
+                WindowKind::Palette { .. } => "Palette".into(),
+                _ => return None,
+            },
+            "picturewidth" => self.image.as_ref()?.width.to_string(),
+            "pictureheight" => self.image.as_ref()?.height.to_string(),
             "properties" => match self.kind {
+                WindowKind::Picture { .. } => {
+                    "loc,rect,globalLoc,globalRect,scroll,scale,zoom,dithering,visible,pictureWidth,pictureHeight,owner,properties".into()
+                }
                 WindowKind::Progress(_) => "width,text,fraction,textFont,textSize".into(),
                 WindowKind::Text => "text,textFont,textSize,lockText".into(),
                 WindowKind::Palette { .. } => "buttonCount,commands,hilitedButton,properties".into(),
@@ -570,6 +637,10 @@ pub enum UiRequest {
 /// Messages from the UI to the script thread.
 #[derive(Clone, Debug)]
 pub enum Event {
+    /// A click in a picture window, at a point in its picture: down or up.
+    PictureMouse { name: String, down: bool, at: (i32, i32) },
+    /// The zoom box of a picture window.
+    PictureZoom(String),
     /// A web request made `with message` has its reply: send the message
     /// to the object whose script asked, with the URL and the reply.
     WebReply { target: ObjRef, message: String, url: String, reply: Result<crate::web::http::Response, String>, millis: f64 },

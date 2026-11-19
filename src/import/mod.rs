@@ -100,6 +100,7 @@ pub fn import_bytes(bytes: &[u8], path: &Path, password: Option<&str>) -> Result
         addcolor::apply(&mut stack, &resources::parse(&fork, enc), enc);
         addcolor::pictures(&mut stack, &resources::parse(&fork, enc), path);
         external_pictures(&mut stack, &resources::parse(&fork, enc));
+        resource_pictures(&mut stack, &resources::parse(&fork, enc));
     }
     add_chain_resources(&mut stack, path, enc);
     stack.imported_from = Some(path.to_path_buf());
@@ -116,6 +117,25 @@ fn external_pictures(stack: &mut Stack, res: &[resources::Resource]) {
         if let Some(p) = pict::decode(r.data) {
             let key = crate::model::color_picture_key(&r.name, false);
             stack.color_pictures.insert(key, std::sync::Arc::new(p.to_color_picture()));
+        }
+    }
+}
+
+/// The stack's PICT resources, when its scripts show pictures from them
+/// (`picture theID, resource, windoid`, as Power Tools does).
+fn resource_pictures(stack: &mut Stack, res: &[resources::Resource]) {
+    let scripts = all_scripts(stack).to_lowercase();
+    let shows = scripts.lines().any(|l| {
+        let l = l.trim_start();
+        (l.starts_with("picture ") || l.starts_with("open picture")) && l.contains("resource")
+    });
+    if !shows {
+        return;
+    }
+    for r in res.iter().filter(|r| &r.kind == b"PICT") {
+        if let Some(p) = pict::decode(r.data) {
+            let picture = crate::model::NamedPicture { name: r.name.clone(), picture: p.to_color_picture() };
+            stack.pictures.insert(r.id as i32, picture);
         }
     }
 }
