@@ -102,9 +102,9 @@ they never call.
 | FileSize | XFCN | 2 stacks, called in 2 | A file's size. | Built in | As a file property | Planned |
 | FileType | XFCN | 3 stacks, called in 3 | A file's Mac type and creator codes. | Built in | From the file name's extension, since modern files have no type codes | Planned |
 | GetFInfo | XFCN | 2 stacks, called in 2 | A file's Finder information: type, creator, dates (by Frédéric Rinaldi). | Built in | As file properties; type and creator from the extension | Planned |
-| FolderContents | XFCN | 2 stacks, called in 2 | Lists the files in a folder. | Built in | As a list of a folder's files | Planned |
+| FolderContents | XFCN | 2 stacks, called in 2 | Lists the files in a folder: `FolderContents(folder, "files", "noDialog:gErr")`; "folders" or both, and a problem goes in the named global instead of an alert. | Built in | src/runtime/files.rs; resource forks copied beside files are left out | Done |
 | TruncFile | XFCN | 2 stacks, called in 2 | The file name at the end of a path. | Built in | As a function on paths | Planned |
-| defaultFolder | XCMD | 2 stacks, called in 2 | Sets the folder file dialogs open in. | Built in | As a property for file dialogs | Planned |
+| defaultFolder | XCMD | 2 stacks, called in 2 | Sets the folder file dialogs open in. | Built in | src/runtime/files.rs: the folder every file dialog opens in from then on; a file means its folder | Done |
 | DiskSpaceAvail | XFCN | 3 stacks, called in 3 | Free space on a disk. | Built in | As `the diskSpace` of a volume | Planned |
 | VolumeList | XFCN | 2 stacks, called in 2 | Lists the mounted disks. | Built in | As a list of mounted volumes | Planned |
 | SystemFolder | XFCN | 2 stacks, called in 2 | The path of the System Folder. | Built in | As the folder for application data on each system | Planned |
@@ -123,12 +123,15 @@ they never call.
 | SetFile | XFCN | 1 stack, called in 0 | Changes a file's Finder information. | Stub | As ChangeFileType | Planned |
 | FileVisFlag | XFCN | 1 stack, called in 1 | Whether a file is hidden in the Finder. | Stub | Answers visible | Planned |
 | Files | XFCN | 1 stack, called in 1 | Lists the files of one type in a folder. | Built in | As FolderContents, by extension | Planned |
-| GetVolume | XFCN | 1 stack, called in 0 | The current folder. | Built in | As defaultFolder | Planned |
-| SetVolume | XCMD | 1 stack, called in 0 | Sets the current folder. | Built in | As defaultFolder | Planned |
+| GetVolume | XFCN | 1 stack, called in 0 | The current folder. | Built in | As defaultFolder: the folder dialogs open in, or the stack's | Done |
+| SetVolume | XCMD | 1 stack, called in 0 | Sets the current folder. | Built in | As defaultFolder | Done |
 | Pathitems | XFCN | 1 stack, called in 0 | Splits a path into its parts. | Built in | As a function on paths | Planned |
 | Lastpathitem | XFCN | 1 stack, called in 0 | The last part of a path. | Built in | As TruncFile | Planned |
 | NewFileName | XFCN | 1 stack, called in 1 | A Save dialog with a prompt and default name. | Built in | As `ask file` | Done |
-| StdFile | XCMD | 1 stack, called in 0 | The standard Open and Save dialogs. | Built in | As `answer file` and `ask file` | Planned |
+| StdFile | XCMD | Developer Info Assistant | Given a folder, the standard file dialogs open there next (`stdFile DiscussionsFolder()`). | Built in | As defaultFolder | Done |
+| IsFolder | XFCN | Developer Info Assistant | Whether there's a folder at a path. | Built in | src/runtime/files.rs | Done |
+| NewFolder | XFCN | Developer Info Assistant | A dialog to choose a folder, answering its path with a separator at the end. | Built in | As FolderPath | Done |
+| FileFilter | XFCN | Developer Info Assistant | An Open dialog for files of a Mac type and creator. | Built in | As FilePath: files today have no type or creator to filter by | Done |
 | ImportPict | XCMD | 1 stack, called in 1 | Imports a picture file onto cards. | Built in | As importing images (see Color in the roadmap) | Planned |
 | import | XCMD | 1 stack, called in 1 | Imports text or pictures from a file. | Unknown | Its exact behavior isn't clear from the stack | Research |
 | CombineFiles | XCMD | 1 stack, called in 0 | Combines several files into one. | Built in | As a command that joins files | Planned |
@@ -172,6 +175,12 @@ they never call.
 | KrsShowMenu | XCMD | 1 stack, called in 1 | Shows a menu (HyperKRS). | Built in | As the menus RandomCard draws | Planned |
 | Prompt | XCMD | 2 stacks, called in 2 | Shows a "please wait" message (`prompt 1, "…"`) and hides it (`prompt 3`) (by Frédéric Rinaldi). | Built in | src/runtime/rinaldi.rs; a locked text window named "Prompt" | Done |
 | TEXWindow | XCMD | 2 stacks, called in 2 | Shows text in a window of its own. | Built in | As a text window (with roadmap item 8, windows) | Done |
+| Texas | XCMD | Developer Info Assistant (23 copies) | Leonard Buck's 1990 message windows: `Texas name, text, style`. A discussion ("Disc") shows a thread one message at a time, with arrows, a pop-up and Reply; "Send" (style "New") a message ready to go, with Send and its enclosure; "feed" feedback to write. Properties style, whole, text, messageName, messageList, enclosure, newMessage; it sends texasReplyMsg, texasSendMsg(name, from), texasEnclosePkg, texasUnstuffPkg and texasClose name, from. | Built in | src/runtime/texas.rs and src/ui/texas_windows.rs. The window's look is RandomCard's own: the XCMD wouldn't run in the emulator | Done |
+| WindIsTexas | XFCN | Developer Info Assistant | Whether a window is a Texas window. | Built in | src/runtime/texas.rs | Done |
+| FrontIfTexas | XFCN | Developer Info Assistant | The front window's name, if it's a Texas window. | Built in | src/runtime/texas.rs | Done |
+| Dialoger | XFCN | Developer Info Assistant (23 copies), Tools Advisor (14) | Leonard Buck's dialogs from the stack's DLOG and DITL resources (later Dialoger Professional, from theResult Software): `Dialoger("Name" & return & "on Hits" & return & "float", "^0 text", "4◊userList Geneva,12" & return & lines, …)`. Items take StyledText, userList, userPop, userBox, PictButton, hide, noDismiss, a value; a hit handler hears each click while the dialog is open. A modal one answers each item's value, a line each. | Built in | src/runtime/dialoger.rs and src/ui/dialoger_windows.rs; the stack's DLOGs and DITLs are imported. No manual survives: the rules come from the two stacks' scripts and the XFCN's strings | Done |
+| dChanger | XCMD | Developer Info Assistant, Tools Advisor | Changes an open Dialoger dialog: `dChanger dialog, "4◊add 2" & return & "Carol", "1◊inactivate", "0◊dismiss"` (lists: new, add, delete, replace, swap, select, deselect, setDblClick). | Built in | src/runtime/dialoger.rs | Done |
+| dContents | XFCN | Developer Info Assistant, Tools Advisor | An open dialog's item: `dContents(dialog, 4, "all")` (a list's chosen line numbers, or "long" their text, "all" every line); with only the dialog, 0 if it isn't open. | Built in | src/runtime/dialoger.rs | Done |
 | TNPict | XCMD | 9 stacks, called in 9 | Shows a picture file in a window (Technical Notes stacks). | Built in | As HyperCard 2's `picture` command, a document window | Done |
 | SelectLineXCMD | XCMD | 8 stacks, called in 8 | Selects a line in a field. | Built in | As `select line … of field`, which RandomCard has | Done |
 | SpinAbout | XCMD | 8 stacks, called in 8 | An animated About box (by Andrew Shebanow, Apple, 1989). | Stub | A bit of fun from 1989; it can do nothing | Done |

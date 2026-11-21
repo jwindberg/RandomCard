@@ -286,7 +286,7 @@ of card field 2.
 | field | `field "Notes"`, `card field 1`, `bkgnd field "Name"`, `fld id 7` |
 | part | `part 3` (buttons and fields together, in order) |
 | the message box | `the message box`, `msg` |
-| a menu | `menu "Edit"`, `menuItem "Copy" of menu "Edit"` |
+| a menu | `menu "Edit"`, `menuItem "Copy" of menu "Edit"`, `menu "Apple"` (HyperCard's Apple menu: its About item, which a stack can rename and give a `menuMsg`; RandomCard's application menu on a Mac, and the RandomCard menu elsewhere) |
 | a window | `window "Prompt"`, `the card window` |
 
 `me` is the object whose script is running; `the target` is the object the
@@ -296,6 +296,11 @@ field when the card has none by that name, as in HyperCard.
 
 A field's text is its value: `put field "Name" into n`, `put n into field
 "Name"`.
+
+A name in quotes is always a name, even one that looks like a number:
+`button "1200"` is the button named 1200. A number, or a variable or
+expression that gives one, counts: `button 2`, `button x`, `button (1 + 1)`.
+That's how HyperCard 2.4.1 decides.
 
 Cards and parts of another stack are reached by naming it, without going
 there: `put field "Phone" of card "Ann" of stack "Addresses" into p`, `set
@@ -706,6 +711,8 @@ became of it.
 | PopUpMenu, PopMenu | a popup menu at a point |
 | Prompt | a "please wait" window: `Prompt 1, "Working…"` and `Prompt 3` |
 | TEXWindow | a text window |
+| Dialoger, dChanger, dContents (the Developer Info Assistant, Tools Advisor) | dialogs from the stack's own DLOG and DITL resources: `put Dialoger("Find" & return & "on FindHits", "4◊userList Geneva,12" & return & names) into r` shows one; each item's value comes back a line each (a closing button's name, a check box's true or false, a list's chosen line). A hit handler, sent to the card with the dialog and the item, can change it while it's open with `dChanger dialog, "4◊add" & return & "Carol"` and read it with `dContents(dialog, 4, "all")`; `"float"` keeps one open beside the card |
+| Texas, WindIsTexas, FrontIfTexas (Apple's Developer Info Assistant) | windows of messages: `Texas "Thread", text, "Disc"` shows a thread one message at a time, with arrows, a pop-up and Reply (texasReplyMsg name); `"Send"` a message with Send (texasSendMsg(name, from)) and its enclosure; `"feed"` text to write. `the messageName`, `messageList`, `whole`, `enclosure` and `style of window`, and `set the newMessage of window` to add one; closing sends texasClose name, from |
 | TNPict | the [picture](#pictures) window, as a document window |
 | SelectLineXCMD | `select line … of field` |
 | ZoomRect | `zoomRect rect1, rect2`: the Finder's zoom |

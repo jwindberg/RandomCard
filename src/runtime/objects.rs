@@ -71,6 +71,14 @@ impl Interp {
                         .map(|i| ids[i]),
                 }
             }
+            Which::Name(e) => {
+                let v = self.eval(e)?;
+                names
+                    .iter()
+                    .position(|n| n.eq_ignore_ascii_case(&v))
+                    .or_else(|| names.iter().position(|n| n.eq_ignore_ascii_case(v.trim())))
+                    .map(|i| ids[i])
+            }
         };
         found.ok_or_else(|| {
             Ctl::Error(super::interp::ScriptError { msg: format!("No such {what}"), obj: None, line: None })

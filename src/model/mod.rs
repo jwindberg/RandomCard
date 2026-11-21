@@ -3,6 +3,7 @@
 
 pub mod bitmap_font;
 pub mod color;
+pub mod dialogs;
 pub mod demo;
 pub mod home;
 pub mod navigator;
@@ -695,6 +696,9 @@ pub struct Stack {
     /// name, on their own channel.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub songs: BTreeMap<i32, Song>,
+    /// Dialogs ('DLOG' and 'DITL' resources) by id, for Dialoger.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub dialogs: BTreeMap<i32, dialogs::DialogTemplate>,
     /// Bitmap fonts the stack carries: one size of a family each, as its
     /// `FONT` or `NFNT` resource held it.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -771,6 +775,7 @@ impl Stack {
             icons: BTreeMap::new(),
             sounds: BTreeMap::new(),
             songs: BTreeMap::new(),
+            dialogs: BTreeMap::new(),
             fonts: Vec::new(),
             palettes: BTreeMap::new(),
             pictures: BTreeMap::new(),

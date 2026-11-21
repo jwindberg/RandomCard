@@ -238,6 +238,10 @@ pub struct ScriptWindow {
     pub apple: Option<Box<super::apple_palettes::ApplePalette>>,
     /// A picture window's picture (the `picture` command).
     pub image: Option<std::sync::Arc<crate::model::Picture>>,
+    /// A Texas window's style and the message it shows.
+    pub texas: Option<Box<super::texas::Texas>>,
+    /// A Dialoger dialog's items and settings.
+    pub dialoger: Option<Box<super::dialoger::Dialoger>>,
 }
 
 /// What a picture window shows of its picture: from where (in the
@@ -308,11 +312,18 @@ pub enum WindowKind {
     Mouse,
     /// A windoid the UI keeps up to date: what's under the mouse (Infoid).
     Info,
+    /// A window of messages (Texas, from the Developer Info Assistant).
+    Texas,
+    /// A dialog from the stack's resources (Dialoger).
+    Dialoger,
 }
 
 impl ScriptWindow {
     /// A property, as `the fraction of window "Progress"` reads it.
     pub fn property(&self, name: &str) -> Option<String> {
+        if let Some(v) = self.texas_property(name) {
+            return Some(v);
+        }
         let r = self.rect;
         Some(match name {
             "name" | "short name" => self.name.clone(),
@@ -326,7 +337,7 @@ impl ScriptWindow {
             "textfont" => self.font.clone(),
             "textsize" => self.size.to_string(),
             "locktext" => match self.kind {
-                WindowKind::Text => self.locked.to_string(),
+                WindowKind::Text | WindowKind::Texas => self.locked.to_string(),
                 _ => return None,
             },
             "fraction" => match self.kind {
@@ -364,6 +375,8 @@ impl ScriptWindow {
                 WindowKind::Text => "text,textFont,textSize,lockText".into(),
                 WindowKind::Palette { .. } => "buttonCount,commands,hilitedButton,properties".into(),
                 WindowKind::Mouse | WindowKind::Info => "loc,rect,visible,properties".into(),
+                WindowKind::Texas => "text,textFont,textSize".into(),
+                WindowKind::Dialoger => "loc,rect,visible,properties".into(),
             },
             _ => return None,
         })
@@ -372,6 +385,9 @@ impl ScriptWindow {
     /// Set a property; false if the window has no such property, Err if the
     /// value won't do.
     pub fn set_property(&mut self, name: &str, v: &str) -> Result<bool, String> {
+        if self.set_texas_property(name, v) {
+            return Ok(true);
+        }
         let int = |v: &str| {
             v.trim()
                 .parse::<f64>()
@@ -404,7 +420,7 @@ impl ScriptWindow {
             "textfont" => self.font = v.to_string(),
             "textsize" => self.size = int(v)?.clamp(1, 127) as u32,
             "locktext" => match self.kind {
-                WindowKind::Text => self.locked = v.trim().eq_ignore_ascii_case("true"),
+                WindowKind::Text | WindowKind::Texas => self.locked = v.trim().eq_ignore_ascii_case("true"),
                 _ => return Ok(false),
             },
             "fraction" => match self.kind {
@@ -451,6 +467,9 @@ pub enum Dialog {
     /// selection, 1 lets one line be chosen, 2 a run of lines, 3 any lines.
     /// Empty button names hide those buttons. The reply is DialogReply::List.
     List(ListDialog),
+    /// A Dialoger dialog, by its window's name: the UI draws it from the
+    /// window and replies Hit(item) for each click.
+    Dialoger(String),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -482,6 +501,8 @@ pub enum DialogReply {
     /// The lines chosen in a list, from 0, and how the user left it:
     /// "Validated", "Cancelled" or "TabKey".
     List(Vec<usize>, String),
+    /// A click on a Dialoger dialog's item, from 1; 0 to cancel it.
+    Hit(usize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -641,6 +662,12 @@ pub enum Event {
     PictureMouse { name: String, down: bool, at: (i32, i32) },
     /// The zoom box of a picture window.
     PictureZoom(String),
+    /// A button or the close box of a Texas window.
+    Texas { name: String, action: super::texas::TexasAction },
+    /// A discussion window's arrows or pop-up: show message n, from 0.
+    TexasShow { name: String, n: usize },
+    /// A click on a floating Dialoger dialog's item, from 1.
+    DialogerHit { name: String, item: usize },
     /// A web request made `with message` has its reply: send the message
     /// to the object whose script asked, with the URL and the reply.
     WebReply { target: ObjRef, message: String, url: String, reply: Result<crate::web::http::Response, String>, millis: f64 },

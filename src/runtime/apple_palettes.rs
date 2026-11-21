@@ -241,6 +241,8 @@ impl Interp {
             palette: Some(palette),
             apple: Some(Box::new(built)),
             image: None,
+            texas: None,
+            dialoger: None,
         });
         drop(w);
         self.globals.insert(format!("have{}", window.to_lowercase()), "true".into());

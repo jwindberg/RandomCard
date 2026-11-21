@@ -310,6 +310,8 @@ impl Interp {
             palette: None,
             apple: None,
             image: None,
+            texas: None,
+            dialoger: None,
         };
         match w.script_windows.iter().position(|t| t.name == proper) {
             Some(i) => w.script_windows[i] = window,
@@ -408,6 +410,8 @@ fn prompt_window(name: &str, w: &super::world::World, message: String, top: &str
         palette: None,
         apple: None,
         image: None,
+        texas: None,
+        dialoger: None,
     })
 }
 

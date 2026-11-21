@@ -297,6 +297,57 @@ pub fn songs(fork: &[u8], enc: TextEncoding) -> BTreeMap<i32, crate::model::Song
         .collect()
 }
 
+/// The dialogs in a resource fork: each 'DLOG' with the 'DITL' it names.
+pub fn dialogs(fork: &[u8], enc: TextEncoding) -> BTreeMap<i32, crate::model::dialogs::DialogTemplate> {
+    let res = parse(fork, enc);
+    res.iter()
+        .filter(|r| &r.kind == b"DLOG")
+        .filter_map(|r| {
+            let ditl_id = be16(r.data, 18)? as i16;
+            let ditl = res.iter().find(|d| &d.kind == b"DITL" && d.id == ditl_id)?;
+            Some((r.id as i32, decode_dialog(r.data, &r.name, ditl.data, enc)?))
+        })
+        .collect()
+}
+
+/// Decode a 'DLOG' (rect, window kind, visible, close box, refCon, the
+/// DITL's id, title) and its 'DITL': a count less one, then each item's
+/// handle space, rect, type (the high bit set if it's disabled) and data,
+/// padded to even.
+pub fn decode_dialog(dlog: &[u8], name: &str, ditl: &[u8], enc: TextEncoding) -> Option<crate::model::dialogs::DialogTemplate> {
+    use crate::model::dialogs::{DialogItem, DialogItemKind, DialogTemplate};
+    let v = |b: &[u8], i: usize| be16(b, i).map(|v| v as i16);
+    let rect = |b: &[u8], i: usize| Some(Rect::new(v(b, i + 2)? as i32, v(b, i)? as i32, v(b, i + 6)? as i32, v(b, i + 4)? as i32));
+    let title_len = *dlog.get(20).unwrap_or(&0) as usize;
+    let mut d = DialogTemplate {
+        name: name.to_string(),
+        title: dlog.get(21..21 + title_len).map(|t| enc.decode(t)).unwrap_or_default(),
+        rect: rect(dlog, 0)?,
+        proc_id: v(dlog, 8)?,
+        close_box: dlog.get(12).is_some_and(|b| *b != 0),
+        items: Vec::new(),
+    };
+    let count = v(ditl, 0)? as i32 + 1;
+    let mut at = 2;
+    for _ in 0..count.max(0) {
+        let kind_byte = *ditl.get(at + 12)?;
+        let len = *ditl.get(at + 13)? as usize;
+        let data = ditl.get(at + 14..at + 14 + len)?;
+        let kind = DialogItemKind::from_mac(kind_byte & 0x7F);
+        let (text, id) = match kind {
+            DialogItemKind::Button
+            | DialogItemKind::CheckBox
+            | DialogItemKind::RadioButton
+            | DialogItemKind::StaticText
+            | DialogItemKind::EditText => (enc.decode(data), 0),
+            _ => (String::new(), v(data, 0).unwrap_or(0)),
+        };
+        d.items.push(DialogItem { kind, rect: rect(ditl, at + 4)?, enabled: kind_byte & 0x80 == 0, text, id });
+        at += 14 + len + (len & 1);
+    }
+    Some(d)
+}
+
 /// All the palettes in a resource fork: each 'PLTE' with the 'PICT' it names.
 pub fn palettes(fork: &[u8], enc: TextEncoding) -> BTreeMap<i32, Palette> {
     let res = parse(fork, enc);
@@ -603,6 +654,54 @@ pub mod tests {
         assert_eq!(icon.picture.get(0, 0), Pixel::CLEAR);
         assert_eq!(icon.picture.get(8, 8), Pixel::BLACK);
         assert_eq!(icon.picture.get(15, 15), Pixel::WHITE);
+    }
+
+    #[test]
+    fn dialog_resources() {
+        // A DLOG naming DITL 200, with a title, as the Developer Info
+        // Assistant's "Package Maker": a button, a disabled static text, and a
+        // user item Dialoger draws as a list.
+        let be = |v: i16| v.to_be_bytes().to_vec();
+        let mut dlog = Vec::new();
+        for v in [40, 44, 270, 277, 1] {
+            dlog.extend(be(v));
+        }
+        dlog.extend([1, 0, 0, 0]);
+        dlog.extend(0i32.to_be_bytes());
+        dlog.extend(be(200));
+        dlog.push(13);
+        dlog.extend(b"Package Maker");
+        let item = |rect: [i16; 4], kind: u8, data: &[u8]| {
+            let mut b = vec![0, 0, 0, 0];
+            for v in rect {
+                b.extend(v.to_be_bytes());
+            }
+            b.push(kind);
+            b.push(data.len() as u8);
+            b.extend(data);
+            if data.len() % 2 == 1 {
+                b.push(0);
+            }
+            b
+        };
+        let mut ditl = be(2);
+        ditl.extend(item([205, 126, 223, 206], 4, b"OK"));
+        ditl.extend(item([7, 5, 23, 225], 8 | 0x80, b"Create an enclosure:"));
+        ditl.extend(item([28, 5, 145, 225], 0, &1i16.to_be_bytes()));
+        let fork = make_fork(&[(b"DLOG", 17238, "Package Maker", dlog), (b"DITL", 200, "", ditl)]);
+        let dialogs = dialogs(&fork, TextEncoding::MacRoman);
+        let d = &dialogs[&17238];
+        assert_eq!((d.name.as_str(), d.title.as_str(), d.rect, d.proc_id, d.close_box), ("Package Maker", "Package Maker", Rect::new(44, 40, 277, 270), 1, false));
+        use crate::model::dialogs::DialogItemKind as K;
+        let items: Vec<_> = d.items.iter().map(|i| (i.kind, i.rect, i.enabled, i.text.as_str(), i.id)).collect();
+        assert_eq!(
+            items,
+            [
+                (K::Button, Rect::new(126, 205, 206, 223), true, "OK", 0),
+                (K::StaticText, Rect::new(5, 7, 225, 23), false, "Create an enclosure:", 0),
+                (K::User, Rect::new(5, 28, 225, 145), true, "", 1),
+            ]
+        );
     }
 
     #[test]

@@ -126,6 +126,9 @@ pub struct Interp {
     pub event_tx: Option<std::sync::mpsc::Sender<super::world::Event>>,
     /// When `flush keys` last ran: keys typed before then are dropped.
     pub keys_flushed: Option<Instant>,
+    /// The folder file dialogs open in, once a script has set it
+    /// (defaultFolder, StdFile, SetVolume).
+    pub dialog_folder: Option<std::path::PathBuf>,
     pub item_delimiter: String,
     pub number_format: String,
     pub lock_messages: bool,
@@ -192,6 +195,7 @@ impl Interp {
             json_cache: None,
             event_tx: None,
             keys_flushed: None,
+            dialog_folder: None,
             item_delimiter: ",".into(),
             number_format: "0.######".into(),
             lock_messages: false,
@@ -332,6 +336,9 @@ impl Interp {
             Event::OpenMovie(path) => self.open_dropped_movie(&path),
             Event::PictureMouse { name, down, at } => self.picture_mouse(&name, down, at),
             Event::PictureZoom(name) => self.toggle_picture_zoom(&name),
+            Event::Texas { name, action } => self.texas_action(&name, action),
+            Event::TexasShow { name, n } => self.texas_show(&name, n),
+            Event::DialogerHit { name, item } => self.dialoger_float_hit(&name, item),
             Event::PaletteButton(name, n) => {
                 let card = ObjRef::Card(self.w().card_id);
                 let message = {
@@ -396,7 +403,7 @@ impl Interp {
 
     /// Send a menu item's or palette button's message from outside any
     /// handler: it may be a built-in command (`go next`), which needs a frame.
-    fn send_text_top(&mut self, text: &str, target: ObjRef) -> R<()> {
+    pub(super) fn send_text_top(&mut self, text: &str, target: ObjRef) -> R<()> {
         let card = self.current_card_ref();
         self.frames.push(Frame::new(card, target, "", Vec::new()));
         let r = self.send_text(text, target);
@@ -578,6 +585,10 @@ impl Interp {
         let Some(t) = self.w().script_windows.iter().find(|t| t.name.eq_ignore_ascii_case(name)).cloned() else {
             return Ok(());
         };
+        // A Texas window tells the stack texasClose, once.
+        if t.texas.is_some() {
+            return self.close_texas(&t.name, "yesSend", by_user);
+        }
         let r = match t.kind {
             super::world::WindowKind::Text if by_user => {
                 self.dispatch_top(card, "TEXWindowClosing", vec![t.name.clone(), t.dirty.to_string()])

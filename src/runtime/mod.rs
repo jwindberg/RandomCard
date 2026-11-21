@@ -4,6 +4,8 @@ pub mod addcolor;
 mod apple_palettes;
 mod pictures;
 mod resource_mover;
+pub mod texas;
+pub mod dialoger;
 mod builtins;
 pub mod web;
 mod commands;

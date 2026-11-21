@@ -1935,8 +1935,14 @@ impl Parser {
                 Some((true, n)) => n,
                 _ => stack,
             };
+            // A quoted name alone stays a name.
+            let which = if matches!(e, Expr::Object(ObjSpec::Card(CardSpec::Which(Which::Name(_))))) {
+                Which::Name(Box::new(name))
+            } else {
+                Which::Expr(Box::new(name))
+            };
             return Ok(GoDest::Card(CardSpec::OfStack(
-                Box::new(CardSpec::Which(Which::Expr(Box::new(name)))),
+                Box::new(CardSpec::Which(which)),
                 Box::new(stack),
             )));
         }
@@ -2708,7 +2714,9 @@ impl Parser {
         if self.accept("id") {
             return Ok(Which::Id(Box::new(self.term()?)));
         }
-        Ok(Which::Expr(Box::new(self.term()?)))
+        let quoted = matches!(self.tok(), Tok::Str(_));
+        let e = self.term()?;
+        Ok(if quoted && matches!(e, Expr::Lit(_)) { Which::Name(Box::new(e)) } else { Which::Expr(Box::new(e)) })
     }
 
     /// Try to parse an object reference at the current position.
@@ -2946,7 +2954,7 @@ fn absorb_name(e: &Expr) -> Option<(bool, Expr)> {
         Expr::Binary(op @ (BinOp::Concat | BinOp::ConcatSpace), l, r) => {
             absorb_name(l).map(|(stack, name)| (stack, Expr::Binary(*op, Box::new(name), r.clone())))
         }
-        Expr::Object(ObjSpec::Card(CardSpec::Which(Which::Expr(n)))) => Some((false, (**n).clone())),
+        Expr::Object(ObjSpec::Card(CardSpec::Which(Which::Expr(n) | Which::Name(n)))) => Some((false, (**n).clone())),
         Expr::Object(ObjSpec::Stack(Some(n))) => Some((true, (**n).clone())),
         _ => None,
     }

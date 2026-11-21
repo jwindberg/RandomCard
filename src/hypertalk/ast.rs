@@ -54,6 +54,9 @@ pub enum Which {
     Id(Box<Expr>),
     /// A number or a name; decided at runtime.
     Expr(Box<Expr>),
+    /// A quoted name: always a name, even one that looks like a number
+    /// (`cd btn "1200"`), as in HyperCard.
+    Name(Box<Expr>),
     Ordinal(Ordinal),
 }
 

@@ -1193,7 +1193,7 @@ fn styled_text() {
 #[test]
 fn scripted_menus() {
     let mut i = interp_with(stack());
-    assert!(run(&mut i, "put the menus").starts_with("File\nEdit\nGo"));
+    assert!(run(&mut i, "put the menus").starts_with("Apple\nFile\nEdit\nGo"));
     run(&mut i, "create menu \"Game\"");
     assert!(run(&mut i, "put there is a menu \"Game\"") == "true");
     assert!(run(&mut i, "put there is no menu \"Toys\"") == "true");
@@ -1674,14 +1674,16 @@ struct Exercised {
 }
 
 /// Give a test interpreter RandomCard's Home stack, as the app has, so `go
-/// home` leaves the stack instead of falling back to card 1.
+/// home` leaves the stack instead of falling back to card 1. A fresh one
+/// each time, one file to a thread: the click test runs stacks side by
+/// side, and some write to Home (the Developer Info Assistant adds its path
+/// to Home's list of stacks).
 fn give_home(i: &Interp) {
-    let home = std::env::temp_dir().join(format!("randomcard-harness-home-{}.rcstack", std::process::id()));
-    if !home.exists() {
-        let mut h = Stack::home();
-        h.path = Some(home.clone());
-        h.save(&home).unwrap();
-    }
+    let thread = format!("{:?}", std::thread::current().id()).chars().filter(char::is_ascii_digit).collect::<String>();
+    let home = std::env::temp_dir().join(format!("randomcard-harness-home-{}-{thread}.rcstack", std::process::id()));
+    let mut h = Stack::home();
+    h.path = Some(home.clone());
+    h.save(&home).unwrap();
     lock(&i.world).home_path = Some(home);
 }
 
@@ -2565,6 +2567,89 @@ fn script_windows_from_scripts() {
 }
 
 #[test]
+fn apple_menu() {
+    // As the Developer Info Assistant renames HyperCard's About item.
+    let mut i = interp_with(stack());
+    let card = lock(&i.world).card_id;
+    set_script(&i, ObjRef::Card(card), "on AboutThisStack\n  put \"about this stack\" into msg\nend AboutThisStack");
+    assert_eq!(run(&mut i, "put there is a menu \"Apple\" && line 1 of the menus"), "true Apple");
+    run(&mut i, "put \"About\" && the short name of this stack & \"...\" into menuItem 1 of menu \"Apple\"\nset the menuMsg of menuItem 1 of menu \"Apple\" to \"AboutThisStack\"");
+    assert_eq!(run(&mut i, "put menuItem 1 of menu \"Apple\""), "About Test...");
+    run(&mut i, "doMenu \"About Test...\"");
+    assert_eq!(lock(&i.world).msg, "about this stack");
+    run(&mut i, "reset menuBar");
+    assert_eq!(run(&mut i, "put menuItem 1 of menu \"Apple\""), "About RandomCard…");
+    // About RandomCard says which version.
+    i.canned_answers.push(DialogReply::Button("OK".into()));
+    run(&mut i, "doMenu \"About HyperCard…\"");
+}
+
+#[test]
+fn texas_windows() {
+    // As the Developer Info Assistant uses them: a discussion read a
+    // message at a time, a message ready to send, and feedback.
+    let mut i = interp_with(stack());
+    let card = lock(&i.world).card_id;
+    set_script(
+        &i,
+        ObjRef::Card(card),
+        "on texasReplyMsg w\n  put \"reply \" & w & \";\" after msg\nend texasReplyMsg\n\
+         on texasClose w, f\n  put \"close \" & the style of window w && f & \";\" after msg\nend texasClose\n\
+         function texasSendMsg w, f\n  put \"send \" & f & \";\" after msg\n  close window w\n  return true\nend texasSendMsg",
+    );
+    lock(&i.world).stack.cards[0].bg_text.insert(10, super::texas::discussion(&["First", "Second"]));
+    run(&mut i, "Texas \"Thread\", bg fld \"Name\", \"Disc\"");
+    assert_eq!(run(&mut i, "put WindIsTexas(\"Thread\") && WindIsTexas(\"Nope\")"), "true false");
+    assert_eq!(run(&mut i, "put FrontIfTexas()"), "Thread");
+    assert_eq!(run(&mut i, "put the style of window \"Thread\""), "Disc");
+    assert_eq!(run(&mut i, "put the messageList of window \"Thread\""), "First\nSecond");
+    // DIA leaves out "the".
+    assert_eq!(run(&mut i, "put messageName of window \"Thread\""), "First");
+    assert_eq!(run(&mut i, "put the text of window \"Thread\""), "The text of First.");
+    assert_eq!(run(&mut i, "put the enclosure of window \"Thread\""), "FALSE");
+    assert_eq!(run(&mut i, "put the whole of window \"Thread\" is bg fld \"Name\""), "true");
+    i.handle_event(Event::TexasShow { name: "Thread".into(), n: 1 });
+    assert_eq!(run(&mut i, "put the messageName of window \"Thread\""), "Second");
+    // A reply comes in: threaded on, and shown.
+    let reply = super::texas::discussion(&["Third"]);
+    lock(&i.world).stack.cards[1].bg_text.insert(10, reply);
+    run(&mut i, "set the newMessage of window \"Thread\" to bg fld \"Name\" of card 2");
+    assert_eq!(run(&mut i, "put the messageName of window \"Thread\" && the number of lines of the messageList of window \"Thread\""), "Third 3");
+    run(&mut i, "put empty into msg");
+    i.handle_event(Event::Texas { name: "Thread".into(), action: super::texas::TexasAction::Reply });
+    i.handle_event(Event::Texas { name: "Thread".into(), action: super::texas::TexasAction::Close });
+    assert_eq!(lock(&i.world).msg, "reply Thread;close Disc noWhere;");
+    assert_eq!(run(&mut i, "put there is a window \"Thread\""), "false");
+
+    // A message to send: its header, then its text.
+    run(&mut i, "Texas \"Hello\", \"Source: DIA 4.1\" & return & \"Thread ID: 1\" & return & \"Thread Title: Hello\" & return & \"Message Title: Hello\" & return & return & \"Body\", \"Send\"");
+    assert_eq!(run(&mut i, "put the style of window \"Hello\" && the text of window \"Hello\""), "New Body");
+    assert_eq!(run(&mut i, "put line 4 of the whole of window \"Hello\""), "Message Title: Hello");
+    run(&mut i, "set the enclosure of window \"Hello\" to \"TRUE && Notes.Pkg\"");
+    assert_eq!(run(&mut i, "put word 3 to 99 of the enclosure of window \"Hello\""), "Notes.Pkg");
+    run(&mut i, "set the enclosure of window \"Hello\" to \"FALSE\"");
+    assert_eq!(run(&mut i, "put the enclosure of window \"Hello\""), "FALSE");
+    // Send: the stack sends it and closes the window.
+    run(&mut i, "put empty into msg");
+    i.handle_event(Event::Texas { name: "Hello".into(), action: super::texas::TexasAction::Send });
+    assert_eq!(lock(&i.world).msg, "send SendBtn;close New yesSend;");
+    assert_eq!(run(&mut i, "put there is a window \"Hello\""), "false");
+
+    // Feedback is written in the window; closing it unsent asks first.
+    run(&mut i, "Texas \"Comments\", empty, \"feed\"\nset the text of window \"Comments\" to \"Nice\"");
+    assert_eq!(run(&mut i, "put the lockText of window \"Comments\" && the text of window \"Comments\""), "false Nice");
+    run(&mut i, "put empty into msg");
+    i.canned_answers.push(DialogReply::Button("Cancel".into()));
+    i.handle_event(Event::Texas { name: "Comments".into(), action: super::texas::TexasAction::Close });
+    assert_eq!(run(&mut i, "put there is a window \"Comments\""), "true");
+    run(&mut i, "put empty into msg");
+    i.canned_answers.push(DialogReply::Button("Don't Send".into()));
+    i.handle_event(Event::Texas { name: "Comments".into(), action: super::texas::TexasAction::Close });
+    assert_eq!(lock(&i.world).msg, "close Feed noSend;");
+    assert!(run(&mut i, "Texas \"X\", empty, \"Fancy\"").starts_with("ERROR: Texas has no window style"));
+}
+
+#[test]
 fn palettes() {
     // As Apple's Info Island stacks use them: a navigation palette whose
     // buttons send messages to the card, opened at a point and closed by
@@ -2733,6 +2818,20 @@ fn files_and_folders() {
     assert_eq!(r(&mut i, format!("put GetDir(\"{d}\", \"D\")")), "Sub");
     assert_eq!(r(&mut i, format!("put GetDir(\"{d}\", \"F\", \"n<No\", \"o=nd\")")), "Notes,5");
     assert!(r(&mut i, format!("put GetDir(\"{d}\", \"F\", \"q=1\")")).starts_with("Error : First char"));
+    // FolderContents, from Apple's DTS externals, as the Developer Info
+    // Assistant asks: problems go in a global instead of an alert.
+    std::fs::write(dir.join("Copy.rsrc"), "fork").unwrap();
+    assert_eq!(r(&mut i, format!("put FolderContents(\"{d}\", \"files\", \"noDialog:gErr\")")), "Copy\nNotes");
+    assert_eq!(r(&mut i, format!("put FolderContents(\"{d}\", \"folders\")")), "Sub");
+    assert_eq!(r(&mut i, format!("get FolderContents(\"{d}/None\", \"files\", \"noDialog:gErr\")\nput (it is empty) && gErr")), format!("true Couldn't read the folder \"{d}/None\"."));
+    std::fs::remove_file(dir.join("Copy.rsrc")).unwrap();
+    // Where file dialogs open: defaultFolder, or the Developer Info
+    // Assistant's StdFile; a file means its folder.
+    assert_eq!(r(&mut i, format!("put IsFolder(\"{d}/Sub\") && IsFolder(\"{d}/Notes\")")), "true false");
+    assert_eq!(r(&mut i, format!("stdFile \"{d}/Notes\"\nput the result")), "");
+    assert_eq!(i.dialog_folder.as_deref(), Some(dir.as_path()));
+    assert_eq!(r(&mut i, format!("defaultFolder \"{d}/Sub\"\nput GetVolume()")), super::paths::folder(&dir.join("Sub")));
+    assert!(r(&mut i, format!("defaultFolder \"{d}/None/X\"\nput the result")).starts_with("Error : No folder"));
     // Rename and move.
     assert_eq!(r(&mut i, format!("FullRename \"{d}/Copy\", \"Copy 2\"\nput the result")), "");
     assert_eq!(r(&mut i, format!("FullMove \"{d}/Copy 2\", \"{d}/Sub\"\nput the result")), "");
@@ -4943,4 +5042,178 @@ fn a_script_types_into_find() {
     assert_eq!(run(&mut i, "put the number of this card"), "3");
     // XCMD.Flush's flush drops events waiting, as flush keys does.
     run(&mut i, "flush");
+}
+
+#[test]
+#[ignore]
+fn scratch_dia() {
+    let p = std::path::Path::new("examples/apple/devcds/ADC Developer CD (Volume 11 - \"The Silence Of The ROMs\")_mdf/Start Here:Read CD License 1st/Developer Info Assistant (DIA)/DIA Copy Me to Hard Disk/Developer Info Assistant/Developer Info Assistant");
+    let s = crate::import::load_any(p, None).unwrap();
+    for (n, l) in s.script.lines().enumerate().skip(15).take(14) { println!("S{:3} {l}", n + 1); }
+    let bg = s.backgrounds.iter().find(|b| b.id == 7727).unwrap();
+    for (n, l) in bg.script.lines().enumerate().take(6) { println!("B{:3} {l}", n + 1); }
+}
+
+#[test]
+fn quoted_names_are_names() {
+    // In HyperCard a quoted name is a name even when it looks like a number:
+    // the Developer Info Assistant's Setup card has buttons "1200" and
+    // "2400". A number, or a variable or expression that gives one, counts.
+    let mut i = interp_with(stack());
+    {
+        let mut w = lock(&i.world);
+        w.stack.cards[0].parts.push(Part::new_button(30, "1200", Rect::new(10, 10, 60, 30)));
+        w.stack.cards[0].parts.push(Part::new_button(31, "2", Rect::new(70, 10, 120, 30)));
+    }
+    assert_eq!(run(&mut i, "put the id of cd btn \"1200\" && the id of cd btn \"2\" && the id of cd btn 2"), "30 31 30");
+    assert_eq!(run(&mut i, "put \"2\" into x\nput the id of cd btn x && the id of cd btn (\"2\") && the id of cd btn (1 + 1)"), "30 30 30");
+    assert!(run(&mut i, "put the id of cd btn \"7\"").contains("No such"));
+}
+
+/// A dialog as a stack's DLOG and DITL give it, for Dialoger.
+fn dialog_template(name: &str, items: &[(crate::model::dialogs::DialogItemKind, [i32; 4], bool, &str, i16)]) -> crate::model::dialogs::DialogTemplate {
+    use crate::model::dialogs::{DialogItem, DialogTemplate};
+    DialogTemplate {
+        name: name.into(),
+        title: name.into(),
+        rect: Rect::new(100, 80, 360, 260),
+        proc_id: 1,
+        close_box: false,
+        items: items
+            .iter()
+            .map(|(kind, r, enabled, text, id)| DialogItem { kind: *kind, rect: Rect::new(r[0], r[1], r[2], r[3]), enabled: *enabled, text: (*text).into(), id: *id })
+            .collect(),
+    }
+}
+
+#[test]
+fn dialoger_dialogs() {
+    // As Tools Advisor asks which features a story mentions: check boxes
+    // set from a global, OK or Cancel, and the answer a line an item.
+    use crate::model::dialogs::DialogItemKind as K;
+    let mut i = interp_with(stack());
+    {
+        let mut w = lock(&i.world);
+        w.stack.dialogs.insert(
+            1552,
+            dialog_template(
+                "Dev Features",
+                &[
+                    (K::Button, [147, 61, 165, 133], true, "OK", 0),
+                    (K::Button, [148, 150, 167, 227], true, "Cancel", 0),
+                    (K::StaticText, [8, 6, 220, 27], false, "Strengths ^0", 0),
+                    (K::CheckBox, [31, 25, 144, 47], true, "Learning Curve", 0),
+                    (K::CheckBox, [52, 25, 153, 68], true, "Support", 0),
+                    (K::User, [10, 100, 200, 160], true, "", 1),
+                ],
+            ),
+        );
+    }
+    let call = "put Dialoger(\"Dev Features\", \"3◊StyledText Chicago,12,u.\", \"4◊1\", \"5◊0\", \"6◊userList Geneva,9\" & return & \"Ada\" & return & \"C\") into r";
+    // Support turned on, then OK: OK's line has its name.
+    i.canned_answers.extend([DialogReply::Hit(5), DialogReply::Hit(1)]);
+    assert_eq!(run(&mut i, &format!("{call}\nput r")), "OK\n\nStrengths ^0\ntrue\ntrue\n");
+    // Cancel.
+    i.canned_answers.push(DialogReply::Hit(2));
+    assert_eq!(run(&mut i, &format!("{call}\nput line 2 of r && line 4 of r")), "Cancel true");
+    // With no one to answer, it's canceled rather than waiting.
+    assert_eq!(run(&mut i, &format!("{call}\nput line 2 of r")), "Cancel");
+    assert_eq!(run(&mut i, "put there is a window \"Dev Features\""), "false");
+    // A dialog the stack doesn't have.
+    assert_eq!(run(&mut i, "put Dialoger(\"Nothing\")"), "Error: unable to find DLOG \"Nothing\"");
+    // A floating one: Dialoger returns at once and it stays open, read with
+    // dContents. The second argument fills ^0; one after it with no number
+    // is the item at its place, as the Developer Info Assistant's Progress
+    // puts its text in item 3.
+    run(&mut i, "get Dialoger(\"Dev Features\" & return & \"float\", \"Mentioned\", \"Story\", \"4◊true\", \"6◊userList Geneva,9\" & return & \"Ada\" & return & \"C\")");
+    assert_eq!(run(&mut i, "put dContents(\"Dev Features\") && dContents(\"Nope\")"), "1 0");
+    assert_eq!(run(&mut i, "put dContents(\"Dev Features\", 4) && dContents(\"Dev Features\", 6, \"all\")"), "true Ada\nC");
+    assert_eq!(run(&mut i, "put dContents(\"Dev Features\", 3)"), "Story");
+    assert_eq!(run(&mut i, "put dContents(\"Dev Features\", 0, \"kind\")"), "Float");
+    let d = lock(&i.world).script_windows.iter().find(|t| t.name == "Dev Features").and_then(|t| t.dialoger.clone()).unwrap();
+    assert_eq!(d.shown_text("Strengths ^0"), "Strengths Mentioned");
+    // Its clicks: a check box turns; OK closes it.
+    i.handle_event(Event::DialogerHit { name: "Dev Features".into(), item: 4 });
+    assert_eq!(run(&mut i, "put dContents(\"Dev Features\", 4)"), "false");
+    i.handle_event(Event::DialogerHit { name: "Dev Features".into(), item: 1 });
+    assert_eq!(run(&mut i, "put dContents(\"Dev Features\")"), "0");
+    run(&mut i, "get Dialoger(\"Dev Features\" & return & \"float\")");
+    run(&mut i, "close window \"Dev Features\"");
+    assert_eq!(run(&mut i, "put dContents(\"Dev Features\")"), "0");
+    // The Developer Info Assistant's About box: its picture is a push
+    // button that closes it.
+    lock(&i.world).stack.dialogs.insert(13467, dialog_template("AboutThisStack", &[(K::Picture, [-1, -1, 349, 203], true, "", 2666), (K::StaticText, [200, 9, 329, 36], false, "Version 1.0", 0)]));
+    i.canned_answers.push(DialogReply::Hit(1));
+    assert_eq!(run(&mut i, "put Dialoger(\"AboutThisStack\" & return & \"DefaultItem 1\", \"1◊PictButton 1,1,Push\", \"2◊StyledText Palatino,10,R.\" & return & \"Version 4.1\")"), "1\nVersion 4.1");
+}
+
+#[test]
+fn dialoger_hit_handlers() {
+    // The Developer Info Assistant's ListMaker: a hit handler that adds,
+    // deletes and moves lines with dChanger, and reads the list on OK, while
+    // the dialog is still open.
+    use crate::model::dialogs::DialogItemKind as K;
+    let mut i = interp_with(stack());
+    {
+        let mut w = lock(&i.world);
+        w.stack.dialogs.insert(
+            3741,
+            dialog_template(
+                "ListMaker",
+                &[
+                    (K::Button, [194, 166, 274, 184], true, "OK", 0),
+                    (K::Button, [194, 189, 274, 207], true, "Cancel", 0),
+                    (K::EditText, [13, 179, 180, 195], true, "", 0),
+                    (K::User, [10, 27, 183, 174], true, "", 1),
+                    (K::Button, [192, 84, 277, 102], true, "Add", 0),
+                    (K::Button, [192, 107, 277, 125], true, "Delete", 0),
+                    (K::Button, [192, 25, 277, 43], true, "Up", 0),
+                    (K::StaticText, [11, 11, 182, 27], false, "^0", 0),
+                ],
+            ),
+        );
+        let card = w.card_id;
+        w.stack.card_mut(card).unwrap().script = "on ListMakerHits dialog, i\n  global gLast, gLog\n  put i & \",\" after gLog\n  if i = 0 then dChanger dialog, \"5◊Inactivate\"\n  else if i = 1 then put dContents(dialog, 4, \"all\") into gLast\n  else if i = 5 then\n    put dContents(dialog, 4) into ln\n    if ln is empty then put 32000 into ln\n    dChanger dialog, \"3◊\", \"4◊Add\" && ln & return & \"Carol\" & return & \"deselect 0,32000\"\n  else if i = 6 then\n    dChanger dialog, \"4◊Delete\" && dContents(dialog, 4)\n  else if i = 7 then\n    get dContents(dialog, 4)\n    dChanger dialog, \"4◊swap\" && it - 1 & \",\" & it & return & \"Select\" && it - 1\n  end if\nend ListMakerHits\n\nfunction MakeList thePrompt, theList\n  global gLast\n  get Dialoger(\"ListMaker\", thePrompt, \"0◊on ListMakerHits\", \"4◊userList Chicago,12,SingleSelection\" & return & theList)\n  return gLast\nend MakeList".into();
+    }
+    // With Bob (line 2) chosen, Add makes Carol line 2 and chooses her; Up
+    // moves her above Ann; Delete takes her out; OK.
+    let card = lock(&i.world).card_id;
+    {
+        let mut w = lock(&i.world);
+        let s = &mut w.stack.card_mut(card).unwrap().script;
+        *s = s.replace("if i = 0 then dChanger dialog, \"5◊Inactivate\"", "if i = 0 then dChanger dialog, \"4◊Select 2\"");
+        *s = s.replace("deselect 0,32000\"", "Select 2\"");
+    }
+    i.canned_answers.extend([DialogReply::Hit(5), DialogReply::Hit(7), DialogReply::Hit(6), DialogReply::Hit(1)]);
+    run(&mut i, "global gLog\nput empty into gLog");
+    assert_eq!(run(&mut i, "put MakeList(\"Your friends:\", \"Ann\" & return & \"Bob\")"), "Ann\nBob");
+    assert_eq!(run(&mut i, "global gLog\nput gLog"), "0,5,7,6,1,");
+
+    // Package Maker: OK doesn't close it (noDismiss) until the handler says.
+    lock(&i.world).stack.dialogs.insert(
+        17238,
+        dialog_template(
+            "Package Maker",
+            &[(K::Button, [126, 205, 206, 223], true, "OK", 0), (K::Button, [15, 205, 95, 223], true, "Cancel", 0), (K::CheckBox, [18, 177, 205, 193], true, "Compress", 0)],
+        ),
+    );
+    lock(&i.world).stack.card_mut(card).unwrap().script = "on PackHits dialog, itemHit\n  global gN\n  if itemHit = 0 then dChanger dialog, \"1◊noDismiss\"\n  else if itemHit = 1 then\n    add 1 to gN\n    if gN = 2 then dChanger dialog, \"0◊dismiss\"\n  end if\nend PackHits".into();
+    i.canned_answers.extend([DialogReply::Hit(1), DialogReply::Hit(3), DialogReply::Hit(1)]);
+    assert_eq!(run(&mut i, "global gN\nput 0 into gN\nput Dialoger(\"Package Maker\" & return & \"on PackHits\") into r\nput line 1 of r && line 3 of r && gN"), "OK true 2");
+
+    // A floating Help window: its handler sets it up, its pop-up's choice
+    // reaches the handler, and other scripts change it with dChanger.
+    lock(&i.world).stack.dialogs.insert(
+        15808,
+        dialog_template("Help", &[(K::Button, [140, 214, 220, 232], true, "ok", 0), (K::StaticText, [8, 36, 253, 195], false, "", 0), (K::User, [69, 9, 206, 27], true, "", 2)]),
+    );
+    lock(&i.world).stack.card_mut(card).unwrap().script = "on HelpHits dialog, itemHit\n  if itemHit = 0 then dChanger dialog, \"2◊General help\"\n  else if itemHit = 3 then dChanger dialog, \"2◊About\" && dContents(dialog, 3)\nend HelpHits".into();
+    run(&mut i, "get Dialoger(\"Help\" & return & \"on HelpHits\" & return & \"float\", \"\", \"3◊userPop\" & return & \"General\" & return & \"Sending\")");
+    assert_eq!(run(&mut i, "put dContents(\"Help\", 2)"), "General help");
+    run(&mut i, "dChanger \"Help\", \"3◊Select 2\"");
+    i.handle_event(Event::DialogerHit { name: "Help".into(), item: 3 });
+    assert_eq!(run(&mut i, "put dContents(\"Help\", 2)"), "About Sending");
+    run(&mut i, "dChanger \"Help\", \"0◊dismiss\"");
+    assert_eq!(run(&mut i, "put there is a window \"Help\""), "false");
+    assert_eq!(run(&mut i, "dChanger \"Help\", \"2◊x\"\nput the result"), "Error: no such dialog exists: Help");
 }

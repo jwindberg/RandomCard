@@ -96,7 +96,7 @@ impl Interp {
                 let it = match reply {
                     DialogReply::Button(b) => b,
                     DialogReply::Text(t) => t.unwrap_or_else(|| labels[0].clone()),
-                    DialogReply::List(..) => labels[0].clone(),
+                    DialogReply::List(..) | DialogReply::Hit(_) => labels[0].clone(),
                 };
                 self.set_var("it", it);
                 Ok(())
@@ -113,7 +113,7 @@ impl Interp {
                         self.set_var("it", t);
                         self.result.clear();
                     }
-                    DialogReply::Text(None) | DialogReply::List(..) => {
+                    DialogReply::Text(None) | DialogReply::List(..) | DialogReply::Hit(_) => {
                         self.set_var("it", String::new());
                         self.result = "Cancel".into();
                     }
@@ -1555,7 +1555,7 @@ impl Interp {
         let reply = self.dialog(Dialog::Ask { prompt: prompt.into(), default: String::new(), password: true })?;
         Ok(match reply {
             DialogReply::Text(Some(t)) | DialogReply::Button(t) => Some(t),
-            DialogReply::Text(None) | DialogReply::List(..) => None,
+            DialogReply::Text(None) | DialogReply::List(..) | DialogReply::Hit(_) => None,
         })
     }
 
@@ -2591,6 +2591,13 @@ impl Interp {
             "export paint" => self.paint_file_menu(false),
             "new stack" => self.request(UiRequest::NewStack),
             "quit hypercard" | "quit randomcard" | "quit" => self.request(UiRequest::Quit),
+            "about randomcard" | "about hypercard" => {
+                let about = format!(
+                    "RandomCard {}\nHyperCard, re-created in Rust.\nCopyright 2026 jwindberg. MIT License.",
+                    env!("CARGO_PKG_VERSION")
+                );
+                self.dialog(Dialog::Answer { prompt: about, buttons: vec!["OK".into()] }).map(|_| ())
+            }
             "button info" | "field info" => self.request(UiRequest::SelectedPartInfo),
             "card info" => self.request(UiRequest::CardInfo),
             "bkgnd info" | "background info" => self.request(UiRequest::BgInfo),
@@ -2679,7 +2686,7 @@ impl Interp {
             // Nothing to do: stacks are written whole, printing goes through
             // PDF, and there's one window and no help stack.
             "compact stack" => self.compact_stack(),
-            "page setup" | "scroll" | "help" | "about hypercard" | "about randomcard" => Ok(()),
+            "page setup" | "scroll" | "help" => Ok(()),
             // The stack window furthest back comes forward, so repeating it
             // goes round them all.
             "next window" => {

@@ -85,8 +85,43 @@ impl Interp {
     /// A file function's answer, or None if it isn't one.
     pub(super) fn file_function(&mut self, name: &str, args: &[String]) -> Option<R<String>> {
         let arg = |i: usize| args.get(i).cloned().unwrap_or_default();
-        if !matches!(name, "getdir" | "getfinfo" | "fullsfput" | "getbootvol" | "getsysfolder") {
+        if !matches!(name, "getdir" | "getfinfo" | "fullsfput" | "getbootvol" | "getsysfolder" | "foldercontents" | "isfolder" | "getvolume") {
             return None;
+        }
+        // IsFolder(path): whether there's a folder there.
+        if name == "isfolder" {
+            return Some(Ok(self.script_path(&arg(0)).is_dir().to_string()));
+        }
+        // GetVolume: the folder file dialogs open in, or the stack's.
+        if name == "getvolume" {
+            let dir = self.dialog_folder.clone().or_else(|| {
+                self.w().stack.path.as_ref().and_then(|p| p.parent().map(Path::to_path_buf))
+            });
+            return Some(Ok(dir.map(|d| super::paths::folder(&d)).unwrap_or_default()));
+        }
+        // FolderContents(folder, "files" | "folders" | "all", how errors
+        // go), from Apple's Developer Technical Support externals: the
+        // names in a folder, a line each. "noDialog:name" puts a problem in
+        // that global instead of an alert.
+        if name == "foldercontents" {
+            let dir = self.script_path(&arg(0));
+            let (listing, problem) = match folder_contents(&dir, &arg(1)) {
+                Ok(names) => (names.join("\n"), String::new()),
+                Err(e) => (String::new(), e),
+            };
+            let how = arg(2);
+            match how.trim().split_once(':') {
+                Some((mode, global)) if mode.trim().eq_ignore_ascii_case("nodialog") => {
+                    self.globals.insert(global.trim().to_lowercase(), problem);
+                }
+                _ if !problem.is_empty() => {
+                    if let Err(e) = self.dialog(super::world::Dialog::Answer { prompt: problem, buttons: vec!["OK".into()] }) {
+                        return Some(Err(e));
+                    }
+                }
+                _ => {}
+            }
+            return Some(Ok(listing));
         }
         if let Some(h) = help(name, args) {
             return Some(Ok(h));
@@ -132,6 +167,18 @@ impl Interp {
     /// Run a file command, putting any error in the result; None if it isn't one.
     pub(super) fn file_command(&mut self, name: &str, args: &[String]) -> Option<R<()>> {
         let arg = |i: usize| args.get(i).cloned().unwrap_or_default();
+        // defaultFolder (Apple's DTS externals), StdFile (the Developer Info
+        // Assistant's) and SetVolume: the folder file dialogs open in from
+        // now on. A file means the folder it's in.
+        if matches!(name, "defaultfolder" | "stdfile" | "setvolume") {
+            let p = self.script_path(&arg(0));
+            let dir = if p.is_dir() { Some(p) } else { p.parent().filter(|d| d.is_dir()).map(Path::to_path_buf) };
+            self.result = if dir.is_some() { String::new() } else { format!("Error : No folder \"{}\"", arg(0).trim()) };
+            if dir.is_some() {
+                self.dialog_folder = dir;
+            }
+            return Some(Ok(()));
+        }
         if !matches!(name, "filecopy" | "erasefile" | "fullmove" | "fullrename") {
             return None;
         }
@@ -305,6 +352,30 @@ fn parse_date(s: &str) -> Option<chrono::NaiveDate> {
 /// per line, each as the "o=" filter lays it out (the name, by default). The
 /// mode's first letter picks files (F), folders (D) or both; R as its
 /// second searches folders inside too.
+/// A folder's files, folders or both, by name, as the Finder sorted them.
+/// Hidden files and resource forks copied beside their files are left out.
+fn folder_contents(dir: &Path, which: &str) -> Result<Vec<String>, String> {
+    let entries = std::fs::read_dir(dir).map_err(|_| format!("Couldn't read the folder \"{}\".", super::paths::shown(dir)))?;
+    let which = which.trim().to_ascii_lowercase();
+    let (files, folders) = match which.as_str() {
+        "files" | "file" => (true, false),
+        "folders" | "folder" | "directories" => (false, true),
+        _ => (true, true),
+    };
+    let mut names: Vec<String> = entries
+        .flatten()
+        .filter(|e| {
+            let is_dir = e.path().is_dir();
+            if is_dir { folders } else { files }
+        })
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        // A resource fork copied beside its file is part of that file.
+        .filter(|n| !n.starts_with('.') && !n.ends_with(".rsrc"))
+        .collect();
+    names.sort_by_key(|n| n.to_lowercase());
+    Ok(names)
+}
+
 fn get_dir(dir: &Path, mode: &str, filters: &[String]) -> String {
     if !dir.is_dir() {
         return if dir.exists() { "Error : Not a directory".into() } else { "Error : Directory not found".into() };

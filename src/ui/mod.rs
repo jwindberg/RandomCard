@@ -3,6 +3,7 @@
 mod addcolor;
 mod bitmap_fonts;
 mod debugger;
+mod dialoger_windows;
 mod editing;
 mod icon_editor;
 mod images;
@@ -20,6 +21,7 @@ mod recent;
 mod render;
 mod script_find;
 mod system_fonts;
+mod texas_windows;
 mod tool_icons;
 mod windows;
 
@@ -227,6 +229,8 @@ pub struct App {
     palette_tex: std::collections::HashMap<String, (std::sync::Arc<crate::model::Palette>, egui::TextureHandle, egui::TextureHandle)>,
     /// Picture windows' textures, by window name.
     picture_tex: std::collections::HashMap<String, (std::sync::Arc<crate::model::Picture>, egui::TextureHandle)>,
+    /// Dialoger dialogs' icons and pictures, by stack, kind and id.
+    dialoger_tex: std::collections::HashMap<String, egui::TextureHandle>,
     /// Each movie window's picture, and the movie whose slider is held.
     movie_tex: movies::MovieTextures,
     movie_scrub: Option<movies::Scrub>,
@@ -346,6 +350,7 @@ impl App {
             popup: None,
             palette_tex: std::collections::HashMap::new(),
             picture_tex: std::collections::HashMap::new(),
+            dialoger_tex: std::collections::HashMap::new(),
             movie_tex: Default::default(),
             movie_scrub: None,
             palette_press: None,
@@ -521,8 +526,10 @@ impl App {
             for menu in &shown {
                 // A menu with a check mark leaves room for it on every item.
                 let indent = menu.items.iter().any(|i| i.checked);
+                // HyperCard's Apple menu, by the application's name.
+                let title = if menu.name == "Apple" { "RandomCard" } else { menu.name.as_str() };
                 ui.add_enabled_ui(menu.enabled, |ui| {
-                    ui.menu_button(&menu.name, |ui| {
+                    ui.menu_button(title, |ui| {
                         for i in &menu.items {
                             if i.separator {
                                 ui.separator();

@@ -110,6 +110,8 @@ impl Interp {
                 palette: None,
                 apple: None,
                 image: Some(Arc::new(picture)),
+                texas: None,
+                dialoger: None,
             });
             id
         };

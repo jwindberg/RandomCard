@@ -362,11 +362,42 @@ fn house(p: &mut Picture) {
     }
 }
 
+/// The Tour's own dialog, as a stack's DLOG and DITL describe one, for
+/// Dialoger (the Debugging card's A Dialog button).
+fn tour_dialog() -> super::dialogs::DialogTemplate {
+    use super::dialogs::{DialogItem, DialogItemKind as K, DialogTemplate};
+    let item = |kind, l, t, r, bt, text: &str, id| DialogItem { kind, rect: Rect::new(l, t, r, bt), enabled: true, text: text.into(), id };
+    DialogTemplate {
+        name: "Tour Dialog".into(),
+        title: "Tour Dialog".into(),
+        rect: Rect::new(110, 80, 410, 280),
+        proc_id: 1,
+        close_box: false,
+        items: vec![
+            item(K::Button, 210, 166, 290, 186, "OK", 0),
+            item(K::Button, 120, 166, 200, 186, "Cancel", 0),
+            DialogItem { enabled: false, ..item(K::StaticText, 10, 8, 290, 26, "A dialog from ^0's resources:", 0) },
+            item(K::CheckBox, 10, 34, 150, 52, "Show the colors", 0),
+            item(K::User, 10, 60, 150, 156, "", 1),
+            item(K::Button, 160, 60, 240, 80, "Add", 0),
+            item(K::User, 160, 100, 290, 120, "", 2),
+        ],
+    }
+}
+
 const STACK_SCRIPT: &str = r#"-- A menu of the stack's own. Its items arrive as doMenu messages.
 on openStack
   if there is no menu "Tour" then create menu "Tour"
   put "Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Movies,Pictures,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,Card Window,The Web,Japanese,-,Address Book" into menu "Tour"
+  -- HyperCard's Apple menu: the About item is the stack's to rename.
+  put "About the Tour…" into menuItem 1 of menu "Apple"
+  set the menuMsg of menuItem 1 of menu "Apple" to "aboutTour"
 end openStack
+
+on aboutTour
+  answer "The Tour shows RandomCard's features, a card each. It renamed this About item, as HyperCard stacks did in the Apple menu; reset menuBar puts About RandomCard back." with "About RandomCard" or "OK"
+  if it is "About RandomCard" then doMenu "About RandomCard…"
+end aboutTour
 
 on doMenu what
   if what is "Address Book" then
@@ -1184,6 +1215,12 @@ end closeCard"#
         ("Zoom", "on mouseUp\n  if there is no window \"Rainbow\" then exit mouseUp\n  if the zoom of window \"Rainbow\" is \"in\" then set the zoom of window \"Rainbow\" to out\n  else set the zoom of window \"Rainbow\" to in\n  put \"zoom\" && the zoom of window \"Rainbow\" & \", the rect\" && the rect of window \"Rainbow\" into field \"Picture Messages\"\nend mouseUp"),
         ("Center", "on mouseUp\n  if there is no window \"Rainbow\" then exit mouseUp\n  set the loc of window \"Rainbow\" to cardScreen\n  put \"Centered on the screen: its globalLoc is\" && the globalLoc of window \"Rainbow\" into field \"Picture Messages\"\nend mouseUp"),
         ("Choose a File…", "on mouseUp\n  picture\n  if the result is not empty then put the result into field \"Picture Messages\"\nend mouseUp"),
+        // Texas, from Apple's Developer Info Assistant: a thread of
+        // messages read one at a time.
+        (
+            "Messages",
+            "on mouseUp\n  if there is a window \"A Discussion\" then exit mouseUp\n  put \"Source: Tour\" & return & \"Thread ID: 1\" & return & \"Thread Title: A Discussion\" & return & \"Message Title: Hello\" & return & return & \"The first message. The arrows and the pop-up go through the thread.\" & return into thread\n  put \"Source: Tour\" & return & \"Thread ID: 1\" & return & \"Thread Title: A Discussion\" & return & \"Message Title: RE>Hello\" & return & return & \"The reply. Click Reply, or close the window: the card hears about both.\" after thread\n  Texas \"A Discussion\", thread, \"Disc\"\n  put \"Texas, from Apple's Developer Info Assistant:\" && the number of lines of the messageList of window \"A Discussion\" && \"messages, one at a time.\" into field \"Picture Messages\"\nend mouseUp",
+        ),
     ];
     for (i, (name, script)) in picture_buttons.iter().enumerate() {
         let (col, row) = ((i % 2) as i32, (i / 2) as i32);
@@ -1208,8 +1245,17 @@ on mouseDownInPicture name, where
   put "mouseDownInPicture" && name && "at" && where into field "Picture Messages"
 end mouseDownInPicture
 
+on texasReplyMsg name
+  put "texasReplyMsg" && name & ": a reply to" && the messageName of window name into field "Picture Messages"
+end texasReplyMsg
+
+on texasClose name, how
+  put "texasClose" && name && how into field "Picture Messages"
+end texasClose
+
 on closeCard
   if there is a window "Rainbow" then close picture "Rainbow"
+  if there is a window "A Discussion" then close window "A Discussion"
   put empty into field "Picture Messages"
 end closeCard"#
         .into();
@@ -1667,6 +1713,33 @@ end mouseUp"#,
 end mouseUp"#,
     );
     b.card_part(c, list);
+    // Dialoger: a dialog the stack carries, as a DLOG and DITL did, with a
+    // hit handler that changes it while it's open.
+    b.stack.dialogs.insert(128, tour_dialog());
+    let dialog = b.button(
+        "A Dialog",
+        Rect::new(186, 278, 326, 302),
+        r#"on mouseUp
+  put numToChar(9674) into m
+  put Dialoger("Tour Dialog" & return & "on TourDialogHits", "the Tour", "4" & m & "1", "5" & m & "userList Geneva,12,SingleSelection" & return & "Red" & return & "Green", "7" & m & "userPop 2" & return & "Small" & return & "Medium" & return & "Large") into r
+  if line 2 of r is "Cancel" then
+    put "Canceled." into cd fld "Answer"
+  else
+    put "Dialoger answered: show" && line 4 of r & ", line" && line 5 of r & ", size" && line 7 of r into cd fld "Answer"
+  end if
+end mouseUp"#,
+    );
+    b.card_part(c, dialog);
+    // Dialoger sends the hit handler to the card: the dialog and the item
+    // clicked, 0 as it opens, then each click while it's still open.
+    b.stack.cards[c].script = r#"on TourDialogHits dialog, itemHit
+  put numToChar(9674) into m
+  if itemHit = 6 then
+    get the number of lines of dContents(dialog, 5, "all")
+    dChanger dialog, "5" & m & "add" & return & "Color" && it + 1 & return & "select" && it + 1
+  end if
+end TourDialogHits"#
+        .into();
     let mut answer = b.label("Answer", Rect::new(20, 132, 492, 156), "", 14);
     answer.text_align = TextAlign::Center;
     b.card_part(c, answer);

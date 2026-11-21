@@ -41,7 +41,7 @@ impl Interp {
         let checked = checked.clamp(0, items.len() as i64) as u32;
         Ok(match self.dialog(Dialog::Menu { items, left, top, checked })? {
             DialogReply::Text(Some(n)) | DialogReply::Button(n) => n.parse().ok(),
-            DialogReply::Text(None) | DialogReply::List(..) => None,
+            DialogReply::Text(None) | DialogReply::List(..) | DialogReply::Hit(_) => None,
         })
     }
 
@@ -49,7 +49,10 @@ impl Interp {
     /// canceled straight away.
     pub fn file_dialog(&self, title: &str, kind: FileDialog) -> Option<PathBuf> {
         self.dialog_rx.as_ref()?;
-        let dialog = rfd::FileDialog::new().set_title(title);
+        let mut dialog = rfd::FileDialog::new().set_title(title);
+        if let Some(dir) = &self.dialog_folder {
+            dialog = dialog.set_directory(dir);
+        }
         match kind {
             FileDialog::Open => dialog.pick_file(),
             FileDialog::Save(name) => dialog.set_file_name(name).save_file(),
@@ -71,6 +74,16 @@ impl Interp {
         // Power Tools' Resources XFCN: the stack's resources, listed.
         if name == "resources" {
             return Some(self.resources_function(args));
+        }
+        if let Some(v) = self.texas_function(name, args) {
+            return Some(v);
+        }
+        // Dialoger and dContents: dialogs from the stack's resources.
+        if name == "dialoger" {
+            return Some(self.dialoger(args));
+        }
+        if name == "dcontents" {
+            return Some(self.dcontents(args));
         }
         // Power Tools' ShowList XFCN.
         if name == "showlist" {
@@ -108,6 +121,10 @@ impl Interp {
             "filename" => path(self.file_dialog(&arg(1), FileDialog::Open)),
             // FilePath(type, prompt), from the Rinaldi collection: the same.
             "filepath" => path(self.file_dialog(&arg(1), FileDialog::Open)),
+            // FileFilter(prompt, type, creator), from the Developer Info
+            // Assistant: an Open dialog. Files today have no Mac type or
+            // creator to filter by.
+            "filefilter" => path(self.file_dialog(&arg(0), FileDialog::Open)),
             // NewFileName(prompt, name): a Save dialog.
             "newfilename" => path(self.file_dialog(&arg(0), FileDialog::Save(arg(1)))),
             // PopUpMenu(items, checked item, top, left): a pop-up menu,
@@ -208,6 +225,8 @@ impl Interp {
                     palette: None,
                     apple: None,
                     image: None,
+                    texas: None,
+                    dialoger: None,
                 });
                 String::new()
             }
@@ -218,7 +237,8 @@ impl Interp {
             // FolderPath(prompt) and SelectDir(prompt): a dialog for choosing
             // a folder, answering its path with a separator at the end, as
             // a Mac folder path ended in a colon.
-            "folderpath" | "selectdir" => match self.file_dialog(&arg(0), FileDialog::Folder) {
+            // NewFolder(prompt), from the Developer Info Assistant: the same.
+            "folderpath" | "selectdir" | "newfolder" => match self.file_dialog(&arg(0), FileDialog::Folder) {
                 Some(p) => super::paths::folder(&p),
                 None => String::new(),
             },
@@ -293,7 +313,7 @@ impl Interp {
                 match self.dialog(Dialog::Answer { prompt: arg(0), buttons: buttons.clone() }) {
                     Ok(DialogReply::Button(b)) => b,
                     Ok(DialogReply::Text(t)) => t.unwrap_or_else(|| buttons[0].clone()),
-                    Ok(DialogReply::List(..)) => buttons[0].clone(),
+                    Ok(DialogReply::List(..) | DialogReply::Hit(_)) => buttons[0].clone(),
                     Err(e) => return Some(Err(e)),
                 }
             }
@@ -334,6 +354,14 @@ impl Interp {
         }
         if name == "picture" {
             return Some(self.picture_command(args));
+        }
+        // Dialoger's dChanger: change an open dialog.
+        if name == "dchanger" {
+            return Some(self.dchanger(args));
+        }
+        // Texas, from the Developer Info Assistant: a window of messages.
+        if name == "texas" {
+            return Some(self.texas_command(args));
         }
         // Flush (XCMD.Flush): events waiting are dropped, as `flush keys`.
         if name == "flush" && args.is_empty() {
@@ -386,6 +414,8 @@ impl Interp {
                     palette: None,
                     apple: None,
                     image: None,
+                    texas: None,
+                    dialoger: None,
                 };
                 let mut w = self.w();
                 w.script_windows
@@ -437,6 +467,8 @@ impl Interp {
                     palette: Some(palette),
                     apple: None,
                     image: None,
+                    texas: None,
+                    dialoger: None,
                 });
                 drop(w);
                 let card = self.current_card_ref();

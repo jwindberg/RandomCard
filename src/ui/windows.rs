@@ -1068,6 +1068,12 @@ impl App {
                 WindowKind::Palette { hilited, .. } => self.palette_window(ctx, &t, at, hilited),
                 WindowKind::Picture { style, view, .. } => self.picture_window(ctx, &t, at, style, view),
                 WindowKind::Mouse | WindowKind::Info => self.live_window(ctx, &t, at, font),
+                WindowKind::Texas => self.texas_window(ctx, &t, at, font),
+                WindowKind::Dialoger => {
+                    if let Some(n) = self.dialoger_floating(ctx, &t, at) {
+                        self.send(Event::DialogerHit { name: t.name.clone(), item: n });
+                    }
+                }
                 WindowKind::Text => {
                     let mut open = true;
                     let mut text = t.text.clone();
@@ -1282,6 +1288,13 @@ impl App {
             }
             return;
         }
+        if let Dialog::Dialoger(name) = &d {
+            if let Some(n) = self.dialoger_modal(ctx, name) {
+                lock(&self.rt.world).dialog = None;
+                let _ = self.rt.dialog_replies.send(DialogReply::Hit(n));
+            }
+            return;
+        }
         if let Dialog::List(list) = &d {
             if !self.dialog_init {
                 self.dialog_init = true;
@@ -1324,7 +1337,7 @@ impl App {
                         reply = Some(DialogReply::Button(b.clone()));
                     }
                 }
-                Dialog::Menu { .. } | Dialog::List(_) => {}
+                Dialog::Menu { .. } | Dialog::List(_) | Dialog::Dialoger(_) => {}
                 Dialog::Ask { prompt, password, .. } => {
                     ui.label(RichText::new(prompt).size(14.0));
                     let resp = ui.add(

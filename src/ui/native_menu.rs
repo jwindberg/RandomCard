@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use muda::accelerator::{Accelerator, Code, Modifiers};
-use muda::{AboutMetadata, CheckMenuItem, IsMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem, Submenu};
+use muda::{CheckMenuItem, IsMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 
 use super::menus::ShownMenu;
 
@@ -31,19 +31,17 @@ impl NativeMenus {
         // The application menu. Quit is RandomCard's own, so it can ask about
         // an unsaved stack first.
         let app = Submenu::new("RandomCard", true);
-        let about = PredefinedMenuItem::about(
-            Some("About RandomCard"),
-            Some(AboutMetadata {
-                name: Some("RandomCard".into()),
-                version: Some(env!("CARGO_PKG_VERSION").into()),
-                copyright: Some("Copyright 2026 jwindberg. MIT License.".into()),
-                ..Default::default()
-            }),
-        );
+        // HyperCard's Apple menu leads it: About, which a stack can rename.
+        for menu in menus.iter().filter(|m| m.name == "Apple") {
+            for i in menu.items.iter().filter(|i| !i.separator) {
+                let item = MenuItem::new(&i.label, i.enabled, None);
+                let _ = app.append(&item);
+                items.insert(item.id().clone(), (i.label.clone(), String::new()));
+            }
+        }
         let quit = MenuItem::new("Quit RandomCard", true, accelerator("q"));
         items.insert(quit.id().clone(), ("Quit RandomCard".to_string(), "q".to_string()));
         let _ = app.append_items(&[
-            &about,
             &PredefinedMenuItem::separator(),
             &PredefinedMenuItem::services(None),
             &PredefinedMenuItem::separator(),
@@ -54,7 +52,7 @@ impl NativeMenus {
             &quit,
         ]);
         let _ = bar.append(&app);
-        for menu in menus {
+        for menu in menus.iter().filter(|m| m.name != "Apple") {
             let submenu = Submenu::new(&menu.name, menu.enabled);
             for i in &menu.items {
                 if i.separator {

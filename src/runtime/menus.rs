@@ -96,6 +96,10 @@ pub fn standard_menus() -> Vec<Menu> {
         "Rotate Right", "Flip Vertical", "Flip Horizontal", "-", "Opaque", "Transparent", "-", "Keep", "Revert",
     ];
     vec![
+        // HyperCard's Apple menu: its About item, which a stack can rename
+        // and give a message of its own. RandomCard shows it as the Mac's
+        // application menu, and first in the window's menu bar elsewhere.
+        Menu::builtin("Apple", &["About RandomCard…"]),
         Menu::builtin(
             "File",
             &[
@@ -265,7 +269,7 @@ mod tests {
         let edit = menu_index(&menus, "edit").unwrap();
         assert_eq!(menus[edit].item_index("new card"), Some(8));
         assert_eq!(menus[edit].item_index("1"), Some(0));
-        assert_eq!(menus[0].item_index("protect stack"), Some(8));
+        assert_eq!(menus[1].item_index("protect stack"), Some(8));
         assert_eq!(menu_index(&menus, "2"), Some(1));
         assert!(find_item(&menus, "Bold").is_some());
         assert!(find_item(&menus, "-").is_none());

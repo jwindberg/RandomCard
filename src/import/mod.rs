@@ -97,6 +97,7 @@ pub fn import_bytes(bytes: &[u8], path: &Path, password: Option<&str>) -> Result
         stack.songs = resources::songs(&fork, enc);
         stack.fonts = resources::fonts(&fork, enc);
         stack.palettes = resources::palettes(&fork, enc);
+        stack.dialogs = resources::dialogs(&fork, enc);
         addcolor::apply(&mut stack, &resources::parse(&fork, enc), enc);
         addcolor::pictures(&mut stack, &resources::parse(&fork, enc), path);
         external_pictures(&mut stack, &resources::parse(&fork, enc));
@@ -129,10 +130,18 @@ fn resource_pictures(stack: &mut Stack, res: &[resources::Resource]) {
         let l = l.trim_start();
         (l.starts_with("picture ") || l.starts_with("open picture")) && l.contains("resource")
     });
-    if !shows {
+    // And the pictures in the stack's dialogs.
+    let in_dialogs: HashSet<i16> = stack
+        .dialogs
+        .values()
+        .flat_map(|d| &d.items)
+        .filter(|i| i.kind == crate::model::dialogs::DialogItemKind::Picture)
+        .map(|i| i.id)
+        .collect();
+    if !shows && in_dialogs.is_empty() {
         return;
     }
-    for r in res.iter().filter(|r| &r.kind == b"PICT") {
+    for r in res.iter().filter(|r| &r.kind == b"PICT" && (shows || in_dialogs.contains(&r.id))) {
         if let Some(p) = pict::decode(r.data) {
             let picture = crate::model::NamedPicture { name: r.name.clone(), picture: p.to_color_picture() };
             stack.pictures.insert(r.id as i32, picture);
