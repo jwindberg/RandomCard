@@ -730,6 +730,57 @@ language's side is `src/runtime/web.rs`.
    uses all of it with The Color API (www.thecolorapi.com): a converter
    for designers and programmers, RGB and HSV taught with sliders and a
    color wheel the stack paints itself, color schemes, and WCAG contrast.
+6. ~~**Pictures and movies from the web.**~~ Done (2026-11-21): image
+   parts, a field for pictures, whose contents are a web address, a file
+   or one of the stack's pictures, loaded in the background with
+   imageLoaded and imageFailed; and `Movie "https://…"`, streamed:
+   GStreamer on Linux, Media Foundation on Windows, AVPlayer on a Mac
+   (the Mac's file player, AVAssetReader, reads only files).
+   VideoDB (`examples/VideoDB.rcstack`, made by `tools/make_videodb.py`)
+   is the front end of a GraphQL movie library: its pages as cards, a
+   poster grid, editing, OMDb lookup and playing.
+7. **GraphQL built in.** VideoDB does GraphQL by hand: JSON posted to
+   `/graphql`, with a `jsonString` function of its own so a value like
+   "1984" isn't sent as a number, and the `data` and `errors` unpacked by
+   its script. A command would make that one line, something like
+   `graphql query [with variables] to url U`: the `data` in `it`, the first
+   error's message in `the result`, and variables given as HyperTalk
+   values that stay strings. No library is needed: to a client, GraphQL
+   is a JSON POST. Its name and form are to settle, on their own merits.
+8. **Network security.** A stack from anywhere can now reach any address,
+   the local network included, and read files to send. To work out what a
+   stack may do without asking, what asks first (a stack's first request
+   to a host, as browsers ask about the local network), and where that's
+   remembered; and on a Mac, the Local Network privacy prompt and App
+   Transport Security for plain http. For now the Mac app allows plain
+   http only on the local network (`NSAllowsLocalNetworking`, so
+   `http://trashcan.local` streams), says why in its Local Network prompt,
+   and needs https everywhere else. Secrets such as API keys shouldn't be
+   saved in a stack's file, where anyone given the stack can read them;
+   they belong in the system's secure store, as tokens do (9).
+9. **Signing in: OAuth 2.0 and single sign-on.** Services that need a
+   user's sign-in, and companies' SSO, following the standards for native
+   apps:
+   - **OAuth 2.0** (RFC 6749) with the authorization code flow and PKCE
+     (RFC 7636), as RFC 8252 says native apps should: sign-in in the
+     system's own browser, never a web view inside RandomCard, coming
+     back through a loopback redirect (`http://127.0.0.1:port`) or an
+     app URL scheme. RandomCard is a public client: no client secret in
+     the app or a stack.
+   - **OpenID Connect** for SSO (Okta, Microsoft Entra, Google and the
+     like): the provider found from its `/.well-known/openid-configuration`,
+     and who signed in from the ID token.
+   - **The device flow** (RFC 8628) where a browser is awkward, as on
+     the 720×720 cyberdeck: a code to enter on another device.
+   - **Tokens kept by the system, not the stack:** the macOS Keychain,
+     Windows Credential Manager, the Secret Service on Linux. Refreshed
+     when they run out, and sent (`Authorization: Bearer`, RFC 6750) only
+     to the hosts they were issued for.
+   - **In HyperTalk,** to design on its own merits: a stack names a
+     provider (its issuer or endpoints, client id and scopes), a script
+     asks to sign in, and requests to that service then carry the token
+     without the script handling it. Which stacks may use a sign-in is
+     part of network security (8).
 
 ## Testing
 

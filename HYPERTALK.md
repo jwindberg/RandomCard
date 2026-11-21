@@ -581,7 +581,8 @@ without its extension; with no name, a dialog asks for one. Errors go in
 
 A movie on the web plays from its address: `Movie
 "https://example.com/videos/42"`. It streams, and can be played, paused
-and moved through like a file, on Linux and Windows (on a Mac, not yet).
+and moved through like a file. On a Mac, plain http works only on the
+local network (a `.local` name or an address); elsewhere it must be https.
 Its name is the last part of the address. The VideoDB example stack plays
 its movies this way.
 

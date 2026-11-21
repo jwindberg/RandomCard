@@ -38,7 +38,7 @@ const TIMESCALE: i32 = 600_000;
 /// Orthogonal rotation from a video track's `preferredTransform` (such as
 /// portrait phone recordings).
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Rot {
+pub(super) enum Rot {
     None,
     Cw90,
     Cw180,
@@ -318,20 +318,87 @@ impl State {
     }
 }
 
-pub struct Player {
+/// A movie: a file, read here, or one on the web, streamed by AVPlayer.
+pub enum Player {
+    File(Box<FilePlayer>),
+    Stream(super::avplayer::StreamPlayer),
+}
+
+impl Player {
+    pub fn open(path: &Path) -> Result<Player, String> {
+        FilePlayer::open(path).map(|p| Player::File(Box::new(p)))
+    }
+
+    pub fn open_url(url: &str) -> Result<Player, String> {
+        super::avplayer::StreamPlayer::open(url).map(Player::Stream)
+    }
+
+    pub fn size(&self) -> (u32, u32) {
+        match self {
+            Player::File(p) => p.size(),
+            Player::Stream(p) => p.size(),
+        }
+    }
+
+    pub fn duration(&self) -> f64 {
+        match self {
+            Player::File(p) => p.duration(),
+            Player::Stream(p) => p.duration(),
+        }
+    }
+
+    pub fn time(&self) -> f64 {
+        match self {
+            Player::File(p) => p.time(),
+            Player::Stream(p) => p.time(),
+        }
+    }
+
+    pub fn seek(&self, secs: f64) {
+        match self {
+            Player::File(p) => p.seek(secs),
+            Player::Stream(p) => p.seek(secs),
+        }
+    }
+
+    pub fn set_rate(&self, rate: f64) {
+        match self {
+            Player::File(p) => p.set_rate(rate),
+            Player::Stream(p) => p.set_rate(rate),
+        }
+    }
+
+    pub fn set_volume(&self, level: f64) {
+        match self {
+            Player::File(p) => p.set_volume(level),
+            Player::Stream(p) => p.set_volume(level),
+        }
+    }
+
+    pub fn frame(&self) -> Option<Arc<Frame>> {
+        match self {
+            Player::File(p) => p.frame(),
+            Player::Stream(p) => p.frame(),
+        }
+    }
+
+    pub fn finished(&self) -> bool {
+        match self {
+            Player::File(p) => p.finished(),
+            Player::Stream(p) => p.finished(),
+        }
+    }
+}
+
+/// A movie file, read with AVAssetReader.
+pub struct FilePlayer {
     duration: f64,
     size: (u32, u32),
     state: Mutex<State>,
 }
 
-impl Player {
-    /// Movies on the web: AVAssetReader reads only files, so a Mac would
-    /// need AVPlayer for these.
-    pub fn open_url(_url: &str) -> Result<Player, String> {
-        Err("Movies from the web don't play on a Mac yet".into())
-    }
-
-    pub fn open(path: &Path) -> Result<Player, String> {
+impl FilePlayer {
+    pub fn open(path: &Path) -> Result<FilePlayer, String> {
         if !path.is_file() {
             return Err("Can't find that movie file".into());
         }
@@ -408,7 +475,7 @@ impl Player {
             };
 
             let serial = u64::from(first_frame.is_some());
-            Ok(Player {
+            Ok(FilePlayer {
                 duration,
                 size,
                 state: Mutex::new(State {
@@ -619,7 +686,7 @@ impl Player {
     }
 }
 
-impl Drop for Player {
+impl Drop for FilePlayer {
     fn drop(&mut self) {
         let mut state = self.state();
         autoreleasepool(|_| {
@@ -824,7 +891,7 @@ fn sample_to_pic(sbuf: &CMSampleBuffer, rot: Rot) -> Option<RawPic> {
 
 /// Lock `buf`, strip per-row stride padding, swap BGRA to RGBA with alpha 255,
 /// and apply any orthogonal track rotation.
-fn copy_bgra_to_rgba(buf: &CVPixelBuffer, rot: Rot) -> Option<(u32, u32, Vec<u8>)> {
+pub(super) fn copy_bgra_to_rgba(buf: &CVPixelBuffer, rot: Rot) -> Option<(u32, u32, Vec<u8>)> {
     let lock = CVPixelBufferLockFlags::ReadOnly;
     // SAFETY: `buf` is a valid `CVPixelBuffer` retained for the duration of this call.
     if unsafe { CVPixelBufferLockBaseAddress(buf, lock) } != kCVReturnSuccess {
@@ -881,12 +948,12 @@ fn copy_bgra_to_rgba(buf: &CVPixelBuffer, rot: Rot) -> Option<(u32, u32, Vec<u8>
     out
 }
 
-fn cm_time(secs: f64) -> CMTime {
+pub(super) fn cm_time(secs: f64) -> CMTime {
     // SAFETY: Pure CoreMedia value constructor.
     unsafe { CMTime::with_seconds(secs.max(0.0), TIMESCALE) }
 }
 
-fn valid_seconds(t: CMTime) -> Option<f64> {
+pub(super) fn valid_seconds(t: CMTime) -> Option<f64> {
     let flags = t.flags;
     if !flags.contains(CMTimeFlags::Valid) || flags.intersects(CMTimeFlags::ImpliedValueFlagsMask) {
         return None;

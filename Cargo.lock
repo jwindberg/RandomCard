@@ -3578,6 +3578,7 @@ dependencies = [
  "arboard",
  "base64",
  "chrono",
+ "dispatch2",
  "eframe",
  "encoding_rs",
  "epaint_default_fonts",
