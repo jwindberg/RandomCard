@@ -167,6 +167,30 @@ pub fn get_bytes(url: &str, timeout: Duration) -> Result<Vec<u8>, String> {
     reply.body_mut().with_config().limit(64 * 1024 * 1024).read_to_vec().map_err(|e| e.to_string())
 }
 
+/// The start of a URL's body, at most `n` bytes, and its Content-Type:
+/// enough to tell what kind of file it is without fetching all of it. It
+/// asks for a range, and reads no more than `n` bytes of a server that
+/// sends the whole thing anyway.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn peek(url: &str, n: usize, timeout: Duration) -> Result<(String, Vec<u8>), String> {
+    use std::io::Read;
+    let request = ureq::http::Request::builder()
+        .method("GET")
+        .uri(url)
+        .header("range", format!("bytes=0-{}", n.saturating_sub(1)))
+        .body(())
+        .map_err(|e| e.to_string())?;
+    let mut reply = agent(timeout).run(request).map_err(|e| e.to_string())?;
+    let status = reply.status();
+    if !status.is_success() {
+        return Err(format!("{} {}", status.as_u16(), status.canonical_reason().unwrap_or("")).trim().to_string());
+    }
+    let content_type = reply.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+    let mut head = Vec::with_capacity(n);
+    reply.body_mut().as_reader().take(n as u64).read_to_end(&mut head).map_err(|e| e.to_string())?;
+    Ok((content_type, head))
+}
+
 #[cfg(test)]
 pub mod test_server {
     //! A web server for tests, on a free local port: it answers each

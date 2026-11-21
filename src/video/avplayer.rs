@@ -13,7 +13,9 @@ use std::time::{Duration, Instant};
 use objc2::AnyThread;
 use objc2::rc::{Retained, autoreleasepool};
 use objc2::runtime::AnyObject;
-use objc2_av_foundation::{AVPlayer, AVPlayerItem, AVPlayerItemStatus, AVPlayerItemVideoOutput};
+use objc2_av_foundation::{
+    AVPlayer, AVPlayerItem, AVPlayerItemStatus, AVPlayerItemVideoOutput, AVURLAsset, AVURLAssetOverrideMIMETypeKey,
+};
 use objc2_core_video::{kCVPixelBufferPixelFormatTypeKey, kCVPixelFormatType_32BGRA};
 use objc2_foundation::{NSDictionary, NSNumber, NSString, NSURL};
 
@@ -53,13 +55,25 @@ impl StreamPlayer {
     /// Open a movie at an http or https address, paused at its start.
     pub fn open(url: &str) -> Result<StreamPlayer, String> {
         let address = url.to_string();
+        // A server that doesn't say what the movie is (and an address with
+        // no extension) leaves AVPlayer unable to open it ("Cannot Open"):
+        // its first bytes say, and AVPlayer is told. When the peek fails,
+        // AVPlayer tries anyway, and says why it can't.
+        let mime = crate::web::http::peek(url, 16, Duration::from_secs(10))
+            .ok()
+            .and_then(|(ct, head)| super::web_movie_type(&ct, &head));
         let objects = dispatch2::run_on_main(move |mtm| {
             autoreleasepool(|_| {
                 // SAFETY: Making AVFoundation objects on the main thread, with
                 // BGRA pixel buffers asked of the output.
                 unsafe {
                     let url = NSURL::URLWithString(&NSString::from_str(&address)).ok_or("That isn't a web address".to_string())?;
-                    let item = AVPlayerItem::playerItemWithURL(&url, mtm);
+                    let options = mime.map(|m| {
+                        let m = NSString::from_str(m);
+                        NSDictionary::<NSString, AnyObject>::from_slices(&[AVURLAssetOverrideMIMETypeKey], &[m.as_ref()])
+                    });
+                    let asset = AVURLAsset::URLAssetWithURL_options(&url, options.as_deref());
+                    let item = AVPlayerItem::playerItemWithAsset(&asset, mtm);
                     let fmt = NSNumber::numberWithUnsignedInt(kCVPixelFormatType_32BGRA);
                     let fmt_key: &NSString = &*(kCVPixelBufferPixelFormatTypeKey as *const _ as *const NSString);
                     let attrs = NSDictionary::<NSString, AnyObject>::from_slices(&[fmt_key], &[fmt.as_ref()]);

@@ -104,24 +104,76 @@ impl Player {
 pub const EXTENSIONS: [&str; 6] = ["mov", "mp4", "m4v", "mpg", "mpeg", "m2v"];
 
 /// Whether a file is a movie, by its name or, for a classic Mac movie with
-/// no extension, by what's in it: a QuickTime or MP4 atom at the start, or
-/// an MPEG start code.
+/// no extension, by what's in it (see `movie_type`).
 pub fn is_movie(path: &Path) -> bool {
     if path.extension().is_some_and(|e| EXTENSIONS.iter().any(|m| e.eq_ignore_ascii_case(m))) {
         return true;
     }
-    let mut head = [0u8; 8];
+    let mut head = [0u8; 12];
     let Ok(mut f) = std::fs::File::open(path) else { return false };
-    if std::io::Read::read_exact(&mut f, &mut head).is_err() {
-        return false;
+    let Ok(n) = std::io::Read::read(&mut f, &mut head) else { return false };
+    movie_type(&head[..n]).is_some()
+}
+
+/// What kind of movie these first bytes start, as a MIME type: a QuickTime
+/// or MP4 atom at the start (an `ftyp` names its brand), or an MPEG start
+/// code.
+pub fn movie_type(head: &[u8]) -> Option<&'static str> {
+    if head.len() >= 8 {
+        let atom = &head[4..8];
+        if atom == b"ftyp" {
+            return Some(if head.get(8..12) == Some(b"qt  ") { "video/quicktime" } else { "video/mp4" });
+        }
+        const QT: [&[u8; 4]; 6] = [b"moov", b"mdat", b"wide", b"free", b"skip", b"pnot"];
+        if QT.iter().any(|a| atom == &a[..]) {
+            return Some("video/quicktime");
+        }
     }
-    const ATOMS: [&[u8; 4]; 7] = [b"ftyp", b"moov", b"mdat", b"wide", b"free", b"skip", b"pnot"];
-    ATOMS.iter().any(|a| head[4..8] == a[..]) || head[..4] == [0, 0, 1, 0xBA] || head[..4] == [0, 0, 1, 0xB3]
+    if head.len() >= 4 && (head[..4] == [0, 0, 1, 0xBA] || head[..4] == [0, 0, 1, 0xB3]) {
+        return Some("video/mpeg");
+    }
+    None
+}
+
+/// The type to tell the player a movie on the web is, when its server
+/// doesn't say: a `Content-Type` that names no kind of media (often
+/// `application/octet-stream`, for an address with no extension) leaves
+/// the movie's first bytes to tell. None when the server's type will do,
+/// or the bytes don't say either.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn web_movie_type(content_type: &str, head: &[u8]) -> Option<&'static str> {
+    let ct = content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    if ct.starts_with("video/") || ct.starts_with("audio/") || ct.contains("mpegurl") {
+        return None;
+    }
+    if head.starts_with(b"#EXTM3U") {
+        return Some("application/vnd.apple.mpegurl");
+    }
+    movie_type(head)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_movie_on_the_web_says_what_it_is() {
+        let mp4 = b"\0\0\0\x1cftypmp42\0\0\0\0";
+        let qt = b"\0\0\0\x14ftypqt  \0\0\0\0";
+        // The server says nothing useful: the bytes tell.
+        assert_eq!(web_movie_type("application/octet-stream", mp4), Some("video/mp4"));
+        assert_eq!(web_movie_type("", qt), Some("video/quicktime"));
+        assert_eq!(web_movie_type("binary/octet-stream", b"\0\0\0\x08moov"), Some("video/quicktime"));
+        assert_eq!(web_movie_type("application/octet-stream", &[0, 0, 1, 0xBA, 0x44]), Some("video/mpeg"));
+        assert_eq!(web_movie_type("text/plain", b"#EXTM3U\n"), Some("application/vnd.apple.mpegurl"));
+        // The server's own type stands.
+        assert_eq!(web_movie_type("video/mp4", mp4), None);
+        assert_eq!(web_movie_type("Video/QuickTime; charset=binary", qt), None);
+        assert_eq!(web_movie_type("application/vnd.apple.mpegurl", b"#EXTM3U"), None);
+        // Neither says.
+        assert_eq!(web_movie_type("application/octet-stream", b"<html>"), None);
+        assert_eq!(web_movie_type("application/octet-stream", b""), None);
+    }
 
     #[test]
     fn knows_a_movie() {
