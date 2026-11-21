@@ -3,3 +3,8 @@ target/
 examples/apple/
 examples/games/
 examples/Blah Blob Data
+# Local tools: graphify's knowledge graph and its Claude Code setup.
+graphify-out/
+CLAUDE.md
+.gitattributes
+.claude/
