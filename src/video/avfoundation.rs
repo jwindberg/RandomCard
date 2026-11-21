@@ -325,6 +325,12 @@ pub struct Player {
 }
 
 impl Player {
+    /// Movies on the web: AVAssetReader reads only files, so a Mac would
+    /// need AVPlayer for these.
+    pub fn open_url(_url: &str) -> Result<Player, String> {
+        Err("Movies from the web don't play on a Mac yet".into())
+    }
+
     pub fn open(path: &Path) -> Result<Player, String> {
         if !path.is_file() {
             return Err("Can't find that movie file".into());

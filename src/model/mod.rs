@@ -65,6 +65,9 @@ impl Rect {
 pub enum PartKind {
     Button,
     Field,
+    /// A picture from the web, a file or the stack, shown in its rect: its
+    /// contents are where the picture comes from.
+    Image,
 }
 
 impl PartKind {
@@ -72,8 +75,86 @@ impl PartKind {
         match self {
             PartKind::Button => "button",
             PartKind::Field => "field",
+            PartKind::Image => "image",
         }
     }
+
+    /// A background one keeps its contents per card: a field its text, an
+    /// image its source.
+    pub fn per_card(self) -> bool {
+        matches!(self, PartKind::Field | PartKind::Image)
+    }
+}
+
+/// How an image's picture fills its rect.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ImageFit {
+    /// All of it shows, as big as fits, centered.
+    #[default]
+    Fit,
+    /// It covers the rect, its edges cut off.
+    Fill,
+    /// Stretched to the rect's shape.
+    Stretch,
+    /// At its own size, from the top left.
+    Actual,
+}
+
+impl ImageFit {
+    pub fn named(s: &str) -> Option<ImageFit> {
+        Some(match s.trim().to_ascii_lowercase().as_str() {
+            "fit" => ImageFit::Fit,
+            "fill" => ImageFit::Fill,
+            "stretch" => ImageFit::Stretch,
+            "actual" | "actual size" | "none" => ImageFit::Actual,
+            _ => return None,
+        })
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            ImageFit::Fit => "fit",
+            ImageFit::Fill => "fill",
+            ImageFit::Stretch => "stretch",
+            ImageFit::Actual => "actual",
+        }
+    }
+}
+
+impl ImageFit {
+    /// Where a picture of this size goes in a rect, and which part of it
+    /// shows: the rect it's drawn in (left, top, right, bottom), and the
+    /// part of the picture (left, top, right, bottom, in its own pixels).
+    pub fn place(self, pw: f32, ph: f32, r: Rect) -> ([f32; 4], [f32; 4]) {
+        let (l, t, rw, rh) = (r.left as f32, r.top as f32, r.width() as f32, r.height() as f32);
+        let whole = [0.0, 0.0, pw, ph];
+        if pw <= 0.0 || ph <= 0.0 || rw <= 0.0 || rh <= 0.0 {
+            return ([l, t, l, t], whole);
+        }
+        match self {
+            ImageFit::Fit => {
+                let s = (rw / pw).min(rh / ph);
+                let (w, h) = (pw * s, ph * s);
+                let (x, y) = (l + (rw - w) / 2.0, t + (rh - h) / 2.0);
+                ([x, y, x + w, y + h], whole)
+            }
+            ImageFit::Fill => {
+                let s = (rw / pw).max(rh / ph);
+                let (sw, sh) = (rw / s, rh / s);
+                let (sx, sy) = ((pw - sw) / 2.0, (ph - sh) / 2.0);
+                ([l, t, l + rw, t + rh], [sx, sy, sx + sw, sy + sh])
+            }
+            ImageFit::Stretch => ([l, t, l + rw, t + rh], whole),
+            ImageFit::Actual => {
+                let (w, h) = (pw.min(rw), ph.min(rh));
+                ([l, t, l + w, t + h], [0.0, 0.0, w, h])
+            }
+        }
+    }
+}
+
+fn is_default_fit(f: &ImageFit) -> bool {
+    *f == ImageFit::Fit
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -133,6 +214,9 @@ impl PartStyle {
         PartStyle::Popup,
         PartStyle::Slider,
     ];
+    /// An image: no frame, a frame, or a frame with a shadow.
+    pub const IMAGE_STYLES: &'static [PartStyle] = &[PartStyle::Transparent, PartStyle::Rectangle, PartStyle::Shadow];
+
     pub const FIELD_STYLES: &'static [PartStyle] = &[
         PartStyle::Transparent,
         PartStyle::Opaque,
@@ -293,6 +377,9 @@ pub struct Part {
     /// stacks' files don't change.
     #[serde(skip_serializing_if = "is_false")]
     pub dont_save: bool,
+    /// An image's: how its picture fills its rect.
+    #[serde(skip_serializing_if = "is_default_fit")]
+    pub fit: ImageFit,
     /// A field's choices, one a line (`the choices`): a ▼ at its right
     /// edge offers them, and choosing one puts it into the field, which can
     /// still be typed into. A combo box.
@@ -350,6 +437,7 @@ impl Default for Part {
             fixed_line_height: false,
             scroll: 0,
             dont_save: false,
+            fit: ImageFit::Fit,
             choices: String::new(),
             fore_color: None,
             back_color: None,
@@ -465,6 +553,19 @@ impl Part {
 
     pub fn new_button(id: Id, name: &str, rect: Rect) -> Part {
         Part { id, kind: PartKind::Button, name: name.into(), rect, ..Part::default() }
+    }
+
+    pub fn new_image(id: Id, name: &str, rect: Rect) -> Part {
+        Part {
+            id,
+            kind: PartKind::Image,
+            name: name.into(),
+            rect,
+            style: PartStyle::Transparent,
+            auto_hilite: false,
+            show_name: false,
+            ..Part::default()
+        }
     }
 
     pub fn new_field(id: Id, name: &str, rect: Rect) -> Part {
@@ -922,7 +1023,7 @@ impl Stack {
     /// Text of a field as seen on a particular card.
     pub fn field_text(&self, card: Id, layer: Layer, id: Id) -> String {
         let Some(p) = self.part(card, layer, id) else { return String::new() };
-        if layer == Layer::Background && p.kind == PartKind::Field && !p.shared_text {
+        if layer == Layer::Background && p.kind.per_card() && !p.shared_text {
             self.card(card).and_then(|c| c.bg_text.get(&id).cloned()).unwrap_or_default()
         } else {
             p.contents.clone()
@@ -945,7 +1046,7 @@ impl Stack {
             Some(p) if p.style == PartStyle::Slider && p.kind == PartKind::Button => {
                 (true, number_text(p.slider_snap(text.trim().parse().unwrap_or(p.min))))
             }
-            Some(p) => (p.kind == PartKind::Button || p.shared_text, text),
+            Some(p) => (!p.kind.per_card() || p.shared_text, text),
             None => return,
         };
         if layer == Layer::Background && !shared {
@@ -1040,7 +1141,7 @@ impl Stack {
         for c in &mut self.cards {
             let Some(bg) = self.backgrounds.iter().find(|b| b.id == c.background) else { continue };
             let has = |id: &Id, kind: Option<PartKind>| bg.parts.iter().any(|p| p.id == *id && kind.is_none_or(|k| p.kind == k));
-            c.bg_text.retain(|id, _| has(id, Some(PartKind::Field)));
+            c.bg_text.retain(|id, _| has(id, Some(PartKind::Field)) || has(id, Some(PartKind::Image)));
             c.bg_hilite.retain(|id, _| has(id, None));
             c.bg_styles.retain(|id, _| has(id, Some(PartKind::Field)));
             for (id, runs) in c.bg_styles.iter_mut() {

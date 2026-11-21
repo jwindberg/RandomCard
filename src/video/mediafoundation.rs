@@ -333,8 +333,23 @@ impl State {
     }
 }
 
+/// Where a movie comes from: a file, or an address on the web.
+enum Source<'a> {
+    File(&'a Path),
+    Url(&'a str),
+}
+
 impl Player {
     pub fn open(path: &Path) -> Result<Player, String> {
+        Self::open_source(Source::File(path))
+    }
+
+    /// A movie on the web: the media engine streams it, http or https.
+    pub fn open_url(url: &str) -> Result<Player, String> {
+        Self::open_source(Source::Url(url))
+    }
+
+    fn open_source(source: Source) -> Result<Player, String> {
         ensure_com();
         startup()?;
         let fail = |e: windows_core::Error| format!("The movie couldn't be opened: {}", e.message());
@@ -361,15 +376,21 @@ impl Player {
         let mut player = Player { size: (0, 0), duration: 0.0, state: Arc::new(Shared(Mutex::new(state))) };
         {
             let st = Arc::get_mut(&mut player.state).unwrap().0.get_mut().unwrap();
-            // A byte stream rather than a URL, so a file with no extension
-            // (a classic Mac movie) still opens; the name is a hint to its
-            // type.
-            // SAFETY: Opening the file for reading and handing it over.
+            // A file as a byte stream rather than a URL, so a file with no
+            // extension (a classic Mac movie) still opens; the name is a hint
+            // to its type. A movie on the web is its address.
+            // SAFETY: Opening the file for reading and handing it over, or
+            // handing over the address.
             unsafe {
-                let stream = MFCreateFile(MF_ACCESSMODE_READ, MF_OPENMODE_FAIL_IF_NOT_EXIST, MF_FILEFLAGS_NONE, &HSTRING::from(path.as_os_str())).map_err(|_| "The movie file couldn't be read".to_string())?;
                 let _ = st.engine.SetPreload(MF_MEDIA_ENGINE_PRELOAD_AUTOMATIC);
                 let _ = st.engine.SetAutoPlay(false);
-                st.ex.SetSourceFromByteStream(&stream, &BSTR::from(path.to_string_lossy().as_ref())).map_err(fail)?;
+                match source {
+                    Source::File(path) => {
+                        let stream = MFCreateFile(MF_ACCESSMODE_READ, MF_OPENMODE_FAIL_IF_NOT_EXIST, MF_FILEFLAGS_NONE, &HSTRING::from(path.as_os_str())).map_err(|_| "The movie file couldn't be read".to_string())?;
+                        st.ex.SetSourceFromByteStream(&stream, &BSTR::from(path.to_string_lossy().as_ref())).map_err(fail)?;
+                    }
+                    Source::Url(url) => st.engine.SetSource(&BSTR::from(url)).map_err(fail)?,
+                }
             }
             let start = Instant::now();
             loop {

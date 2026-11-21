@@ -22,7 +22,7 @@ impl App {
     /// The button or field selected with the Button or Field tool.
     fn selected_tool_part(&self) -> Option<ObjRef> {
         let w = self.world();
-        matches!(w.tool, Tool::Button | Tool::Field).then_some(w.selected_part).flatten()
+        w.tool.is_part_tool().then_some(w.selected_part).flatten()
     }
 
     fn paint_selection(&mut self) -> Option<Region> {
@@ -44,7 +44,7 @@ impl App {
         }
         if let Some(ObjRef::Part { layer, id, card }) = self.selected_tool_part() {
             let w = self.world();
-            return w.stack.part(card, layer, id).map(|p| if p.kind == PartKind::Button { "Button" } else { "Field" });
+            return w.stack.part(card, layer, id).map(|p| kind_label(p.kind));
         }
         matches!(self.marquee, Some(Marquee::Selected { .. } | Marquee::Moving { .. })).then_some("Picture")
     }
@@ -54,7 +54,7 @@ impl App {
             return Some("Text");
         }
         match &self.world().clipboard {
-            Some(Clip::Part { part, .. }) => Some(if part.kind == PartKind::Button { "Button" } else { "Field" }),
+            Some(Clip::Part { part, .. }) => Some(kind_label(part.kind)),
             Some(Clip::Picture { .. }) => Some("Picture"),
             // Maybe an image from another program: looking would mean
             // reading the system clipboard every frame, so plain "Paste".
@@ -157,7 +157,7 @@ impl App {
     fn paste_part(&mut self, part: Part, text: String, styles: Vec<StyleRun>, hilite: bool) {
         let kind = part.kind;
         let obj = self.world().paste_part(part, text, styles, hilite);
-        self.choose_tool(if kind == PartKind::Button { Tool::Button } else { Tool::Field });
+        self.choose_tool(Tool::for_part(kind));
         self.set_selected(Some(obj));
     }
 
@@ -209,5 +209,14 @@ impl App {
         {
             self.set_selected(None);
         }
+    }
+}
+
+/// A part's kind as the Edit menu names it: Copy Button, Paste Image.
+fn kind_label(kind: PartKind) -> &'static str {
+    match kind {
+        PartKind::Button => "Button",
+        PartKind::Field => "Field",
+        PartKind::Image => "Image",
     }
 }

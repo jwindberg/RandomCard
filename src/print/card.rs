@@ -240,8 +240,30 @@ fn draw_part(c: &mut Canvas, stack: &Stack, card: Id, layer: Layer, p: &Part) {
     match p.kind {
         PartKind::Button => draw_button(c, stack, card, layer, p),
         PartKind::Field => draw_field(c, stack, card, layer, p),
+        PartKind::Image => draw_image(c, stack, card, layer, p),
     }
     c.op("Q");
+}
+
+/// An image's picture, placed as it fits, at the printer's resolution of
+/// the card (a pixel each).
+fn draw_image(c: &mut Canvas, stack: &Stack, card: Id, layer: Layer, p: &Part) {
+    let source = stack.field_text(card, layer, p.id);
+    let Some(crate::runtime::images::Image::Ready(pic)) = crate::runtime::images::lookup(&source, stack) else { return };
+    let ([l, t, r, b], [sl, st, sr, sb]) = p.fit.place(pic.width as f32, pic.height as f32, p.rect);
+    let (w, h) = ((r - l).round().max(0.0) as u32, (b - t).round().max(0.0) as u32);
+    if w == 0 || h == 0 {
+        return;
+    }
+    let mut placed = Picture::new(w, h);
+    for y in 0..h {
+        for x in 0..w {
+            let sx = sl + (x as f32 + 0.5) * (sr - sl) / w as f32;
+            let sy = st + (y as f32 + 0.5) * (sb - st) / h as f32;
+            placed.set(x as i32, y as i32, pic.get(sx as i32, sy as i32));
+        }
+    }
+    c.picture(&placed, (l.round() as i32, t.round() as i32));
 }
 
 fn one_line(align: TextAlign, text: &str, size: u32, font: &str, style: &str, width: f32) -> Vec<Line> {

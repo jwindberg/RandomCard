@@ -155,6 +155,18 @@ pub fn send(req: &Request) -> Result<Response, String> {
     })
 }
 
+/// Get a URL's body as bytes (a picture, say), or why not: no reply, or a
+/// status other than 2xx.
+pub fn get_bytes(url: &str, timeout: Duration) -> Result<Vec<u8>, String> {
+    let request = ureq::http::Request::builder().method("GET").uri(url).body(()).map_err(|e| e.to_string())?;
+    let mut reply = agent(timeout).run(request).map_err(|e| e.to_string())?;
+    let status = reply.status();
+    if !status.is_success() {
+        return Err(format!("{} {}", status.as_u16(), status.canonical_reason().unwrap_or("")).trim().to_string());
+    }
+    reply.body_mut().with_config().limit(64 * 1024 * 1024).read_to_vec().map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 pub mod test_server {
     //! A web server for tests, on a free local port: it answers each

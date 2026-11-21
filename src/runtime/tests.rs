@@ -5217,3 +5217,115 @@ fn dialoger_hit_handlers() {
     assert_eq!(run(&mut i, "put there is a window \"Help\""), "false");
     assert_eq!(run(&mut i, "dChanger \"Help\", \"2◊x\"\nput the result"), "Error: no such dialog exists: Help");
 }
+
+#[test]
+fn text_compares_exactly() {
+    // As HyperCard 2.4.1 answers (checked in it): spaces and returns count,
+    // case doesn't, and numbers compare by value.
+    assert_eq!(eval("(space is return) && (space is empty) && (\"a \" is \"a\") && (\"a\" is \"a \") && (\" a\" is \"a\") && (tab is empty) && (return is empty)"), "false false false false false false false");
+    assert_eq!(eval("(char 1 of empty is space) && (\"ABC\" is \"abc\") && (\"5\" = 5.0) && (\" 5\" = 5)"), "false true true true");
+}
+
+#[test]
+fn image_parts() {
+    // An image is a field for pictures: its contents are where the picture
+    // comes from, and a background one keeps a source per card.
+    let dir = std::env::temp_dir().join(format!("randomcard-images-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("poster.png");
+    std::fs::write(&file, crate::paint::image_file::encode_png(30, 45, &[255u8; 30 * 45 * 4]).unwrap()).unwrap();
+    let mut s = stack();
+    s.backgrounds[0].parts.push(Part::new_image(40, "Poster", Rect::new(300, 20, 400, 170)));
+    s.pictures.insert(128, crate::model::NamedPicture { name: "Logo".into(), picture: Picture::new(12, 8) });
+    let mut i = interp_with(s);
+    // Old scripts' variables called image still work.
+    assert_eq!(run(&mut i, "put 5 into image\nadd 1 to image\nput image"), "6");
+    assert_eq!(run(&mut i, "put the number of images && the number of bkgnd images"), "1 1");
+    run(&mut i, &format!("put \"{}\" into image \"Poster\"", file.display()));
+    assert_eq!(run(&mut i, "put the pictureWidth of image \"Poster\" && the pictureHeight of image 1"), "30 45");
+    assert_eq!(run(&mut i, "put image \"Poster\" is the source of image \"Poster\""), "true");
+    // Each card its own picture.
+    run(&mut i, "go next card\nset the source of bkgnd image \"Poster\" to \"Logo\"");
+    assert_eq!(run(&mut i, "put the pictureWidth of image \"Poster\" && image \"Poster\""), "12 Logo");
+    run(&mut i, "go prev card");
+    assert_eq!(run(&mut i, "put the pictureWidth of image \"Poster\""), "30");
+    // How it fills its rect.
+    assert_eq!(run(&mut i, "put the fit of image 1"), "fit");
+    run(&mut i, "set the fit of image 1 to fill");
+    assert_eq!(run(&mut i, "put the fit of image 1"), "fill");
+    assert!(run(&mut i, "set the fit of image 1 to squash").starts_with("ERROR"));
+    // A picture that isn't there shows nothing, and has no size.
+    run(&mut i, "put \"nowhere.png\" into image 1");
+    assert_eq!(run(&mut i, "put the pictureWidth of image 1"), "");
+    // New Image makes one.
+    run(&mut i, "doMenu \"New Image\"");
+    assert_eq!(run(&mut i, "put the number of card images"), "1");
+    let _ = std::fs::remove_dir_all(&dir);
+    // Fit: all of it, centered; fill: cropped to cover.
+    use crate::model::ImageFit;
+    let r = Rect::new(0, 0, 100, 100);
+    assert_eq!(ImageFit::Fit.place(50.0, 100.0, r), ([25.0, 0.0, 75.0, 100.0], [0.0, 0.0, 50.0, 100.0]));
+    assert_eq!(ImageFit::Fill.place(50.0, 100.0, r), ([0.0, 0.0, 100.0, 100.0], [0.0, 25.0, 50.0, 75.0]));
+}
+
+#[test]
+fn images_from_the_web() {
+    // A picture from the web loads in the background: the image has no
+    // picture until it comes, then shows it; a missing one fails, with why.
+    use std::io::{Read, Write};
+    let png = crate::paint::image_file::encode_png(20, 10, &[255u8; 20 * 10 * 4]).unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let mut buf = [0u8; 2048];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let request = String::from_utf8_lossy(&buf[..n]).to_string();
+            if request.starts_with("GET /poster.png") {
+                let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", png.len());
+                let _ = stream.write_all(&png);
+            } else {
+                let _ = write!(stream, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+            }
+        }
+    });
+    let mut s = stack();
+    s.backgrounds[0].parts.push(Part::new_image(40, "Poster", Rect::new(300, 20, 400, 170)));
+    let mut i = interp_with(s);
+    let wait = |url: &str| {
+        let start = std::time::Instant::now();
+        while matches!(super::images::web_state(url), Some(super::images::Image::Loading)) && start.elapsed().as_secs() < 10 {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    };
+    let good = format!("{base}/poster.png");
+    run(&mut i, &format!("put \"{good}\" into image \"Poster\""));
+    // Asking for its size starts it loading; it has none yet.
+    run(&mut i, "get the pictureWidth of image \"Poster\"");
+    wait(&good);
+    assert_eq!(run(&mut i, "put the pictureWidth of image \"Poster\" && the pictureHeight of image \"Poster\""), "20 10");
+    let bad = format!("{base}/missing.png");
+    run(&mut i, &format!("put \"{bad}\" into image \"Poster\"\nget the pictureWidth of image \"Poster\""));
+    wait(&bad);
+    assert_eq!(super::images::web_state(&bad), Some(super::images::Image::Failed("404 Not Found".into())));
+    let arrived = super::images::arrived();
+    assert!(arrived.contains(&good) && arrived.contains(&bad), "{arrived:?}");
+}
+
+#[test]
+fn the_image_tool() {
+    // Its own tool, number 19 after HyperCard's 18, and New Image in the
+    // Objects menu chooses it.
+    let mut i = interp_with(stack());
+    run(&mut i, "choose image tool");
+    assert_eq!(run(&mut i, "put the tool"), "image tool");
+    run(&mut i, "choose tool 19");
+    assert_eq!(run(&mut i, "put the tool"), "image tool");
+    run(&mut i, "choose browse tool\ndoMenu \"New Image\"");
+    assert_eq!(run(&mut i, "put the tool && the number of card images"), "image tool 1");
+    // HyperCard's first five Info items stay where they were.
+    assert_eq!(run(&mut i, "put menuItem 3 of menu \"Objects\" & \"/\" & menuItem 6 of menu \"Objects\""), "Card Info…/Image Info…");
+    // An image's styles: no frame, a frame, a shadow.
+    run(&mut i, "set the style of card image 1 to shadow");
+    assert_eq!(run(&mut i, "put the style of card image 1"), "shadow");
+}

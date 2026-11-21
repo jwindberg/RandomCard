@@ -28,12 +28,12 @@ pub struct PasswordPrompt {
     focus: bool,
 }
 
-/// The level each tool needs: paint tools at Painting, the Button and Field
-/// tools at Authoring.
+/// The level each tool needs: paint tools at Painting, the Button, Field
+/// and Image tools at Authoring.
 pub fn tool_level(t: Tool) -> u8 {
     match t {
         Tool::Browse => 1,
-        Tool::Button | Tool::Field => 4,
+        Tool::Button | Tool::Field | Tool::Image => 4,
         _ => 3,
     }
 }

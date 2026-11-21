@@ -31,6 +31,8 @@ pub struct PartView {
     /// Its white shows the AddColor color map instead, as over a color
     /// picture: AddColor made opaque parts' white see-through to its colors.
     pub fill_map: bool,
+    /// An image's picture, when it has one to show.
+    pub image: Option<crate::runtime::images::Image>,
 }
 
 /// Everything needed to draw one card, copied out of the world.
@@ -73,7 +75,7 @@ impl Scene {
                 part.script = String::new();
                 parts.push(PartView {
                     obj: ObjRef::Part { layer, id: p.id, card },
-                    text: if p.kind == PartKind::Field || p.contents.is_empty() {
+                    text: if p.kind.per_card() || p.contents.is_empty() {
                         s.field_text(card, layer, p.id)
                     } else {
                         p.contents.clone()
@@ -82,6 +84,9 @@ impl Scene {
                     hilite: s.hilite(card, layer, p.id),
                     fill: WHITE,
                     fill_map: false,
+                    image: (p.kind == PartKind::Image)
+                        .then(|| crate::runtime::images::lookup(&s.field_text(card, layer, p.id), s))
+                        .flatten(),
                     part,
                 });
             }
@@ -148,6 +153,8 @@ pub struct Textures {
     /// Pictures with black and white swapped, for the cards on screen that
     /// have a button that can invert them (see `inverts`).
     inverted: HashMap<(Layer, Id, u64), (u64, TextureHandle)>,
+    /// Images' pictures, by the picture (its address while it's kept).
+    images: HashMap<usize, (std::sync::Arc<Picture>, TextureHandle)>,
 }
 
 pub fn picture_image(p: &Picture) -> egui::ColorImage {
@@ -167,6 +174,7 @@ impl Textures {
     /// Make sure the textures for `scene` reflect the current pictures.
     pub fn refresh(&mut self, ctx: &egui::Context, w: &World, scene: &Scene) {
         self.refresh_icons(ctx, scene);
+        self.refresh_images(ctx, scene);
         let rev = w.picture_rev;
         let ck = scene.color_key;
         // Each card can have its own colors; keep only a few cards' worth.
@@ -266,6 +274,31 @@ impl Textures {
             ids.insert(i.id(), n.id());
         }
         ids
+    }
+
+    /// Textures for the images on this card, smoothly scaled; the others'
+    /// are let go.
+    fn refresh_images(&mut self, ctx: &egui::Context, scene: &Scene) {
+        let shown: Vec<std::sync::Arc<Picture>> = scene
+            .parts
+            .iter()
+            .filter_map(|pv| match &pv.image {
+                Some(crate::runtime::images::Image::Ready(p)) => Some(p.clone()),
+                _ => None,
+            })
+            .collect();
+        self.images.retain(|k, _| shown.iter().any(|p| std::sync::Arc::as_ptr(p) as usize == *k));
+        for p in shown {
+            let key = std::sync::Arc::as_ptr(&p) as usize;
+            self.images.entry(key).or_insert_with(|| {
+                let tex = ctx.load_texture(format!("image-{key}"), picture_image(&p), TextureOptions::LINEAR);
+                (p, tex)
+            });
+        }
+    }
+
+    fn image(&self, p: &std::sync::Arc<Picture>) -> Option<&TextureHandle> {
+        self.images.get(&(std::sync::Arc::as_ptr(p) as usize)).map(|(_, t)| t)
     }
 
     fn icon(&self, id: i32, inverted: bool) -> Option<&TextureHandle> {
@@ -717,6 +750,43 @@ pub fn draw_part(
     match pv.part.kind {
         PartKind::Button => draw_button(painter, tex, pv, rect, pressed),
         PartKind::Field => draw_field(painter, pv, rect, highlight, live),
+        PartKind::Image => draw_image(painter, tex, pv, origin),
+    }
+}
+
+/// An image: its picture placed as it fits. With none yet, an outline (and,
+/// if it failed, a cross), so it can be found.
+fn draw_image(painter: &Painter, tex: &Textures, pv: &PartView, origin: Pos2) {
+    use crate::runtime::images::Image;
+    let rect = part_rect(&pv.part, origin);
+    // A frame, and a shadow, around it as a field's.
+    if pv.part.style == PartStyle::Shadow {
+        painter.rect_filled(rect.translate(Vec2::splat(2.0)), 0.0, BLACK);
+    }
+    if matches!(pv.part.style, PartStyle::Rectangle | PartStyle::Shadow) {
+        painter.rect_filled(rect, 0.0, WHITE);
+    }
+    match &pv.image {
+        Some(Image::Ready(pic)) => {
+            let Some(t) = tex.image(pic) else { return };
+            let ([l, tp, r, b], [sl, st, sr, sb]) = pv.part.fit.place(pic.width as f32, pic.height as f32, pv.part.rect);
+            let dest = Rect::from_min_max(origin + Vec2::new(l, tp), origin + Vec2::new(r, b));
+            let (pw, ph) = (pic.width.max(1) as f32, pic.height.max(1) as f32);
+            let uv = Rect::from_min_max(Pos2::new(sl / pw, st / ph), Pos2::new(sr / pw, sb / ph));
+            painter.with_clip_rect(rect.intersect(painter.clip_rect())).image(t.id(), dest, uv, Color32::WHITE);
+            if matches!(pv.part.style, PartStyle::Rectangle | PartStyle::Shadow) {
+                painter.rect_stroke(rect, 0.0, Stroke::new(1.0, BLACK), StrokeKind::Inside);
+            }
+        }
+        Some(Image::Failed(_)) => {
+            let line = Stroke::new(1.0, Color32::GRAY);
+            painter.rect_stroke(rect, 0.0, line, StrokeKind::Inside);
+            painter.line_segment([rect.left_top(), rect.right_bottom()], line);
+            painter.line_segment([rect.right_top(), rect.left_bottom()], line);
+        }
+        Some(Image::Loading) | None => {
+            painter.rect_stroke(rect, 0.0, Stroke::new(1.0, Color32::LIGHT_GRAY), StrokeKind::Inside);
+        }
     }
 }
 

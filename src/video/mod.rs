@@ -51,6 +51,11 @@ impl Player {
         imp::Player::open(path).map(Player)
     }
 
+    /// Open a movie on the web (http or https), paused on its first frame.
+    pub fn open_url(url: &str) -> Result<Player, String> {
+        imp::Player::open_url(url).map(Player)
+    }
+
     /// The movie's size in pixels, or 0,0 if it has no picture (sound only).
     pub fn size(&self) -> (u32, u32) {
         self.0.size()

@@ -6,6 +6,7 @@ mod pictures;
 mod resource_mover;
 pub mod texas;
 pub mod dialoger;
+pub mod images;
 mod builtins;
 pub mod web;
 mod commands;

@@ -11,6 +11,10 @@ impl Player {
     pub fn open(_path: &Path) -> Result<Player, String> {
         Err("RandomCard can't play movies on this system yet".into())
     }
+
+    pub fn open_url(_url: &str) -> Result<Player, String> {
+        Err("RandomCard can't play movies on this system yet".into())
+    }
     pub fn size(&self) -> (u32, u32) {
         (0, 0)
     }

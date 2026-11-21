@@ -286,6 +286,7 @@ of card field 2.
 | field | `field "Notes"`, `card field 1`, `bkgnd field "Name"`, `fld id 7` |
 | part | `part 3` (buttons and fields together, in order) |
 | the message box | `the message box`, `msg` |
+| image | `image "Poster"`, `card image 2`, `bkgnd image id 40` (see [Images](#images)) |
 | a menu | `menu "Edit"`, `menuItem "Copy" of menu "Edit"`, `menu "Apple"` (HyperCard's Apple menu: its About item, which a stack can rename and give a `menuMsg`; RandomCard's application menu on a Mac, and the RandomCard menu elsewhere) |
 | a window | `window "Prompt"`, `the card window` |
 
@@ -578,6 +579,12 @@ file is found as given, beside the stack, or in a folder beside it, with or
 without its extension; with no name, a dialog asks for one. Errors go in
 `the result`. `open movie "Intro"` is the same with the defaults.
 
+A movie on the web plays from its address: `Movie
+"https://example.com/videos/42"`. It streams, and can be played, paused
+and moved through like a file, on Linux and Windows (on a Mac, not yet).
+Its name is the last part of the address. The VideoDB example stack plays
+its movies this way.
+
 - **Style:** `windoid` (the default), `tallWindoid`, `plain`, `zoom`,
   `dialog`, `shadow`, `rect` or `borderLess`. Plain, zoom and tallWindoid
   windows show their name.
@@ -842,6 +849,44 @@ end sliderChanged
   works as usual, but opens empty.
 - **Colors:** `foreColor`, `backColor` and `borderColor` of buttons and
   fields, and `foreColor` of any chunk of a field.
+
+### Images
+
+An image is a part that shows a picture, beside buttons and fields: a field
+for pictures. Its contents are where the picture comes from, so a script
+fills it as it fills a field:
+
+```hypertalk
+put key "poster" of json movie into image "Poster"
+set the fit of image "Poster" to fill
+put the pictureWidth of image "Poster" into w
+```
+
+- **Sources:** an address on the web (http or https), a file (by its path,
+  or beside the stack), or one of the stack's own pictures, by name or id.
+  `the source of image` is the same as its contents.
+- **Per card:** a background image shows a different picture on each card,
+  as a background field holds different text, unless Shared Source is set.
+- **From the web,** a picture loads in the background, so a script never
+  waits for it, and once it's come it's kept for every image that shows it.
+  The images on the card showing it are sent `imageLoaded source` when it
+  comes, or `imageFailed source, why` when it can't.
+- **`the fit`:** `fit` (all of it, as big as fits, centered; the default),
+  `fill` (covers the image, its edges cut off), `stretch`, or `actual`
+  (its own size, from the top left).
+- **`the pictureWidth` and `the pictureHeight`:** the picture's own size;
+  empty until it's loaded.
+- **Styles:** `transparent`, `rectangle` (a frame) or `shadow`.
+- **References:** `image "Poster"`, `image 2`, `card image id 40`, `the
+  number of images`. A plain `image` means a background image, as `field`
+  does. Alone, without a name or number, `image` is still a variable, as it
+  was in HyperCard's stacks.
+- **Making one:** the Image tool (Ctrl-drag on the card, as with buttons
+  and fields), New Image in the Objects menu, and Image Info to set it up.
+  A stack saves an image's source, not its picture.
+
+The Tour's Pictures card has one, and the VideoDB example stack shows its
+movies' posters this way.
 
 ### Parts
 

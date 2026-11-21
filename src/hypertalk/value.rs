@@ -159,10 +159,13 @@ pub fn compare(a: &str, b: &str) -> std::cmp::Ordering {
     }
 }
 
+/// `is` and `=`: numbers by value, and text exactly but for case. Spaces
+/// and returns count, as in HyperCard 2.4.1: `space is empty`, `space is
+/// return` and `"a " is "a"` are all false there.
 pub fn equals(a: &str, b: &str) -> bool {
     match (parse_number(a), parse_number(b)) {
         (Some(x), Some(y)) => x == y,
-        _ => a.trim_end().eq_ignore_ascii_case(b.trim_end()) || a.to_lowercase() == b.to_lowercase(),
+        _ => a.to_lowercase() == b.to_lowercase(),
     }
 }
 

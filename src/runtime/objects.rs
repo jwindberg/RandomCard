@@ -229,7 +229,7 @@ impl Interp {
 
     pub(super) fn resolve_part(&mut self, kind: Option<PartKind>, layer: Option<Layer>, which: &Which, card: Id) -> R<ObjRef> {
         let default_layer = match kind {
-            Some(PartKind::Field) => Layer::Background,
+            Some(PartKind::Field | PartKind::Image) => Layer::Background,
             _ => Layer::Card,
         };
         let what = match kind {
@@ -623,6 +623,18 @@ impl Interp {
                     "family" => if p.family == 0 { String::new() } else { p.family.to_string() },
                     "sharedhilite" => bool_str(p.shared_hilite),
                     "icon" => p.icon.to_string(),
+                    // An image's: where its picture comes from (its
+                    // contents), how it fits, and the picture's own size.
+                    "source" => s.field_text(card, layer, id),
+                    "fit" => p.fit.name().into(),
+                    "picturewidth" | "pictureheight" if p.kind == PartKind::Image => {
+                        match crate::runtime::images::lookup(&s.field_text(card, layer, id), s) {
+                            Some(crate::runtime::images::Image::Ready(pic)) => {
+                                if name == "picturewidth" { pic.width } else { pic.height }.to_string()
+                            }
+                            _ => String::new(),
+                        }
+                    }
                     "titlewidth" => p.title_width.to_string(),
                     // A slider's range, as HTML's range input names it.
                     "min" => crate::model::number_text(p.min),
@@ -871,6 +883,11 @@ impl Interp {
                     w.dirty = true;
                     return Ok(());
                 }
+                // An image's source is its contents, kept per card on the
+                // background, as a field's text is.
+                if name == "source" {
+                    return self.set_object_value(ObjRef::Part { layer, id, card }, v.to_string());
+                }
                 let mut w = self.w();
                 w.dirty = true;
                 let Some(p) = w.stack.part_mut(card, layer, id) else { return err("No such object") };
@@ -950,6 +967,10 @@ impl Interp {
                     "sharedtext" => p.shared_text = to_bool(v)?,
                     "dontsearch" => p.dont_search = to_bool(v)?,
                     "dontsave" => p.dont_save = to_bool(v)?,
+                    "fit" => match crate::model::ImageFit::named(v) {
+                        Some(f) => p.fit = f,
+                        None => return bad("fit, fill, stretch or actual"),
+                    },
                     "choices" => p.choices = v.to_string(),
                     "autoselect" => p.auto_select = to_bool(v)?,
                     "multiplelines" => p.multiple_lines = to_bool(v)?,

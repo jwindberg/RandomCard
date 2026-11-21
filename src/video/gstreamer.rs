@@ -256,23 +256,41 @@ impl Player {
     pub fn open(path: &Path) -> Result<Player, String> {
         let gst = gst()?;
         let file = CString::new(path.to_string_lossy().as_bytes()).map_err(|_| "Bad file name".to_string())?;
-        unsafe {
+        // SAFETY: GStreamer makes the URI from a C string, and it's copied
+        // before GStreamer's own is freed.
+        let uri = unsafe {
             let mut err = std::ptr::null_mut();
             let uri = (gst.filename_to_uri)(file.as_ptr(), &mut err);
             if uri.is_null() {
                 return Err(gst.take_error(err));
             }
+            let owned = CStr::from_ptr(uri).to_owned();
+            (gst.free)(uri as Ptr);
+            owned
+        };
+        Self::open_uri(gst, &uri, super::palette::remap_for(path))
+    }
+
+    /// A movie on the web: playbin streams it, http or https.
+    pub fn open_url(url: &str) -> Result<Player, String> {
+        let gst = gst()?;
+        let uri = CString::new(url).map_err(|_| "Bad address".to_string())?;
+        Self::open_uri(gst, &uri, None)
+    }
+
+    fn open_uri(gst: &'static Gst, uri: &CStr, colors: Option<std::collections::HashMap<[u8; 3], [u8; 3]>>) -> Result<Player, String> {
+        let uri = uri.as_ptr();
+        unsafe {
             let playbin = (gst.factory_make)(c"playbin".as_ptr(), std::ptr::null());
             let appsink = (gst.factory_make)(c"appsink".as_ptr(), std::ptr::null());
             if playbin.is_null() || appsink.is_null() {
-                (gst.free)(uri as Ptr);
                 return Err("GStreamer's playbin or appsink is missing: install the gstreamer1.0-plugins-base package".into());
             }
             let caps = (gst.caps_from_string)(c"video/x-raw,format=RGBA".as_ptr());
             let end: *const c_char = std::ptr::null();
             (gst.object_set)(appsink, c"caps".as_ptr(), caps, c"max-buffers".as_ptr(), 1 as c_int, c"drop".as_ptr(), 1 as c_int, end);
             (gst.mini_object_unref)(caps);
-            let sink = Box::into_raw(Box::new(Sink { frame: Mutex::new(None), serial: AtomicU64::new(0), pts: AtomicU64::new(NO_TIME), eos: AtomicBool::new(false), colors: super::palette::remap_for(path) }));
+            let sink = Box::into_raw(Box::new(Sink { frame: Mutex::new(None), serial: AtomicU64::new(0), pts: AtomicU64::new(NO_TIME), eos: AtomicBool::new(false), colors }));
             let callbacks = Callbacks { eos: Some(on_eos), new_preroll: Some(on_preroll), new_sample: Some(on_sample), rest: [std::ptr::null_mut(); 4] };
             (gst.set_callbacks)(appsink, &callbacks, sink as Ptr, std::ptr::null_mut());
             (gst.object_set)(playbin, c"uri".as_ptr(), uri, c"video-sink".as_ptr(), appsink, end);
@@ -282,7 +300,6 @@ impl Player {
                 (gst.object_set)(quiet, c"sync".as_ptr(), 1 as c_int, end);
                 (gst.object_set)(playbin, c"audio-sink".as_ptr(), quiet, end);
             }
-            (gst.free)(uri as Ptr);
             let bus = (gst.get_bus)(playbin);
             let mut player = Player { gst, playbin, bus, sink, duration: 0.0, size: (0, 0), state: Mutex::new(State { rate: 0.0, held: 0.0, sent: 1.0 }) };
             // Paused, it decodes the first frame, and knows its length.

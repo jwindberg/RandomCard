@@ -274,6 +274,9 @@ impl App {
     /// Start with a stack, or open a file once running (it may ask for a password).
     pub fn new(cc: &eframe::CreationContext<'_>, stack: Stack, open: Option<PathBuf>) -> App {
         cc.egui_ctx.set_visuals(egui::Visuals::light());
+        // A picture from the web wakes the window to show it.
+        let wake = cc.egui_ctx.clone();
+        crate::runtime::images::on_arrival(move || wake.request_repaint());
         let settings = Settings::load();
         // Items chosen from the Mac's native menus come in here, and wake
         // the window to act on them.
@@ -418,6 +421,41 @@ impl App {
         let system = arboard::Clipboard::new().and_then(|mut c| c.get_text());
         if system.is_ok_and(|t| t.replace("\r\n", "\n") != clip.text) {
             w.text_clip = None;
+        }
+    }
+
+    // ----- images -----
+
+    /// Pictures that came from the web since the last frame: each image on
+    /// the card showing one hears imageLoaded (or imageFailed, with why).
+    fn images_arrived(&mut self) {
+        use crate::runtime::images::{self, Image};
+        let arrived = images::arrived();
+        if arrived.is_empty() {
+            return;
+        }
+        let messages: Vec<(ObjRef, &'static str, Vec<String>)> = {
+            let w = self.world();
+            let card = w.card_id;
+            let mut out = Vec::new();
+            for layer in [Layer::Background, Layer::Card] {
+                for p in w.stack.parts(card, layer).iter().filter(|p| p.kind == PartKind::Image) {
+                    let source = w.stack.field_text(card, layer, p.id).trim().to_string();
+                    if !arrived.contains(&source) {
+                        continue;
+                    }
+                    let obj = ObjRef::Part { layer, id: p.id, card };
+                    match images::web_state(&source) {
+                        Some(Image::Failed(why)) => out.push((obj, "imageFailed", vec![source, why])),
+                        Some(Image::Ready(_)) => out.push((obj, "imageLoaded", vec![source])),
+                        _ => {}
+                    }
+                }
+            }
+            out
+        };
+        for (target, message, args) in messages {
+            self.send(Event::Send { target, message: message.into(), args });
         }
     }
 
@@ -783,7 +821,7 @@ impl App {
                 },
                 UiRequest::SelectedPartInfo => match self.selected_part() {
                     Some(o) => self.open_info(InfoTarget::Part(o)),
-                    None => self.alert("Select a button or field first, with the Button or Field tool.".into()),
+                    None => self.alert("Select a button, field or image first, with its tool.".into()),
                 },
                 UiRequest::CardInfo => {
                     let id = self.world().card_id;
@@ -1301,7 +1339,7 @@ impl App {
         let tool = self.world().tool;
         let delete = ctx.input(|i| i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace));
         if delete {
-            if let (Tool::Button | Tool::Field, Some(obj)) = (tool, self.selected_part()) {
+            if let (true, Some(obj)) = (tool.is_part_tool(), self.selected_part()) {
                 self.delete_part(obj);
             } else if let Some(Marquee::Selected { region }) = self.marquee.take() {
                 self.push_undo();
@@ -1595,7 +1633,7 @@ impl App {
     // ----- button and field tools -----
 
     fn edit_tool_input(&mut self, resp: &egui::Response, origin: Pos2, tool: Tool, scene: &Scene) {
-        let kind = if tool == Tool::Button { PartKind::Button } else { PartKind::Field };
+        let kind = tool.part_kind().unwrap_or(PartKind::Field);
         let to_card = |q: Pos2| ((q.x - origin.x) as i32, (q.y - origin.y) as i32);
         if resp.double_clicked()
             && let Some(o) = self.selected_part()
@@ -1664,6 +1702,7 @@ impl App {
         let part = match kind {
             PartKind::Button => Part::new_button(id, &format!("Button {n}"), rect),
             PartKind::Field => Part::new_field(id, "", rect),
+            PartKind::Image => Part::new_image(id, "", rect),
         };
         match layer {
             Layer::Card => {
@@ -2442,9 +2481,9 @@ impl App {
                 self.browse_input(&ctx, &resp, origin, &live);
                 self.field_editor(ui, origin, &live);
             }
-            Tool::Button | Tool::Field => {
+            Tool::Button | Tool::Field | Tool::Image => {
                 self.edit_tool_input(&resp, origin, tool, &live);
-                let kind = if tool == Tool::Button { PartKind::Button } else { PartKind::Field };
+                let kind = tool.part_kind().unwrap_or(PartKind::Field);
                 for pv in live.parts.iter().filter(|p| p.part.kind == kind) {
                     let r = render::part_rect(&pv.part, origin);
                     let color = if pv.part.visible { Color32::BLACK } else { Color32::from_gray(160) };
@@ -2488,7 +2527,7 @@ impl App {
                 self.flash_until = None;
             }
         }
-        if (tool.is_paint() || matches!(tool, Tool::Button | Tool::Field)) && self.export.is_none() {
+        if (tool.is_paint() || tool.is_part_tool()) && self.export.is_none() {
             self.tool_cursor(&ctx, &painter, &resp, origin, tool);
         }
         ui.set_clip_rect(outer_clip);
@@ -2830,6 +2869,7 @@ impl eframe::App for App {
             self.fit_window(&ctx);
         }
         self.handle_requests(&ctx);
+        self.images_arrived();
         // A selection floats only while it's selected.
         if !matches!(self.marquee, Some(Marquee::Selected { .. } | Marquee::Moving { .. } | Marquee::Scaling { .. })) {
             self.floating = None;

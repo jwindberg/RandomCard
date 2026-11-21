@@ -47,6 +47,8 @@ pub enum Tool {
     Text,
     RegularPolygon,
     Polygon,
+    /// Makes, moves and sizes images (RandomCard's own: HyperCard had none).
+    Image,
 }
 
 impl Tool {
@@ -70,6 +72,7 @@ impl Tool {
         Tool::Text,
         Tool::RegularPolygon,
         Tool::Polygon,
+        Tool::Image,
     ];
 
     pub fn name(self) -> &'static str {
@@ -92,6 +95,7 @@ impl Tool {
             Tool::Text => "text",
             Tool::RegularPolygon => "regular polygon",
             Tool::Polygon => "polygon",
+            Tool::Image => "image",
         }
     }
 
@@ -116,7 +120,31 @@ impl Tool {
             Tool::Text => 16,
             Tool::RegularPolygon => 17,
             Tool::Polygon => 18,
+            Tool::Image => 19,
         }
+    }
+
+    /// The tool that makes and moves this kind of part.
+    pub fn for_part(kind: crate::model::PartKind) -> Tool {
+        match kind {
+            crate::model::PartKind::Button => Tool::Button,
+            crate::model::PartKind::Field => Tool::Field,
+            crate::model::PartKind::Image => Tool::Image,
+        }
+    }
+
+    /// The kind of part this tool makes and moves, if it's one of those.
+    pub fn part_kind(self) -> Option<crate::model::PartKind> {
+        Some(match self {
+            Tool::Button => crate::model::PartKind::Button,
+            Tool::Field => crate::model::PartKind::Field,
+            Tool::Image => crate::model::PartKind::Image,
+            _ => return None,
+        })
+    }
+
+    pub fn is_part_tool(self) -> bool {
+        self.part_kind().is_some()
     }
 
     /// The paint tools that work by dragging, for scripts' `drag`.
@@ -138,7 +166,7 @@ impl Tool {
     }
 
     pub fn is_paint(self) -> bool {
-        !matches!(self, Tool::Browse | Tool::Button | Tool::Field)
+        !matches!(self, Tool::Browse | Tool::Button | Tool::Field | Tool::Image)
     }
 
     /// Accepts names like "browse", "round rect tool" or HyperCard tool numbers.
@@ -152,6 +180,7 @@ impl Tool {
             "browse" => Tool::Browse,
             "button" => Tool::Button,
             "field" => Tool::Field,
+            "image" => Tool::Image,
             "select" => Tool::Select,
             "lasso" => Tool::Lasso,
             "pencil" => Tool::Pencil,
@@ -1617,7 +1646,7 @@ impl World {
         part.id = id;
         match layer {
             Layer::Card => {
-                if kind == PartKind::Field {
+                if kind.per_card() {
                     part.contents = text;
                     part.styles = styles;
                 }
@@ -1628,9 +1657,9 @@ impl World {
             }
             Layer::Background => {
                 // Background text and hilites may belong to each card.
-                let per_card_text = kind == PartKind::Field && !part.shared_text;
+                let per_card_text = kind.per_card() && !part.shared_text;
                 let per_card_hilite = kind == PartKind::Button && !part.shared_hilite;
-                if kind == PartKind::Field {
+                if kind.per_card() {
                     part.contents = if per_card_text { String::new() } else { text.clone() };
                     part.styles = if per_card_text { Vec::new() } else { styles.clone() };
                 }

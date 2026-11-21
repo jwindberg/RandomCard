@@ -184,7 +184,7 @@ const GAP: f32 = 2.0;
 
 /// The tools in their groups, a row at a time.
 const TOOL_ROWS: [&[(&str, &[Tool])]; 3] = [
-    &[("Card", &[Tool::Browse, Tool::Button, Tool::Field]), ("Select", &[Tool::Select, Tool::Lasso])],
+    &[("Card", &[Tool::Browse, Tool::Button, Tool::Field, Tool::Image]), ("Select", &[Tool::Select, Tool::Lasso])],
     &[("Paint", &[Tool::Pencil, Tool::Brush, Tool::Spray, Tool::Eraser, Tool::Bucket, Tool::Text])],
     &[
         ("Lines", &[Tool::Line, Tool::Curve]),
@@ -256,7 +256,7 @@ fn uses_paint(t: Tool, filled: bool) -> (bool, bool) {
         Tool::Pencil | Tool::Text | Tool::Line | Tool::Curve => (true, false),
         Tool::Brush | Tool::Spray | Tool::Bucket | Tool::Select | Tool::Lasso => (false, true),
         Tool::Rect | Tool::RoundRect | Tool::Oval | Tool::RegularPolygon | Tool::Polygon => (true, filled),
-        Tool::Eraser | Tool::Browse | Tool::Button | Tool::Field => (false, false),
+        Tool::Eraser | Tool::Browse | Tool::Button | Tool::Field | Tool::Image => (false, false),
     }
 }
 

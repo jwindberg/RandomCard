@@ -1231,6 +1231,19 @@ end closeCard"#
     }
     let said = b.label("Picture Messages", Rect::new(286, 226, 492, 300), "", 11);
     b.card_part(c, said);
+    // An image: a part that shows a picture on the card, from the web, a
+    // file or the stack (here the Tour's own Rainbow, so the Tour needs no
+    // network). Its contents are its source, like a field's text.
+    let mut image = Part::new_image(b.stack.alloc_id(), "Rainbow Image", Rect::new(36, 104, 266, 226));
+    image.contents = "Rainbow".into();
+    image.style = PartStyle::Rectangle;
+    b.card_part(c, image);
+    let fit = b.button(
+        "Change Fit",
+        Rect::new(36, 234, 146, 258),
+        "on mouseUp\n  get the fit of image \"Rainbow Image\"\n  if it is \"fit\" then get \"fill\"\n  else if it is \"fill\" then get \"stretch\"\n  else if it is \"stretch\" then get \"actual\"\n  else get \"fit\"\n  set the fit of image \"Rainbow Image\" to it\n  put \"An image shows a picture on the card:\" && quote & image \"Rainbow Image\" & quote & \", its fit\" && it & \". Put a web address into one, and the picture comes from there.\" into field \"Picture Messages\"\nend mouseUp",
+    );
+    b.card_part(c, fit);
     // The messages the Picture XCMD sent the card; its windows stay open
     // from card to card, so the Tour's closes on leaving.
     b.stack.cards[c].script = r#"on openPicture name, id

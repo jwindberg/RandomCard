@@ -18,6 +18,7 @@ fn source(t: Tool) -> &'static str {
         Tool::Browse => include_str!("tool_icons/browse.svg"),
         Tool::Button => include_str!("tool_icons/button.svg"),
         Tool::Field => include_str!("tool_icons/field.svg"),
+        Tool::Image => include_str!("tool_icons/image.svg"),
         Tool::Select => include_str!("tool_icons/select.svg"),
         Tool::Lasso => include_str!("tool_icons/lasso.svg"),
         Tool::Pencil => include_str!("tool_icons/pencil.svg"),

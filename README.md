@@ -41,8 +41,9 @@ reference: HyperCard 2.4.1's language as RandomCard runs it, the old
 externals now built in, and RandomCard's additions.
 
 **Stacks.** A stack holds backgrounds and cards. Each card belongs to a
-background, and both layers have a picture plus buttons and fields. Background
-fields keep separate text on each card unless `sharedText` is set. Background
+background, and both layers have a picture plus buttons, fields and images.
+Background fields keep separate text on each card unless `sharedText` is
+set, and background images a separate picture. Background
 buttons work the same way with `sharedHilite`. Stacks save as JSON
 (`.rcstack`). Like HyperCard, changes are saved automatically once a stack has
 a file.
@@ -134,7 +135,7 @@ it at the window's left instead. The message box opens at the bottom of
 the window. Preferences are saved in `~/.config/randomcard/settings.json`.
 
 **The Tools palette**, from the top:
-- **Tools**, in groups: Card (Browse, Button, Field), Select (Select,
+- **Tools**, in groups: Card (Browse, Button, Field, Image), Select (Select,
   Lasso), Paint (Pencil, Brush, Spray, Eraser, Bucket, Text), Lines (Line,
   Curve) and Shapes (Rectangle, Round Rect, Oval, Regular Polygon,
   Polygon). Each icon shows its tool's setting: the Line tool its

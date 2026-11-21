@@ -176,6 +176,7 @@ fn part_kind(w: &str) -> Option<PartKind> {
     match w {
         "button" | "buttons" | "btn" | "btns" => Some(PartKind::Button),
         "field" | "fields" | "fld" | "flds" => Some(PartKind::Field),
+        "image" | "images" => Some(PartKind::Image),
         _ => None,
     }
 }
@@ -2635,7 +2636,7 @@ impl Parser {
             let kw = self.symbol()?;
             let kind = part_kind(&kw);
             let layer = explicit_layer.unwrap_or(match kind {
-                Some(PartKind::Field) => Layer::Background,
+                Some(PartKind::Field | PartKind::Image) => Layer::Background,
                 _ => Layer::Card,
             });
             let of = if self.accept("of") || self.accept("in") {
@@ -2870,7 +2871,12 @@ impl Parser {
         }
         // A plural ("fields", "btns") never starts a reference to one part,
         // so scripts can use it as a name: `put empty into cd field fields`.
-        if let Some(kind) = part_kind(&w).filter(|_| !matches!(w.as_str(), "fields" | "flds" | "buttons" | "btns")) {
+        if let Some(kind) = part_kind(&w).filter(|_| !matches!(w.as_str(), "fields" | "flds" | "buttons" | "btns" | "images")) {
+            // HyperCard had no images, so old scripts use "image" as a
+            // variable: it's a part only with a name, number or id after it.
+            if kind == PartKind::Image && !self.is_at(1, "id") && !self.starts_term_at(1) {
+                return Ok(None);
+            }
             self.advance();
             if !self.is("id") && !self.starts_term() {
                 return Err(self.err_here(&format!("Expected a {} number or name", kind.name())));

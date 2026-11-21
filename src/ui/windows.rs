@@ -3,7 +3,7 @@
 
 use eframe::egui::{self, Color32, RichText};
 
-use crate::model::{Id, PartKind, PartStyle, TextAlign, shortcut};
+use crate::model::{Id, ImageFit, PartKind, PartStyle, TextAlign, shortcut};
 use crate::runtime::world::{
     Dialog, DialogReply, Event, ObjRef, WindowKind, World, lock, same_script,
 };
@@ -307,6 +307,14 @@ impl App {
                     .map(|(i, icon)| (*i, icon.name.clone()))
                     .collect();
                 let text = w.stack.field_text(card, layer, id);
+                // An image's source, edited here and set once the part is let go.
+                let mut source = text.clone();
+                let picture_size = match crate::runtime::images::lookup(&text, &w.stack) {
+                    Some(crate::runtime::images::Image::Ready(p)) => format!("{} by {} pixels", p.width, p.height),
+                    Some(crate::runtime::images::Image::Loading) => "Loading…".into(),
+                    Some(crate::runtime::images::Image::Failed(why)) => why,
+                    None => "No picture".into(),
+                };
                 let mut add_icon = false;
                 let mut edit_icon = None;
                 let Some(p) = w.stack.part_mut(card, layer, id) else {
@@ -327,14 +335,20 @@ impl App {
                     ui.label(p.id.to_string());
                     ui.end_row();
                     ui.label("Style:");
-                    let styles =
-                        if p.kind == PartKind::Button { PartStyle::BUTTON_STYLES } else { PartStyle::FIELD_STYLES };
+                    let styles = match p.kind {
+                        PartKind::Button => PartStyle::BUTTON_STYLES,
+                        PartKind::Field => PartStyle::FIELD_STYLES,
+                        PartKind::Image => PartStyle::IMAGE_STYLES,
+                    };
                     egui::ComboBox::from_id_salt("style").selected_text(p.style.name()).show_ui(ui, |ui| {
                         for s in styles {
                             changed |= ui.selectable_value(&mut p.style, *s, s.name()).changed();
                         }
                     });
                     ui.end_row();
+                    if p.kind == PartKind::Image {
+                        return;
+                    }
                     ui.label("Text:");
                     ui.horizontal(|ui| {
                         egui::ComboBox::from_id_salt("font").selected_text(&p.text_font).width(90.0).show_ui(
@@ -387,7 +401,28 @@ impl App {
                 ui.separator();
                 egui::Grid::new("part-flags").num_columns(2).show(ui, |ui| {
                     changed |= ui.checkbox(&mut p.visible, "Visible").changed();
-                    if p.kind == PartKind::Button {
+                    if p.kind == PartKind::Image {
+                        ui.horizontal(|ui| {
+                            ui.label("Fit:");
+                            egui::ComboBox::from_id_salt("fit").selected_text(p.fit.name()).show_ui(ui, |ui| {
+                                for f in [ImageFit::Fit, ImageFit::Fill, ImageFit::Stretch, ImageFit::Actual] {
+                                    changed |= ui.selectable_value(&mut p.fit, f, f.name()).changed();
+                                }
+                            });
+                        });
+                        ui.end_row();
+                        if layer == crate::model::Layer::Background {
+                            changed |= ui
+                                .checkbox(&mut p.shared_text, "Shared Source")
+                                .on_hover_text("One picture on every card, rather than each card its own")
+                                .changed();
+                        }
+                        changed |= ui.checkbox(&mut p.dont_save, "Don't Save")
+                            .on_hover_text("Its source isn't saved: it opens empty")
+                            .changed();
+                        ui.end_row();
+                        ui.label(&picture_size);
+                    } else if p.kind == PartKind::Button {
                         changed |= ui.checkbox(&mut p.show_name, "Show Name").changed();
                         ui.end_row();
                         changed |= ui.checkbox(&mut p.auto_hilite, "Auto Hilite").changed();
@@ -475,6 +510,10 @@ impl App {
                     }
                     ui.end_row();
                 });
+                if p.kind == PartKind::Image {
+                    ui.label("Source: an address on the web, a file, or one of the stack's pictures");
+                    ui.add(egui::TextEdit::singleline(&mut source).desired_width(f32::INFINITY));
+                }
                 if p.kind == PartKind::Field {
                     ui.label("Choices, one a line (a ▼ offers them):");
                     changed |= ui.add(egui::TextEdit::multiline(&mut p.choices).desired_rows(2)).changed();
@@ -512,6 +551,10 @@ impl App {
                     && let Some(i) = crate::import::hypercard_icons().get(&icon)
                 {
                     w.stack.icons.insert(icon, i.clone());
+                }
+                if source != text {
+                    w.stack.set_field_text(card, layer, id, source);
+                    changed = true;
                 }
                 if let Some(icon) = edit_icon {
                     drop(w);
@@ -1454,7 +1497,7 @@ fn live_info(w: &World, x: i32, y: i32) -> String {
     for layer in [Layer::Card, Layer::Background] {
         let parts = w.stack.parts(card, layer);
         if let Some((n, p)) = parts.iter().enumerate().rev().find(|(_, p)| p.visible && p.rect.contains(x, y)) {
-            let kind = if p.kind == PartKind::Button { "button" } else { "field" };
+            let kind = p.kind.name();
             let number = parts[..=n].iter().filter(|q| q.kind == p.kind).count();
             let layer = if layer == Layer::Card { "card" } else { "bkgnd" };
             let r = p.rect;

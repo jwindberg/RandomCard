@@ -663,7 +663,7 @@ impl Interp {
                 let ObjRef::Part { layer, id, card } = obj else { return err("Can only select a button or field") };
                 let mut w = self.w();
                 let Some(kind) = w.stack.part(card, layer, id).map(|p| p.kind) else { return err("No such part") };
-                w.tool = if kind == PartKind::Button { Tool::Button } else { Tool::Field };
+                w.tool = Tool::for_part(kind);
                 w.focus = None;
                 w.selected_part = Some(obj);
                 w.requests.push(UiRequest::SelectPart(obj));
@@ -1725,11 +1725,7 @@ impl Interp {
             if let ObjRef::Part { layer, id, card } = target {
                 let mut w = self.w();
                 let kind = w.stack.part(card, layer, id).map(|p| p.kind);
-                let wanted = match tool {
-                    Tool::Button => Some(PartKind::Button),
-                    Tool::Field => Some(PartKind::Field),
-                    _ => None,
-                };
+                let wanted = tool.part_kind();
                 if kind.is_some() && kind == wanted {
                     w.requests.push(UiRequest::SelectPart(target));
                 }
@@ -2293,7 +2289,7 @@ impl Interp {
     fn edit_part(&mut self, op: EditOp) -> R<bool> {
         let selected = {
             let w = self.w();
-            matches!(w.tool, Tool::Button | Tool::Field).then_some(w.selected_part).flatten()
+            w.tool.is_part_tool().then_some(w.selected_part).flatten()
         };
         match op {
             EditOp::Copy | EditOp::Cut | EditOp::Clear => {
@@ -2316,7 +2312,7 @@ impl Interp {
                 };
                 let kind = part.kind;
                 let obj = w.paste_part(*part, text, styles, hilite);
-                w.tool = if kind == PartKind::Button { Tool::Button } else { Tool::Field };
+                w.tool = Tool::for_part(kind);
                 w.focus = None;
                 w.selected_part = Some(obj);
                 w.requests.push(UiRequest::SelectPart(obj));
@@ -2508,8 +2504,12 @@ impl Interp {
                 }
                 self.send_system(ObjRef::Card(id), "newCard")
             }
-            "new button" | "new field" => {
-                let kind = if key == "new button" { PartKind::Button } else { PartKind::Field };
+            "new button" | "new field" | "new image" => {
+                let kind = match key.as_str() {
+                    "new button" => PartKind::Button,
+                    "new field" => PartKind::Field,
+                    _ => PartKind::Image,
+                };
                 let obj = {
                     let mut w = self.w();
                     let layer = w.current_layer();
@@ -2525,6 +2525,9 @@ impl Interp {
                         PartKind::Field => {
                             Part::new_field(id, "", Rect::new(cw / 2 - 90, ch / 2 - 50, cw / 2 + 90, ch / 2 + 50))
                         }
+                        PartKind::Image => {
+                            Part::new_image(id, "", Rect::new(cw / 2 - 80, ch / 2 - 60, cw / 2 + 80, ch / 2 + 60))
+                        }
                     };
                     match layer {
                         Layer::Card => {
@@ -2538,13 +2541,17 @@ impl Interp {
                             }
                         }
                     }
-                    w.tool = if kind == PartKind::Button { Tool::Button } else { Tool::Field };
+                    w.tool = Tool::for_part(kind);
                     w.dirty = true;
                     let obj = ObjRef::Part { layer, id, card };
                     w.requests.push(UiRequest::SelectPart(obj));
                     obj
                 };
-                self.send_system(obj, if kind == PartKind::Button { "newButton" } else { "newField" })
+                self.send_system(obj, match kind {
+                    PartKind::Button => "newButton",
+                    PartKind::Field => "newField",
+                    PartKind::Image => "newImage",
+                })
             }
             "background" => {
                 let mut w = self.w();
@@ -2598,7 +2605,7 @@ impl Interp {
                 );
                 self.dialog(Dialog::Answer { prompt: about, buttons: vec!["OK".into()] }).map(|_| ())
             }
-            "button info" | "field info" => self.request(UiRequest::SelectedPartInfo),
+            "button info" | "field info" | "image info" => self.request(UiRequest::SelectedPartInfo),
             "card info" => self.request(UiRequest::CardInfo),
             "bkgnd info" | "background info" => self.request(UiRequest::BgInfo),
             "stack info" => self.request(UiRequest::StackInfo),

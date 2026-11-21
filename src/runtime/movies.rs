@@ -421,13 +421,26 @@ impl Interp {
             self.result = format!("Movie windows have no style \"{}\"", arg(1));
             return Ok(());
         };
-        let Some(path) = self.find_movie_file(&arg(0)) else {
-            if !arg(0).is_empty() {
-                self.result = format!("Can't find the movie \"{}\"", arg(0));
-            }
-            return Ok(());
+        // A movie on the web plays from its address; anything else is a
+        // file.
+        let url = is_url(&arg(0)).then(|| arg(0));
+        let path = match &url {
+            Some(u) => PathBuf::from(u),
+            None => match self.find_movie_file(&arg(0)) {
+                Some(p) => p,
+                None => {
+                    if !arg(0).is_empty() {
+                        self.result = format!("Can't find the movie \"{}\"", arg(0));
+                    }
+                    return Ok(());
+                }
+            },
         };
-        let player = match Player::open(&path) {
+        let opened = match &url {
+            Some(u) => Player::open_url(u),
+            None => Player::open(&path),
+        };
+        let player = match opened {
             Ok(p) => Arc::new(p),
             Err(e) => {
                 self.result = e;
@@ -467,7 +480,11 @@ impl Interp {
         let movie_height = rect.height() - if controller { CONTROLLER } else { 0 };
         let id = w.next_movie_id;
         w.next_movie_id += 1;
-        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        // A movie on the web is named by the last part of its address.
+        let name = match &url {
+            Some(u) => u.trim_end_matches('/').rsplit('/').next().unwrap_or(u).split(['?', '#']).next().unwrap_or("").to_string(),
+            None => path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+        };
         let duration = player.duration();
         let floating = match arg(4).to_ascii_lowercase().as_str() {
             "floating" => true,
@@ -834,8 +851,20 @@ impl Interp {
     }
 }
 
+/// An address on the web, http or https: a movie that plays from there.
+pub fn is_url(s: &str) -> bool {
+    let s = s.trim().to_ascii_lowercase();
+    s.starts_with("http://") || s.starts_with("https://")
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn web_addresses_are_movies_on_the_web() {
+        assert!(super::is_url("http://example.com/videos/782") && super::is_url(" HTTPS://x/y.mp4"));
+        assert!(!super::is_url("Intro.mov") && !super::is_url("ftp://x/y"));
+    }
+
     use super::*;
 
     #[test]
