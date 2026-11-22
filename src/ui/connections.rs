@@ -7,7 +7,7 @@
 use eframe::egui::{self, RichText};
 
 use super::App;
-use crate::model::connections::{ADDRESS, Connection, Setting};
+use crate::model::connections::{ADDRESS, Connection, Credential, Place, Setting};
 use crate::runtime::connections::{self, store};
 use crate::runtime::world::{Dialog, DialogReply};
 
@@ -74,6 +74,11 @@ impl SetupForm {
                 }
                 ui.label(format!("{}:", s.name));
                 ui.vertical(|ui| {
+                    let hint_line = match (s.optional, s.hint.is_empty()) {
+                        (true, true) => "Optional".to_string(),
+                        (true, false) => format!("{} (optional)", s.hint),
+                        (false, _) => s.hint.clone(),
+                    };
                     let hint = if s.secret && self.kept[i] {
                         "kept".to_string()
                     } else if !s.default.is_empty() {
@@ -82,7 +87,7 @@ impl SetupForm {
                         String::new()
                     };
                     ui.horizontal(|ui| {
-                        let needed = self.values[i].is_empty() && !self.kept[i] && s.default.is_empty();
+                        let needed = self.values[i].is_empty() && !self.kept[i] && s.default.is_empty() && !s.optional;
                         let resp = ui.add(
                             egui::TextEdit::singleline(&mut self.values[i])
                                 .password(s.secret)
@@ -100,8 +105,8 @@ impl SetupForm {
                             forget = Some(i);
                         }
                     });
-                    if !s.hint.is_empty() {
-                        ui.label(RichText::new(&s.hint).weak().small());
+                    if !hint_line.is_empty() {
+                        ui.label(RichText::new(hint_line).weak().small());
                     }
                 });
                 ui.end_row();
@@ -139,6 +144,91 @@ pub(super) struct DeclareWindow {
 /// A connection name the stack doesn't have yet.
 fn new_name(conns: &[Connection]) -> String {
     (1..).map(|n| format!("Connection {n}")).find(|n| !conns.iter().any(|c| c.name.eq_ignore_ascii_case(n))).unwrap_or_default()
+}
+
+/// How a connection signs in: each credential's place, its header or
+/// parameter name, and its value with settings in braces. Returns whether
+/// anything changed.
+fn credentials_editor(ui: &mut egui::Ui, conn: &mut Connection) -> bool {
+    let mut changed = false;
+    ui.label(RichText::new("How it signs in").strong());
+    if conn.credentials.is_empty() {
+        ui.label(RichText::new("Nothing: requests go as they are.").weak());
+    }
+    let mut remove = None;
+    egui::Grid::new("connection-declare-credentials").num_columns(4).striped(true).show(ui, |ui| {
+        if !conn.credentials.is_empty() {
+            ui.label("Sent as");
+            ui.label("Name");
+            ui.label("Value");
+            ui.label("");
+            ui.end_row();
+        }
+        for (i, c) in conn.credentials.iter_mut().enumerate() {
+            let shown = |p: Place| match p {
+                Place::Basic => "Basic",
+                Place::Header => "A header",
+                Place::Query => "A query parameter",
+            };
+            egui::ComboBox::from_id_salt(("credential-place", i)).selected_text(shown(c.place)).show_ui(ui, |ui| {
+                for p in [Place::Basic, Place::Header, Place::Query] {
+                    changed |= ui.selectable_value(&mut c.place, p, shown(p)).changed();
+                }
+            });
+            let named = c.place != Place::Basic;
+            changed |= ui
+                .add_enabled_ui(named, |ui| ui.add_sized([120.0, 20.0], egui::TextEdit::singleline(&mut c.name)))
+                .inner
+                .on_hover_text("The header's or parameter's name, such as Authorization, X-API-Key or key")
+                .changed();
+            changed |= ui
+                .add_sized([260.0, 20.0], egui::TextEdit::singleline(&mut c.value))
+                .on_hover_text("Settings in braces: {User name}:{Password} for Basic, Bearer {Token}, {API Key}")
+                .changed();
+            if ui.small_button("Remove").clicked() {
+                remove = Some(i);
+            }
+            ui.end_row();
+        }
+    });
+    if let Some(i) = remove {
+        conn.credentials.remove(i);
+        changed = true;
+    }
+    // Names in braces that aren't settings.
+    let unknown: Vec<String> = conn
+        .credentials
+        .iter()
+        .flat_map(|c| crate::model::connections::named_settings(&c.value))
+        .filter(|n| conn.setting(n).is_none())
+        .map(|n| format!("{{{n}}}"))
+        .collect();
+    if !unknown.is_empty() {
+        ui.label(RichText::new(format!("No such setting: {}", unknown.join(", "))).color(ui.visuals().warn_fg_color));
+    }
+    ui.horizontal(|ui| {
+        if ui.button("Add Basic").on_hover_text("A user name and a secret password (RFC 7617)").clicked() {
+            conn.add_basic();
+            changed = true;
+        }
+        if ui.button("Add Header").clicked() {
+            conn.credentials.push(Credential { place: Place::Header, name: "Authorization".into(), value: "Bearer {Token}".into() });
+            changed = true;
+        }
+        if ui.button("Add Query Parameter").clicked() {
+            conn.credentials.push(Credential { place: Place::Query, name: "key".into(), value: "{API Key}".into() });
+            changed = true;
+        }
+    });
+    ui.label(
+        RichText::new(
+            "Credentials go with every request under the Address, whether a script names the connection or not, \
+             and never anywhere else, nor over plain http beyond this computer and the local network.",
+        )
+        .weak()
+        .small(),
+    );
+    changed
 }
 
 /// What the windows need of the stack, copied so the world isn't held.
@@ -307,7 +397,7 @@ impl App {
         let title = format!("Connections of “{}”", w.stack.name);
         // A window of its own, beside Stack Info, as Info windows are.
         let id = egui::Id::unique("connection-declare");
-        super::windows::editor_window(ctx, id, &title, [660.0, 440.0], &mut open, |ui| {
+        super::windows::editor_window(ctx, id, &title, [720.0, 460.0], &mut open, |ui| {
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                 let conns = &mut w.stack.connections;
                 ui.horizontal_wrapped(|ui| {
@@ -360,11 +450,12 @@ impl App {
                 ui.add_space(6.0);
                 ui.label(RichText::new("What each person gives").strong());
                 let mut remove = None;
-                egui::Grid::new("connection-declare-settings").num_columns(5).striped(true).show(ui, |ui| {
+                egui::Grid::new("connection-declare-settings").num_columns(6).striped(true).show(ui, |ui| {
                     ui.label("Setting");
                     ui.label("Hint");
                     ui.label("Default");
                     ui.label("Secret");
+                    ui.label("Optional");
                     ui.label("");
                     ui.end_row();
                     let names: Vec<String> = conn.settings.iter().map(|s| s.name.to_lowercase()).collect();
@@ -382,10 +473,10 @@ impl App {
                                 changed = true;
                             }
                         }
-                        changed |= ui.add_sized([220.0, 20.0], egui::TextEdit::singleline(&mut s.hint)).changed();
+                        changed |= ui.add_sized([180.0, 20.0], egui::TextEdit::singleline(&mut s.hint)).changed();
                         // A secret's default would be in the stack for anyone.
                         changed |= ui
-                            .add_enabled_ui(!s.secret, |ui| ui.add_sized([170.0, 20.0], egui::TextEdit::singleline(&mut s.default)))
+                            .add_enabled_ui(!s.secret, |ui| ui.add_sized([150.0, 20.0], egui::TextEdit::singleline(&mut s.default)))
                             .inner
                             .changed();
                         if ui.add_enabled(!address, egui::Checkbox::without_text(&mut s.secret)).changed() {
@@ -394,6 +485,10 @@ impl App {
                             }
                             changed = true;
                         }
+                        changed |= ui
+                            .add_enabled(!address, egui::Checkbox::without_text(&mut s.optional))
+                            .on_hover_text("Set up without it; a credential that uses it is left off while it's empty")
+                            .changed();
                         if !address && ui.small_button("Remove").clicked() {
                             remove = Some(i);
                         }
@@ -414,11 +509,6 @@ impl App {
                         conn.settings.push(Setting { name, ..Setting::default() });
                         changed = true;
                     }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Delete Connection").clicked() {
-                            delete = true;
-                        }
-                    });
                 });
                 ui.label(
                     RichText::new(
@@ -428,6 +518,12 @@ impl App {
                     .weak()
                     .small(),
                 );
+                ui.add_space(8.0);
+                changed |= credentials_editor(ui, conn);
+                ui.add_space(8.0);
+                if ui.button("Delete Connection").clicked() {
+                    delete = true;
+                }
                 if delete {
                     conns.remove(chosen);
                     changed = true;

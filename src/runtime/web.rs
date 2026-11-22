@@ -93,30 +93,65 @@ impl Interp {
             Ok(super::connections::url(&mut store, &w.stack, connection, url))
         };
         let first = resolve(self)?;
-        let key = connection.trim().to_lowercase();
-        if first.is_ok() || self.declined_connections.contains(&key) {
+        if first.is_ok() || !self.ask_setup(connection)? {
             return Ok(first);
         }
-        // Not set up yet: the user is asked, once, and the request goes on
-        // if they set it up.
+        resolve(self)
+    }
+
+    /// Ask the user to set up a connection that isn't, once a run: whether
+    /// they did.
+    fn ask_setup(&mut self, connection: &str) -> R<bool> {
+        let key = connection.trim().to_lowercase();
+        if self.declined_connections.contains(&key) {
+            return Ok(false);
+        }
         match self.dialog(Dialog::Connection(connection.trim().to_string()))? {
-            DialogReply::Button(b) if b == "Save" => resolve(self),
+            DialogReply::Button(b) if b == "Save" => Ok(true),
             _ => {
                 self.declined_connections.insert(key);
-                Ok(first)
+                Ok(false)
             }
         }
     }
 
-    /// A request with the script's headers and timeout.
-    fn web_request(&self, method: &str, url: String, body: Option<String>) -> http::Request {
-        http::Request {
+    /// The credentials for a request to `url`, from the connection whose
+    /// Address covers it (asking for any settings still needed), or why
+    /// it can't be sent.
+    fn credentials(&mut self, url: &str) -> R<Result<Option<http::Credentials>, String>> {
+        use super::connections::{SignError, sign, store};
+        let signed = {
+            let w = self.w();
+            sign(&mut store(), &w.stack, url)
+        };
+        match signed {
+            Err(SignError::NotSetUp { connection, why }) => {
+                if !self.ask_setup(&connection)? {
+                    return Ok(Err(why));
+                }
+                let w = self.w();
+                Ok(sign(&mut store(), &w.stack, url).map_err(SignError::why))
+            }
+            other => Ok(other.map_err(SignError::why)),
+        }
+    }
+
+    /// A request with the script's headers and timeout, and its
+    /// connection's credentials, or why it can't be sent.
+    fn web_request(&mut self, method: &str, url: String, body: Option<String>) -> R<Result<http::Request, String>> {
+        let url = url.trim().to_string();
+        let credentials = match self.credentials(&url)? {
+            Ok(c) => c,
+            Err(why) => return Ok(Err(why)),
+        };
+        Ok(Ok(http::Request {
             method: method.into(),
-            url: url.trim().to_string(),
+            url,
             headers: http::parse_headers(&self.http_headers),
             body,
             timeout: Duration::from_secs_f64(self.http_timeout.max(0.1)),
-        }
+            credentials,
+        }))
     }
 
     /// Note a reply in `the result` (empty when it worked, else the status
@@ -143,7 +178,11 @@ impl Interp {
     /// Send a request and wait for it. It waits on another thread, so
     /// Command-period still stops the script.
     pub(super) fn fetch(&mut self, method: &str, url: String, body: Option<String>) -> R<String> {
-        let req = self.web_request(method, url, body);
+        let req = match self.web_request(method, url, body)? {
+            Ok(r) => r,
+            // Like a request that got no reply.
+            Err(why) => return Ok(self.take_reply(Err(why), 0.0)),
+        };
         let (tx, rx) = mpsc::channel();
         let started = std::time::Instant::now();
         std::thread::spawn(move || {
@@ -167,8 +206,15 @@ impl Interp {
     /// reply comes, `message` goes to the object whose script asked, with
     /// the URL and the reply (`on gotJoke theURL, reply`).
     pub(super) fn fetch_later(&mut self, method: &str, url: String, body: Option<String>, message: String) -> R<()> {
-        let req = self.web_request(method, url, body);
         let target = self.frame().me;
+        let req = match self.web_request(method, url.clone(), body)? {
+            Ok(r) => r,
+            Err(why) => {
+                // The message still comes, with no reply.
+                let body = self.take_reply(Err(why), 0.0);
+                return self.send_message(target, &message, &[url.trim().to_string(), body]).map(|_| ());
+            }
+        };
         let Some(events) = self.event_tx.clone() else {
             // No event loop (a script run on its own): reply straight away.
             let started = std::time::Instant::now();

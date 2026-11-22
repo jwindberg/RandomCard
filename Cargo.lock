@@ -3802,6 +3802,7 @@ dependencies = [
  "serde",
  "serde_json",
  "ureq",
+ "url",
  "windows",
  "windows-core",
  "windows-native-keyring-store",

@@ -73,8 +73,14 @@ pub fn lookup(source: &str, stack: &Stack) -> Option<Image> {
         known.insert(source.to_string(), Image::Loading);
         drop(known);
         let url = source.to_string();
+        // A picture under a connection's Address is fetched with its
+        // credentials, as the stack's requests are.
+        let credentials = super::connections::sign(&mut super::connections::store(), stack, &url);
         std::thread::spawn(move || {
-            let image = match crate::web::http::get_bytes(&url, TIMEOUT).and_then(|b| crate::paint::image_file::decode(&b)) {
+            let fetched = credentials
+                .map_err(super::connections::SignError::why)
+                .and_then(|c| crate::web::http::get_bytes(&url, c.as_ref(), TIMEOUT));
+            let image = match fetched.and_then(|b| crate::paint::image_file::decode(&b)) {
                 Ok(p) => Image::Ready(Arc::new(p)),
                 Err(e) => Image::Failed(e),
             };

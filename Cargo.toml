@@ -23,6 +23,7 @@ path = "tools/make_icons.rs"
 [dependencies]
 ab_glyph = "0.2.32"
 base64 = "0.23.1"
+url = "2.5.8"
 chrono = "0.4.45"
 eframe = "0.37.0"
 epaint_default_fonts = "0.37.0"

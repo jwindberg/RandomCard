@@ -836,6 +836,21 @@ end mouseUp
   empty and `the result` says what's needed ("Connection "VideoDB" isn't set
   up: it needs Password"). A connection the stack doesn't name is a script
   error.
+- **Signing in:** a connection can say how each request proves who's
+  asking: HTTP Basic (RFC 7617) from `{User name}:{Password}`, a header
+  such as `Authorization: Bearer {Token}` or `X-API-Key: {Key}`, a query
+  parameter such as `key={API Key}`, or several at once. Settings go in
+  braces and are filled in as the request is sent; scripts never see
+  them, not even in a `with message` handler's URL. They go with every
+  request under the connection's Address (same scheme, host, port, and a
+  path at or below it), whether the script names the connection or not,
+  pictures included, and nowhere else. A request that carries them
+  doesn't follow redirects: `the result` is the 3xx, and the script
+  decides. Over plain http they go only to this computer and the local
+  network (`localhost`, `.local` names, private addresses); elsewhere the
+  request isn't sent and `the result` says why. An **optional** setting
+  doesn't need to be set up; a credential that uses it is left off while
+  it's empty.
 - **Settings files:** Open Settings File… in either window fills settings in
   from a JSON file, such as one a team hands round: `{ "VideoDB": {
   "Address": "http://videos.local:9090" } }`.

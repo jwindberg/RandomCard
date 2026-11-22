@@ -13,6 +13,43 @@ pub struct Request {
     pub headers: Vec<(String, String)>,
     pub body: Option<String>,
     pub timeout: Duration,
+    /// A connection's credentials, added as it's sent: the URL above stays
+    /// as the script gave it, for its messages.
+    pub credentials: Option<Credentials>,
+}
+
+/// What a connection adds to each request to its Address: headers, and
+/// parameters on the query. Never printed: Debug shows only how many.
+#[derive(Clone, Default, PartialEq)]
+pub struct Credentials {
+    pub headers: Vec<(String, String)>,
+    pub query: Vec<(String, String)>,
+}
+
+impl std::fmt::Debug for Credentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Credentials({} headers, {} query parameters)", self.headers.len(), self.query.len())
+    }
+}
+
+impl Credentials {
+    /// The URL with the query parameters added (form-encoded, as queries
+    /// are), and the headers, replacing any of the same name.
+    fn apply(&self, url: &str, headers: &mut Vec<(String, String)>) -> Result<String, String> {
+        headers.retain(|(k, _)| !self.headers.iter().any(|(c, _)| c.eq_ignore_ascii_case(k)));
+        headers.extend(self.headers.iter().cloned());
+        if self.query.is_empty() {
+            return Ok(url.to_string());
+        }
+        let mut u = url::Url::parse(url).map_err(|e| e.to_string())?;
+        u.query_pairs_mut().extend_pairs(self.query.iter());
+        Ok(u.into())
+    }
+}
+
+/// What went wrong, without the URL a connection added a key to.
+fn hide(error: String, sent: &str, shown: &str) -> String {
+    if sent == shown { error } else { error.replace(sent, shown) }
 }
 
 /// A reply, whatever its status.
@@ -103,12 +140,16 @@ pub fn parse_headers(text: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-fn agent(timeout: Duration) -> ureq::Agent {
+/// An agent for one request. One that carries credentials doesn't follow
+/// redirects: they'd go wherever the server says, so the script gets the
+/// redirect and decides.
+fn agent(timeout: Duration, credentials: bool) -> ureq::Agent {
     // Any method, not only the standard ones: QUERY, and whatever comes next.
     let config = ureq::Agent::config_builder()
         .http_status_as_error(false)
         .allow_non_standard_methods(true)
         .timeout_global(Some(timeout));
+    let config = if credentials { config.max_redirects(0).max_redirects_will_error(false) } else { config };
     #[cfg(not(target_os = "linux"))]
     let config = config.tls_config(ureq::tls::TlsConfig::builder().provider(ureq::tls::TlsProvider::NativeTls).build());
     config.build().into()
@@ -121,8 +162,14 @@ fn agent(timeout: Duration) -> ureq::Agent {
 pub fn send(req: &Request) -> Result<Response, String> {
     let method = ureq::http::Method::from_bytes(req.method.trim().as_bytes())
         .map_err(|_| format!("\"{}\" isn't an HTTP method", req.method))?;
-    let mut builder = ureq::http::Request::builder().method(method).uri(req.url.as_str());
-    for (k, v) in &req.headers {
+    let mut headers = req.headers.clone();
+    let url = match &req.credentials {
+        Some(c) => c.apply(req.url.trim(), &mut headers)?,
+        None => req.url.clone(),
+    };
+    let fail = |e: String| hide(e, &url, &req.url);
+    let mut builder = ureq::http::Request::builder().method(method).uri(url.as_str());
+    for (k, v) in &headers {
         builder = builder.header(k.as_str(), v.as_str());
     }
     // Content says what it is (RFC 9110 §8.3): unless the script's headers
@@ -133,12 +180,12 @@ pub fn send(req: &Request) -> Result<Response, String> {
         let json = serde_json::from_str::<serde_json::Value>(body).is_ok();
         builder = builder.header("content-type", if json { "application/json" } else { "text/plain; charset=utf-8" });
     }
-    let agent = agent(req.timeout);
+    let agent = agent(req.timeout, req.credentials.is_some());
     let reply = match &req.body {
-        Some(body) => agent.run(builder.body(body.clone()).map_err(|e| e.to_string())?),
-        None => agent.run(builder.body(()).map_err(|e| e.to_string())?),
+        Some(body) => agent.run(builder.body(body.clone()).map_err(|e| fail(e.to_string()))?),
+        None => agent.run(builder.body(()).map_err(|e| fail(e.to_string()))?),
     };
-    let mut reply = reply.map_err(|e| e.to_string())?;
+    let mut reply = reply.map_err(|e| fail(e.to_string()))?;
     let status = reply.status();
     let headers = reply
         .headers()
@@ -146,7 +193,7 @@ pub fn send(req: &Request) -> Result<Response, String> {
         .map(|(k, v)| format!("{}: {}", k.as_str(), v.to_str().unwrap_or("")))
         .collect::<Vec<_>>()
         .join("\n");
-    let bytes = reply.body_mut().read_to_vec().map_err(|e| e.to_string())?;
+    let bytes = reply.body_mut().read_to_vec().map_err(|e| fail(e.to_string()))?;
     Ok(Response {
         status: status.as_u16(),
         reason: status.canonical_reason().unwrap_or("").to_string(),
@@ -157,14 +204,31 @@ pub fn send(req: &Request) -> Result<Response, String> {
 
 /// Get a URL's body as bytes (a picture, say), or why not: no reply, or a
 /// status other than 2xx.
-pub fn get_bytes(url: &str, timeout: Duration) -> Result<Vec<u8>, String> {
-    let request = ureq::http::Request::builder().method("GET").uri(url).body(()).map_err(|e| e.to_string())?;
-    let mut reply = agent(timeout).run(request).map_err(|e| e.to_string())?;
+pub fn get_bytes(url: &str, credentials: Option<&Credentials>, timeout: Duration) -> Result<Vec<u8>, String> {
+    let (sent, headers) = with_credentials(url, credentials)?;
+    let fail = |e: String| hide(e, &sent, url);
+    let mut request = ureq::http::Request::builder().method("GET").uri(sent.as_str());
+    for (k, v) in &headers {
+        request = request.header(k.as_str(), v.as_str());
+    }
+    let request = request.body(()).map_err(|e| fail(e.to_string()))?;
+    let mut reply = agent(timeout, credentials.is_some()).run(request).map_err(|e| fail(e.to_string()))?;
     let status = reply.status();
     if !status.is_success() {
         return Err(format!("{} {}", status.as_u16(), status.canonical_reason().unwrap_or("")).trim().to_string());
     }
-    reply.body_mut().with_config().limit(64 * 1024 * 1024).read_to_vec().map_err(|e| e.to_string())
+    reply.body_mut().with_config().limit(64 * 1024 * 1024).read_to_vec().map_err(|e| fail(e.to_string()))
+}
+
+/// The URL to send and the headers to add, for a request with only a
+/// connection's credentials (pictures and movies).
+pub fn with_credentials(url: &str, credentials: Option<&Credentials>) -> Result<(String, Vec<(String, String)>), String> {
+    let mut headers = Vec::new();
+    let sent = match credentials {
+        Some(c) => c.apply(url.trim(), &mut headers)?,
+        None => url.to_string(),
+    };
+    Ok((sent, headers))
 }
 
 /// The start of a URL's body, at most `n` bytes, and its Content-Type:
@@ -172,22 +236,24 @@ pub fn get_bytes(url: &str, timeout: Duration) -> Result<Vec<u8>, String> {
 /// asks for a range, and reads no more than `n` bytes of a server that
 /// sends the whole thing anyway.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-pub fn peek(url: &str, n: usize, timeout: Duration) -> Result<(String, Vec<u8>), String> {
+pub fn peek(url: &str, credentials: Option<&Credentials>, n: usize, timeout: Duration) -> Result<(String, Vec<u8>), String> {
     use std::io::Read;
-    let request = ureq::http::Request::builder()
-        .method("GET")
-        .uri(url)
-        .header("range", format!("bytes=0-{}", n.saturating_sub(1)))
-        .body(())
-        .map_err(|e| e.to_string())?;
-    let mut reply = agent(timeout).run(request).map_err(|e| e.to_string())?;
+    let (sent, headers) = with_credentials(url, credentials)?;
+    let fail = |e: String| hide(e, &sent, url);
+    let mut request = ureq::http::Request::builder().method("GET").uri(sent.as_str());
+    for (k, v) in &headers {
+        request = request.header(k.as_str(), v.as_str());
+    }
+    let request =
+        request.header("range", format!("bytes=0-{}", n.saturating_sub(1))).body(()).map_err(|e| fail(e.to_string()))?;
+    let mut reply = agent(timeout, credentials.is_some()).run(request).map_err(|e| fail(e.to_string()))?;
     let status = reply.status();
     if !status.is_success() {
         return Err(format!("{} {}", status.as_u16(), status.canonical_reason().unwrap_or("")).trim().to_string());
     }
     let content_type = reply.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
     let mut head = Vec::with_capacity(n);
-    reply.body_mut().as_reader().take(n as u64).read_to_end(&mut head).map_err(|e| e.to_string())?;
+    reply.body_mut().as_reader().take(n as u64).read_to_end(&mut head).map_err(|e| fail(e.to_string()))?;
     Ok((content_type, head))
 }
 
@@ -281,6 +347,7 @@ mod tests {
             headers: parse_headers("X-Token: abc"),
             body: body.map(String::from),
             timeout: Duration::from_secs(5),
+            credentials: None,
         };
         let r = send(&req("GET", "/echo", None)).unwrap();
         assert!(r.ok());

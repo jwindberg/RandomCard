@@ -171,6 +171,28 @@ Keychain and Credential Manager are built but not yet run on their systems.
   step 2, credentials are added to any request whose address starts with
   a connection's Address, which covers them too.
 
+## Step 2: API keys and Basic
+
+Built 2026-11-22; movies still to do.
+
+- **A connection's credentials,** declared under "How it signs in" in its
+  Connections… window: each is Basic, a header or a query parameter, with
+  a value naming settings in braces (`{User name}:{Password}`, `Bearer
+  {Token}`, `{API Key}`). Add Basic adds a User name and a secret Password.
+- **Which requests carry them:** any from the stack whose address is under
+  the connection's Address (scheme, host, port, path prefix; the closest
+  Address wins), named or not: `url`, every request command, and image
+  parts. Movies are next, in each system's player.
+- **Kept safe:** filled in only as the request is sent, so scripts never see
+  them; no redirects followed with them; plain http only on this computer
+  and the local network (as the Mac app's ATS rule already says);
+  errors never show a URL with a key in it.
+- **Optional settings:** not needed to be set up; a credential using an
+  empty one is left off. VideoDB's User name and Password are optional, so
+  it works with an open server and with the `basic-auth` branch.
+- **Tried against** the `basic-auth` branch of videodb-be on
+  localhost:8080: 401 without them, the movie list with them.
+
 ## Driving it with VideoDB
 
 VideoDB's server (videodb-be, Spring Boot) and front end (videodb-fe,

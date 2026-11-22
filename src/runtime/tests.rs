@@ -3483,6 +3483,55 @@ fn connections_from_hypertalk() {
 }
 
 #[test]
+fn connections_sign_in() {
+    use crate::model::connections::{Connection, Credential, Place, Setting};
+    // Echoes the path, and the credentials it was sent.
+    fn echo(_: &str, path: &str, headers: &str, _: &str) -> (u16, &'static str, String) {
+        let header = |name: &str| {
+            headers.lines().find_map(|l| {
+                let (k, v) = l.split_once(':')?;
+                k.trim().eq_ignore_ascii_case(name).then(|| v.trim().to_string())
+            })
+        };
+        if path.split('?').next() == Some("/moved") {
+            return (302, "text/plain", "moved".into());
+        }
+        (200, "text/plain", format!("{path} {} {}", header("authorization").unwrap_or_default(), header("x-api-key").unwrap_or_default()))
+    }
+    let (base, other) = (crate::web::http::test_server::start(echo), crate::web::http::test_server::start(echo));
+    let mut s = stack();
+    let mut c = Connection::new("VideoDB");
+    c.settings[0].default = base.clone();
+    c.add_basic();
+    c.settings.push(Setting { name: "Key".into(), secret: true, optional: true, ..Default::default() });
+    c.credentials.push(Credential { place: Place::Header, name: "X-API-Key".into(), value: "{Key}".into() });
+    c.credentials.push(Credential { place: Place::Query, name: "key".into(), value: "{Key}".into() });
+    s.connections.push(c);
+    let mut i = interp_with(s);
+    // Not set up: even a request that doesn't name the connection, to its
+    // Address, isn't sent.
+    assert_eq!(run(&mut i, &format!("put url \"{base}/x\" into r\nput r & \"|\" & the result")), "|Connection \"VideoDB\" isn't set up: it needs User name, Password");
+    run(&mut i, "set setting \"User name\" of connection \"VideoDB\" to \"jwindberg\"");
+    run(&mut i, "set setting \"Password\" of connection \"VideoDB\" to \"blueberry\"");
+    // Basic (RFC 7617), and the optional key left off while it's empty.
+    assert_eq!(run(&mut i, "put url \"/graphql\" with connection \"VideoDB\""), "/graphql Basic andpbmRiZXJnOmJsdWViZXJyeQ== ");
+    // The script's own Authorization gives way to the connection's.
+    assert_eq!(
+        run(&mut i, &format!("set the httpHeaders to \"Authorization: Bearer mine\"\nput url \"{base}/x\"")),
+        "/x Basic andpbmRiZXJnOmJsdWViZXJyeQ== "
+    );
+    run(&mut i, "set the httpHeaders to empty");
+    // With the key: a header and a query parameter, which the script's URL
+    // (and a message's) never shows.
+    run(&mut i, "set setting \"Key\" of connection \"VideoDB\" to \"k 1\"");
+    assert_eq!(run(&mut i, "put url \"/x?a=1\" with connection \"VideoDB\""), "/x?a=1&key=k+1 Basic andpbmRiZXJnOmJsdWViZXJyeQ== k 1");
+    // Another server gets none of it.
+    assert_eq!(run(&mut i, &format!("put url \"{other}/x\"")), "/x  ");
+    // A redirect isn't followed with credentials: the script decides.
+    assert_eq!(run(&mut i, "put url \"/moved\" with connection \"VideoDB\" into r\nput the result & \"|\" & r"), "302 Found|moved");
+}
+
+#[test]
 fn writing_json_from_hypertalk() {
     let mut i = interp_with(stack());
     run(&mut i, "put \"{}\" into body");

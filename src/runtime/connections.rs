@@ -12,7 +12,8 @@ use std::path::PathBuf;
 use std::sync::{LazyLock, Mutex, MutexGuard};
 
 use crate::model::Stack;
-use crate::model::connections::{ADDRESS, Connection, Setting};
+use crate::model::connections::{ADDRESS, Connection, Place, Setting};
+use crate::web::http::Credentials;
 
 /// Values by stack identity, then connection, then setting.
 type Values = BTreeMap<String, BTreeMap<String, BTreeMap<String, String>>>;
@@ -88,7 +89,7 @@ impl Store {
 
     /// The settings of a connection the user still has to give.
     pub fn missing(&mut self, uid: &str, conn: &Connection) -> Vec<String> {
-        conn.settings.iter().filter(|s| !self.is_set(uid, conn, s)).map(|s| s.name.clone()).collect()
+        conn.settings.iter().filter(|s| !s.optional && !self.is_set(uid, conn, s)).map(|s| s.name.clone()).collect()
     }
 
     /// Save a user's value: an ordinary one to `connections.json`, a secret
@@ -334,6 +335,125 @@ pub fn import(store: &mut Store, stack: &Stack, text: &str) -> Result<Vec<String
     Ok(report)
 }
 
+/// Why a request can't carry a connection's credentials.
+#[derive(Debug, PartialEq)]
+pub enum SignError {
+    /// The connection still needs settings: the user can be asked.
+    NotSetUp { connection: String, why: String },
+    /// Never sent this way, such as a password over plain http.
+    Refused(String),
+}
+
+impl SignError {
+    pub fn why(self) -> String {
+        match self {
+            SignError::NotSetUp { why, .. } | SignError::Refused(why) => why,
+        }
+    }
+}
+
+/// An address on this computer or the local network, where plain http
+/// can carry credentials: loopback, `.local` (mDNS) and `.localhost`
+/// names, and the private and link-local ranges (RFC 1918, RFC 4193).
+fn local_host(host: &url::Host<&str>) -> bool {
+    match host {
+        url::Host::Domain(d) => {
+            let d = d.to_ascii_lowercase();
+            d == "localhost" || d.ends_with(".localhost") || d.ends_with(".local")
+        }
+        url::Host::Ipv4(ip) => ip.is_loopback() || ip.is_private() || ip.is_link_local(),
+        url::Host::Ipv6(ip) => ip.is_loopback() || ip.is_unique_local() || ip.is_unicast_link_local(),
+    }
+}
+
+/// Whether a request's address is under a connection's Address: the same
+/// scheme, host and port, and a path at or below the Address's. Gives how
+/// specific the match is (the Address's path length), so the closest of
+/// several wins.
+fn under(address: &url::Url, request: &url::Url) -> Option<usize> {
+    if address.scheme() != request.scheme()
+        || address.host_str().map(str::to_ascii_lowercase) != request.host_str().map(str::to_ascii_lowercase)
+        || address.port_or_known_default() != request.port_or_known_default()
+    {
+        return None;
+    }
+    let base = address.path().trim_end_matches('/');
+    let path = request.path();
+    (base.is_empty() || path == base || path.starts_with(&format!("{base}/"))).then_some(base.len())
+}
+
+/// The credentials a request to `url` carries: those of the stack's
+/// connection whose Address it's under, filled in from the user's values.
+/// None when no connection's Address covers it, or the connection has no
+/// credentials. They go only to that Address, never over plain http
+/// beyond this computer and the local network.
+pub fn sign(store: &mut Store, stack: &Stack, url: &str) -> Result<Option<Credentials>, SignError> {
+    let Ok(request) = url::Url::parse(url.trim()) else { return Ok(None) };
+    let mut best: Option<(usize, &Connection)> = None;
+    for c in &stack.connections {
+        let Some(address) = c.setting(ADDRESS).map(|a| store.value(&stack.uid, c, a)) else { continue };
+        let Ok(address) = url::Url::parse(&address) else { continue };
+        if let Some(n) = under(&address, &request)
+            && best.is_none_or(|(m, _)| n > m)
+        {
+            best = Some((n, c));
+        }
+    }
+    let Some((_, conn)) = best else { return Ok(None) };
+    if conn.credentials.is_empty() {
+        return Ok(None);
+    }
+    let missing = store.missing(&stack.uid, conn);
+    if !missing.is_empty() {
+        return Err(SignError::NotSetUp {
+            connection: conn.name.clone(),
+            why: format!("Connection \"{}\" isn't set up: it needs {}", conn.name, missing.join(", ")),
+        });
+    }
+    if request.scheme() == "http" && !request.host().is_some_and(|h| local_host(&h)) {
+        return Err(SignError::Refused(format!(
+            "Connection \"{}\" won't sign in over plain http to {}: its Address needs https",
+            conn.name,
+            request.host_str().unwrap_or("")
+        )));
+    }
+    let mut out = Credentials::default();
+    'each: for cred in &conn.credentials {
+        // The value, with each {Setting} filled in.
+        let (mut value, mut rest) = (String::new(), cred.value.as_str());
+        while let Some(open) = rest.find('{') {
+            let Some(close) = rest[open..].find('}').map(|c| open + c) else { break };
+            let name = rest[open + 1..close].trim();
+            let Some(setting) = conn.setting(name) else {
+                return Err(SignError::Refused(format!("Connection \"{}\" has no setting \"{name}\"", conn.name)));
+            };
+            let given = if setting.secret {
+                store.secret(&stack.uid, conn, setting).map_err(SignError::Refused)?.unwrap_or_default()
+            } else {
+                store.value(&stack.uid, conn, setting)
+            };
+            // An optional setting left empty leaves its credential off.
+            if given.is_empty() && setting.optional {
+                continue 'each;
+            }
+            value.push_str(&rest[..open]);
+            value.push_str(&given);
+            rest = &rest[close + 1..];
+        }
+        value.push_str(rest);
+        match cred.place {
+            Place::Basic => {
+                use base64::Engine;
+                let encoded = base64::engine::general_purpose::STANDARD.encode(value.as_bytes());
+                out.headers.push(("Authorization".into(), format!("Basic {encoded}")));
+            }
+            Place::Header => out.headers.push((cred.name.trim().to_string(), value)),
+            Place::Query => out.query.push((cred.name.trim().to_string(), value)),
+        }
+    }
+    Ok(Some(out))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -402,6 +522,56 @@ mod tests {
         let c = stack.connection("VideoDB").unwrap();
         assert_eq!(store.secret(&stack.uid, c, c.setting("Password").unwrap()).unwrap().as_deref(), Some("pw"));
         assert!(import(&mut store, &stack, "[1]").is_err() && import(&mut store, &stack, "{").is_err());
+    }
+
+    #[test]
+    fn credentials_go_only_to_their_address() {
+        use crate::model::connections::{Credential, Place};
+        let mut s = Stack::new("Signed");
+        let mut c = Connection::new("API");
+        c.settings[0].default = "https://api.example.com/v2/".into();
+        c.add_basic();
+        c.settings.push(Setting { name: "Key".into(), secret: true, optional: true, ..Setting::default() });
+        c.credentials.push(Credential { place: Place::Header, name: "X-API-Key".into(), value: "{ Key }".into() });
+        c.credentials.push(Credential { place: Place::Query, name: "key".into(), value: "{Key}".into() });
+        s.connections.push(c);
+        let mut st = Store::in_memory();
+        // Not set up: the Key is optional, the rest isn't.
+        let e = sign(&mut st, &s, "https://api.example.com/v2/movies").unwrap_err();
+        assert_eq!(e, SignError::NotSetUp {
+            connection: "API".into(),
+            why: "Connection \"API\" isn't set up: it needs User name, Password".into()
+        });
+        write(&mut st, &s, "API", "User name", "ada").unwrap();
+        write(&mut st, &s, "API", "Password", "pw:1").unwrap();
+        // Basic only, while the optional Key is empty.
+        let c = sign(&mut st, &s, "https://API.example.com:443/v2/movies?page=1").unwrap().unwrap();
+        assert_eq!(c.headers, [("Authorization".to_string(), "Basic YWRhOnB3OjE=".to_string())]);
+        assert!(c.query.is_empty());
+        write(&mut st, &s, "API", "Key", "k&1").unwrap();
+        let c = sign(&mut st, &s, "https://api.example.com/v2").unwrap().unwrap();
+        assert_eq!(c.headers[1], ("X-API-Key".to_string(), "k&1".to_string()));
+        assert_eq!(c.query, [("key".to_string(), "k&1".to_string())]);
+        // Anywhere else: another host, port, scheme or path gets nothing.
+        for other in [
+            "https://evil.example.com/v2/movies",
+            "https://api.example.com.evil.net/v2",
+            "https://api.example.com:8443/v2",
+            "https://api.example.com/v20",
+            "https://api.example.com/",
+            "http://api.example.com/v2",
+            "/v2/movies",
+        ] {
+            assert_eq!(sign(&mut st, &s, other), Ok(None), "{other}");
+        }
+        // Plain http carries credentials only on this computer and the
+        // local network.
+        write(&mut st, &s, "API", "Address", "http://videos.example.com").unwrap();
+        assert!(matches!(sign(&mut st, &s, "http://videos.example.com/graphql"), Err(SignError::Refused(w)) if w.contains("plain http")));
+        for local in ["http://localhost:8080", "http://127.0.0.1", "http://trashcan.local:9090", "http://192.168.7.44", "http://[::1]:80"] {
+            write(&mut st, &s, "API", "Address", local).unwrap();
+            assert!(sign(&mut st, &s, &format!("{local}/graphql")).unwrap().is_some(), "{local}");
+        }
     }
 
     #[test]

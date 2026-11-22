@@ -59,7 +59,7 @@ impl StreamPlayer {
         // no extension) leaves AVPlayer unable to open it ("Cannot Open"):
         // its first bytes say, and AVPlayer is told. When the peek fails,
         // AVPlayer tries anyway, and says why it can't.
-        let mime = crate::web::http::peek(url, 16, Duration::from_secs(10))
+        let mime = crate::web::http::peek(url, None, 16, Duration::from_secs(10))
             .ok()
             .and_then(|(ct, head)| super::web_movie_type(&ct, &head));
         let objects = dispatch2::run_on_main(move |mtm| {

@@ -2054,6 +2054,7 @@ end mouseUp"#,
             hint: "Such as http://localhost:8080".into(),
             ..Default::default()
         }],
+        credentials: Vec::new(),
     });
     let c = b.card(main, "Connections");
     b.stack.cards[c].script = r#"-- The address is the user's own, kept on their computer, not in the stack.

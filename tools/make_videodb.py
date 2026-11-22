@@ -607,7 +607,13 @@ end openCard
     connection = {'name': 'VideoDB',
                   'description': "videodb's web front end, which passes /graphql, /omdb and /videos on to the service.",
                   'settings': [{'name': 'Address', 'hint': 'The front end server, such as http://videos.local:9090',
-                                'default': 'http://trashcan.local:9090', 'secret': False}]}
+                                'default': 'http://trashcan.local:9090', 'secret': False},
+                               # A server with HTTP Basic needs these; an open one doesn't.
+                               {'name': 'User name', 'hint': 'If the server asks you to sign in',
+                                'optional': True},
+                               {'name': 'Password', 'hint': 'Kept in the system\'s secure store', 'secret': True,
+                                'optional': True}],
+                  'credentials': [{'place': 'Basic', 'value': '{User name}:{Password}'}]}
     stack = {'format': 1, 'uid': 'a8c0f2b6d4e94f1e9b3c5d7e6f8a1b2c', 'name': 'VideoDB',
              'script': STACK_SCRIPT.strip('\n'), 'width': WIDTH, 'height': HEIGHT, 'next_id': next_id,
              'backgrounds': [main], 'connections': [connection], 'cards': cards}
