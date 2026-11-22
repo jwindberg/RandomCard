@@ -29,6 +29,13 @@ pub struct Store {
     keychain: bool,
     /// Secrets kept until RandomCard quits, where there's no secure store.
     session: BTreeMap<String, String>,
+    /// What the secure store said for each secret, read once a session:
+    /// a Mac asks the user before each read RandomCard isn't trusted for,
+    /// and every request under a connection needs its secrets. What the
+    /// user refused stays refused until the secret is set again.
+    read: BTreeMap<String, Result<Option<String>, String>>,
+    /// How a secret is read from the secure store (counted in tests).
+    fetch: fn(&str) -> Result<Option<String>, String>,
 }
 
 /// The user's values, loaded the first time they're needed.
@@ -37,7 +44,14 @@ pub fn store() -> MutexGuard<'static, Store> {
         // Tests never touch the user's own settings or secure store.
         let file = super::settings::config_dir().map(|d| d.join("connections.json")).filter(|_| !cfg!(test));
         let values = file.as_ref().and_then(|f| std::fs::read_to_string(f).ok()).and_then(|t| serde_json::from_str(&t).ok());
-        Mutex::new(Store { file, values: values.unwrap_or_default(), keychain: !cfg!(test), session: BTreeMap::new() })
+        Mutex::new(Store {
+            file,
+            values: values.unwrap_or_default(),
+            keychain: !cfg!(test),
+            session: BTreeMap::new(),
+            read: BTreeMap::new(),
+            fetch: keychain_read,
+        })
     });
     STORE.lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -51,7 +65,14 @@ impl Store {
     /// A store with nothing saved and no secure store, for tests.
     #[cfg(test)]
     pub fn in_memory() -> Store {
-        Store { file: None, values: Values::new(), keychain: false, session: BTreeMap::new() }
+        Store {
+            file: None,
+            values: Values::new(),
+            keychain: false,
+            session: BTreeMap::new(),
+            read: BTreeMap::new(),
+            fetch: keychain_read,
+        }
     }
 
     /// A user's value for an ordinary setting, or the setting's default.
@@ -131,17 +152,15 @@ impl Store {
         if !self.keychain {
             return Ok(None);
         }
-        let entry = keychain_entry(&name)?;
-        match entry.get_password() {
-            Ok(v) => Ok(Some(v)),
-            Err(keyring_core::Error::NoEntry) => Ok(None),
-            Err(e) => Err(format!("Can't read from the {}: {e}", secure_store_name())),
-        }
+        let fetch = self.fetch;
+        self.read.entry(name).or_insert_with_key(|name| fetch(name)).clone()
     }
 
     fn set_secret(&mut self, uid: &str, conn: &Connection, setting: &Setting, value: &str) -> Result<(), String> {
         let name = Self::secret_name(uid, conn, setting);
         self.session.remove(&name);
+        // Read afresh next time: the new value, or why it couldn't be saved.
+        self.read.remove(&name);
         if self.keychain {
             match keychain_entry(&name) {
                 Ok(entry) => {
@@ -202,6 +221,15 @@ static KEYCHAIN: LazyLock<Result<(), String>> = LazyLock::new(|| {
     #[cfg(not(any(target_os = "macos", windows, target_os = "linux")))]
     Err("This system has no secure store RandomCard can keep secrets in".to_string())
 });
+
+/// A secret from the system's secure store, or None when there's none.
+fn keychain_read(name: &str) -> Result<Option<String>, String> {
+    match keychain_entry(name)?.get_password() {
+        Ok(v) => Ok(Some(v)),
+        Err(keyring_core::Error::NoEntry) => Ok(None),
+        Err(e) => Err(format!("Can't read from the {}: {e}", secure_store_name())),
+    }
+}
 
 fn keychain_entry(name: &str) -> Result<keyring_core::Entry, String> {
     KEYCHAIN.clone()?;
@@ -493,6 +521,33 @@ mod tests {
         assert_eq!(st.missing(&s.uid, c), vec!["User name"]);
         write(&mut st, &s, "VideoDB", "Password", "").unwrap();
         assert_eq!(st.secret(&s.uid, c, &c.settings[2]).unwrap(), None);
+    }
+
+    /// A secret is read from the secure store once, however many requests
+    /// need it (a Mac may ask the user each time), until it's set again.
+    #[test]
+    fn secrets_are_read_once() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static READS: AtomicUsize = AtomicUsize::new(0);
+        fn counted(_: &str) -> Result<Option<String>, String> {
+            READS.fetch_add(1, Ordering::SeqCst);
+            Ok(Some("hunter2".into()))
+        }
+        let s = stack();
+        let c = &s.connections[0];
+        let mut st = Store { keychain: true, fetch: counted, ..Store::in_memory() };
+        for _ in 0..5 {
+            assert_eq!(st.secret(&s.uid, c, &c.settings[2]).unwrap().as_deref(), Some("hunter2"));
+            assert!(st.is_set(&s.uid, c, &c.settings[2]));
+        }
+        assert_eq!(READS.load(Ordering::SeqCst), 1);
+        // A refusal stays refused, without asking again, until the secret
+        // is set (which forgets what was read).
+        st.read.insert(Store::secret_name(&s.uid, c, &c.settings[2]), Err("refused".into()));
+        assert!(st.secret(&s.uid, c, &c.settings[2]).is_err());
+        st.read.clear();
+        assert!(st.secret(&s.uid, c, &c.settings[2]).is_ok());
+        assert_eq!(READS.load(Ordering::SeqCst), 2);
     }
 
     /// The system's real secure store: saves, reads and forgets one secret.
