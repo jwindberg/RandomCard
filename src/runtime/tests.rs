@@ -2823,14 +2823,16 @@ fn files_and_folders() {
     std::fs::write(dir.join("Copy.rsrc"), "fork").unwrap();
     assert_eq!(r(&mut i, format!("put FolderContents(\"{d}\", \"files\", \"noDialog:gErr\")")), "Copy\nNotes");
     assert_eq!(r(&mut i, format!("put FolderContents(\"{d}\", \"folders\")")), "Sub");
-    assert_eq!(r(&mut i, format!("get FolderContents(\"{d}/None\", \"files\", \"noDialog:gErr\")\nput (it is empty) && gErr")), format!("true Couldn't read the folder \"{d}/None\"."));
+    // The path in the message is as scripts see it here (a colon path on a Mac).
+    let none = super::paths::shown(&super::paths::native(&format!("{d}/None")));
+    assert_eq!(r(&mut i, format!("get FolderContents(\"{d}/None\", \"files\", \"noDialog:gErr\")\nput (it is empty) && gErr")), format!("true Couldn't read the folder \"{none}\"."));
     std::fs::remove_file(dir.join("Copy.rsrc")).unwrap();
     // Where file dialogs open: defaultFolder, or the Developer Info
     // Assistant's StdFile; a file means its folder.
     assert_eq!(r(&mut i, format!("put IsFolder(\"{d}/Sub\") && IsFolder(\"{d}/Notes\")")), "true false");
     assert_eq!(r(&mut i, format!("stdFile \"{d}/Notes\"\nput the result")), "");
     assert_eq!(i.dialog_folder.as_deref(), Some(dir.as_path()));
-    assert_eq!(r(&mut i, format!("defaultFolder \"{d}/Sub\"\nput GetVolume()")), super::paths::folder(&dir.join("Sub")));
+    assert_eq!(r(&mut i, format!("defaultFolder \"{d}/Sub\"\nput GetVolume()")), super::paths::folder(&super::paths::native(&format!("{d}/Sub"))));
     assert!(r(&mut i, format!("defaultFolder \"{d}/None/X\"\nput the result")).starts_with("Error : No folder"));
     // Rename and move.
     assert_eq!(r(&mut i, format!("FullRename \"{d}/Copy\", \"Copy 2\"\nput the result")), "");
