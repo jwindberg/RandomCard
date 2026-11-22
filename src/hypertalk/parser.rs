@@ -806,7 +806,8 @@ impl Parser {
                 if self.is("to") && self.is_at(1, "url") {
                     self.pos += 2;
                     let url = self.expr()?;
-                    return Ok(Cmd::Http { method: Expr::Lit("PUT".into()), body: Some(value), url, message: self.with_message()? });
+                    let (connection, message) = self.url_options()?;
+                    return Ok(Cmd::Http { method: Expr::Lit("PUT".into()), body: Some(value), url, connection, message });
                 }
                 let (prep, dest) = match self.prep() {
                     Some(prep) => (prep, Some(self.expr()?)),
@@ -853,6 +854,20 @@ impl Parser {
                 }
                 self.expect("to")?;
                 Cmd::SetJson { path, value: self.list_expr()? }
+            }
+            // `set setting "Address" of connection "VideoDB" to x`.
+            "set" if self.is("setting") && self.starts_term_at(1) => {
+                let path = self.term()?;
+                let Expr::Call(n, mut args) = path else {
+                    return Err(self.err_here("Expected \"setting … of connection …\""));
+                };
+                if n != "__connectionsetting" || args.len() != 2 {
+                    return Err(self.err_here("Expected \"setting … of connection …\""));
+                }
+                self.expect("to")?;
+                let setting = args.pop().unwrap_or(Expr::Lit(String::new()));
+                let connection = args.pop().unwrap_or(Expr::Lit(String::new()));
+                Cmd::SetConnectionSetting { connection, setting, value: self.list_expr()? }
             }
             "set" => {
                 self.accept("the");
@@ -1162,7 +1177,8 @@ impl Parser {
             "delete" if self.is("url") && self.starts_term_at(1) => {
                 self.advance();
                 let url = self.expr()?;
-                Cmd::Http { method: Expr::Lit("DELETE".into()), body: None, url, message: self.with_message()? }
+                let (connection, message) = self.url_options()?;
+                Cmd::Http { method: Expr::Lit("DELETE".into()), body: None, url, connection, message }
             }
             "delete" => Cmd::Delete(self.expr()?),
             // `post body to url "…"`, and patch and query the same way.
@@ -1171,7 +1187,8 @@ impl Parser {
                 self.expect("to")?;
                 self.expect("url")?;
                 let url = self.expr()?;
-                Cmd::Http { method: Expr::Lit(name.to_ascii_uppercase()), body: Some(body), url, message: self.with_message()? }
+                let (connection, message) = self.url_options()?;
+                Cmd::Http { method: Expr::Lit(name.to_ascii_uppercase()), body: Some(body), url, connection, message }
             }
             "flush" => {
                 self.expect("keys")?;
@@ -1181,11 +1198,11 @@ impl Parser {
             "load" if self.is("url") => {
                 self.advance();
                 let url = self.expr()?;
-                let message = self.with_message()?;
+                let (connection, message) = self.url_options()?;
                 if message.is_none() {
                     return Err(self.err_here("Expected \"with message\" after \"load url …\""));
                 }
-                Cmd::Http { method: Expr::Lit("GET".into()), body: None, url, message }
+                Cmd::Http { method: Expr::Lit("GET".into()), body: None, url, connection, message }
             }
             // `request "OPTIONS" to url "…"`, `request m with body to url "…"`.
             "request" => {
@@ -1204,7 +1221,8 @@ impl Parser {
                 self.expect("to")?;
                 self.expect("url")?;
                 let url = self.expr()?;
-                Cmd::Http { method, body, url, message: self.with_message()? }
+                let (connection, message) = self.url_options()?;
+                Cmd::Http { method, body, url, connection, message }
             }
             "choose" => {
                 // `choose the browse tool`, as Power Tools writes it.
@@ -1552,12 +1570,21 @@ impl Parser {
     }
 
     /// A web command's optional `with message "gotData"`.
-    fn with_message(&mut self) -> PResult<Option<Expr>> {
-        if self.is("with") && self.is_at(1, "message") {
-            self.pos += 2;
-            return Ok(Some(self.expr()?));
+    /// After a request's `to url U`: `with connection "VideoDB"` and
+    /// `with message "gotData"`, in either order.
+    fn url_options(&mut self) -> PResult<(Option<Expr>, Option<Expr>)> {
+        let (mut connection, mut message) = (None, None);
+        loop {
+            if connection.is_none() && self.is("with") && self.is_at(1, "connection") {
+                self.pos += 2;
+                connection = Some(self.expr()?);
+            } else if message.is_none() && self.is("with") && self.is_at(1, "message") {
+                self.pos += 2;
+                message = Some(self.expr()?);
+            } else {
+                return Ok((connection, message));
+            }
         }
-        Ok(None)
     }
 
     /// Whether `to url` comes later on this line.
@@ -2231,10 +2258,27 @@ impl Parser {
         // The web (src/runtime/web.rs). Each needs a value after it, so a
         // variable named url, json or key still works: `put url into x`.
         // `url "https://…"`: what's there.
+        // `url "/graphql" with connection "VideoDB"`: with one of the
+        // stack's connections.
         if w == "url" && self.starts_term_at(1) {
             self.advance();
-            let e = self.term()?;
-            return Ok(Expr::Call("__url".into(), vec![e]));
+            let mut args = vec![self.term()?];
+            if self.is("with") && self.is_at(1, "connection") {
+                self.pos += 2;
+                args.push(self.term()?);
+            }
+            return Ok(Expr::Call("__url".into(), args));
+        }
+        // `setting "Address" of connection "VideoDB"`: a user's value.
+        if w == "setting" && self.starts_term_at(1) {
+            let save = self.pos;
+            self.advance();
+            let setting = self.term()?;
+            if self.accept("of") && self.accept("connection") {
+                let connection = self.term()?;
+                return Ok(Expr::Call("__connectionsetting".into(), vec![connection, setting]));
+            }
+            self.pos = save;
         }
         // `json x`: JSON text, to read with `key … of`.
         if w == "json" && self.starts_term_at(1) {

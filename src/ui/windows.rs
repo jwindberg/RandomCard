@@ -675,8 +675,32 @@ impl App {
                     ui.end_row();
                 });
                 changed |= ui.checkbox(&mut w.stack.cant_modify, "Can't Modify Stack").changed();
-                if scripting && ui.button("Script…").clicked() {
-                    script = Some(ObjRef::Stack);
+                let mut declare = false;
+                ui.horizontal(|ui| {
+                    if scripting && ui.button("Script…").clicked() {
+                        script = Some(ObjRef::Stack);
+                    }
+                    let n = w.stack.connections.len();
+                    if scripting
+                        && ui
+                            .button("Connections…")
+                            .on_hover_text(match n {
+                                0 => "The services this stack talks to: none yet".to_string(),
+                                1 => "The service this stack talks to".to_string(),
+                                _ => format!("The {n} services this stack talks to"),
+                            })
+                            .clicked()
+                    {
+                        declare = true;
+                    }
+                });
+                if declare {
+                    if changed {
+                        w.dirty = true;
+                    }
+                    drop(w);
+                    self.open_connection_declare();
+                    return script;
                 }
                 // On the script thread, which sends sizeWindow.
                 if let Some((cw, ch)) = resize {
@@ -1338,6 +1362,9 @@ impl App {
             }
             return;
         }
+        if self.show_connection_dialog(ctx, &d) {
+            return;
+        }
         if let Dialog::List(list) = &d {
             if !self.dialog_init {
                 self.dialog_init = true;
@@ -1380,7 +1407,7 @@ impl App {
                         reply = Some(DialogReply::Button(b.clone()));
                     }
                 }
-                Dialog::Menu { .. } | Dialog::List(_) | Dialog::Dialoger(_) => {}
+                Dialog::Menu { .. } | Dialog::List(_) | Dialog::Dialoger(_) | Dialog::Connection(_) => {}
                 Dialog::Ask { prompt, password, .. } => {
                     ui.label(RichText::new(prompt).size(14.0));
                     let resp = ui.add(

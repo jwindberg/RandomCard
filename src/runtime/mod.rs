@@ -9,6 +9,7 @@ pub mod dialoger;
 pub mod images;
 mod builtins;
 pub mod web;
+pub mod connections;
 mod commands;
 mod externals;
 mod files;

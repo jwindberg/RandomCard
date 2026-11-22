@@ -321,13 +321,13 @@ fn startup_comes_before_open_stack_once() {
 fn demo_stack_runs() {
     let mut i = interp_with(Stack::demo());
     i.handle_event(Event::Startup);
-    assert_eq!(run(&mut i, "put field \"Page\""), "Card 1 of 22");
+    assert_eq!(run(&mut i, "put field \"Page\""), "Card 1 of 23");
     let current = |i: &Interp| {
         let w = lock(&i.world);
         w.stack.card(w.card_id).unwrap().name.clone()
     };
     // The stack's own Tour menu.
-    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "21");
+    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "22");
     i.handle_event(Event::DoMenu("Dice".into()));
     assert_eq!(current(&i), "Dice");
     i.handle_event(Event::DoMenu("First".into()));
@@ -770,7 +770,7 @@ fn demo_stack_runs() {
     assert_eq!(run(&mut i, "put the number of cards of this background"), "4");
     i.canned_answers.push(DialogReply::Button("Delete".into()));
     assert_eq!(click(&mut i, "", "Delete"), None);
-    assert_eq!(run(&mut i, "put the number of cards"), "22");
+    assert_eq!(run(&mut i, "put the number of cards"), "23");
     assert_eq!(click(&mut i, "Grace Hopper", "Contents"), None);
     assert_eq!(current(&i), "Contents");
     assert_eq!(run(&mut i, "put the userLevel"), "5");
@@ -3447,6 +3447,39 @@ fn every_http_verb_from_hypertalk() {
     assert_eq!(run(&mut i, "query \"z\""), "asked z");
     assert_eq!(run(&mut i, "post"), "posted");
     assert!(run(&mut i, "request \"BAD METHOD\" to url u\nput the result").contains("isn't an HTTP method"));
+}
+
+#[test]
+fn connections_from_hypertalk() {
+    let base = crate::web::http::test_server::start(|method, path, _, body| match path {
+        "/graphql" => (200, "text/plain", format!("{method}:{body}")),
+        _ => (404, "text/plain", "gone".into()),
+    });
+    let mut s = stack();
+    let mut c = crate::model::connections::Connection::new("VideoDB");
+    c.settings[0].default = base.clone();
+    c.settings.push(crate::model::connections::Setting { name: "Password".into(), secret: true, ..Default::default() });
+    s.connections.push(c);
+    let mut i = interp_with(s);
+    // Not set up yet: like a request that got no reply.
+    assert_eq!(run(&mut i, "put url \"/graphql\" with connection \"VideoDB\" into r\nput r & \"|\" & the result"), "|Connection \"VideoDB\" isn't set up: it needs Password");
+    run(&mut i, "set setting \"Password\" of connection \"VideoDB\" to \"pw\"");
+    // A path is taken from the Address; a request with a body too.
+    assert_eq!(run(&mut i, "put url \"/graphql\" with connection \"videodb\""), "GET:");
+    assert_eq!(run(&mut i, "post \"q\" to url \"graphql\" with connection \"VideoDB\"\nput it & \"|\" & the result"), "POST:q|");
+    assert_eq!(run(&mut i, "put \"/graphql\" into p\nput \"VideoDB\" into c\nrequest \"PUT\" with \"x\" to url p with connection c\nput it"), "PUT:x");
+    // Settings: read, set, the default; a secret can't be read.
+    assert_eq!(run(&mut i, "put setting \"Address\" of connection \"VideoDB\""), base);
+    run(&mut i, "set setting \"address\" of connection \"VideoDB\" to \"http://elsewhere.invalid\"");
+    assert_eq!(run(&mut i, "put setting \"Address\" of connection \"VideoDB\""), "http://elsewhere.invalid");
+    run(&mut i, "set setting \"Address\" of connection \"VideoDB\" to empty");
+    assert_eq!(run(&mut i, "put setting \"Address\" of connection \"VideoDB\""), base);
+    assert!(run(&mut i, "put setting \"Password\" of connection \"VideoDB\"").contains("is secret"));
+    // A connection the stack doesn't declare is the script's mistake.
+    assert!(run(&mut i, "put url \"/x\" with connection \"Nope\"").contains("no connection \"Nope\""));
+    assert!(run(&mut i, "set setting \"Color\" of connection \"VideoDB\" to 1").contains("no setting \"Color\""));
+    // A variable named setting still works.
+    assert_eq!(run(&mut i, "put 3 into setting\nput setting + 1"), "4");
 }
 
 #[test]

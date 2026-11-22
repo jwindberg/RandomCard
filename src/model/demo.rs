@@ -388,7 +388,7 @@ fn tour_dialog() -> super::dialogs::DialogTemplate {
 const STACK_SCRIPT: &str = r#"-- A menu of the stack's own. Its items arrive as doMenu messages.
 on openStack
   if there is no menu "Tour" then create menu "Tour"
-  put "Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Movies,Pictures,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,Card Window,The Web,Japanese,-,Address Book" into menu "Tour"
+  put "Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Movies,Pictures,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,Card Window,The Web,Connections,Japanese,-,Address Book" into menu "Tour"
   -- HyperCard's Apple menu: the About item is the stack's to rename.
   put "About the Tour…" into menuItem 1 of menu "Apple"
   set the menuMsg of menuItem 1 of menu "Apple" to "aboutTour"
@@ -403,7 +403,7 @@ on doMenu what
   if what is "Address Book" then
     visual effect zoom open
     go to first card of background "Address"
-  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Movies,Pictures,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,Card Window,The Web,Japanese," then
+  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Movies,Pictures,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,Card Window,The Web,Connections,Japanese," then
     visual effect dissolve
     go to card what
   else
@@ -498,6 +498,9 @@ fn tour_palette() -> super::Palette {
 
 pub fn build() -> Stack {
     let mut s = Stack::new("Tour");
+    // The same each time it's built, so what users set up for its
+    // connection lasts.
+    s.uid = "5f2c7e0a9b1d4c3e8a6f0b2d4e6c8a1f".into();
     s.backgrounds.clear();
     s.cards.clear();
     s.script = STACK_SCRIPT.into();
@@ -2027,6 +2030,96 @@ end mouseUp"#,
     status.text_size = 10;
     b.card_part(c, status);
     let mut reply = Part::new_field(b.id(), "Reply", Rect::new(262, 180, 492, 290));
+    reply.style = PartStyle::Scrolling;
+    reply.lock_text = true;
+    reply.text_size = 9;
+    b.card_part(c, reply);
+
+    let to = b.button(
+        "Connections",
+        Rect::new(392, 10, 492, 32),
+        "on mouseUp\n  visual effect scroll left\n  go to card \"Connections\"\nend mouseUp",
+    );
+    b.card_part(c, Part { style: PartStyle::RoundRect, ..to });
+
+    // ----- Connections: a service the stack talks to, named in the stack
+    // (Stack Info ▸ Connections…), with each person's own settings kept on
+    // their computer. The Tour's has no address until the user gives one, so
+    // the first Get asks for it: a server of their own, on their computer.
+    b.stack.connections.push(super::connections::Connection {
+        name: "Local Server".into(),
+        description: "A web server on this computer, such as one you're writing. The Tour only asks it for what you type.".into(),
+        settings: vec![super::connections::Setting {
+            name: super::connections::ADDRESS.into(),
+            hint: "Such as http://localhost:8080".into(),
+            ..Default::default()
+        }],
+    });
+    let c = b.card(main, "Connections");
+    b.stack.cards[c].script = r#"-- The address is the user's own, kept on their computer, not in the stack.
+on openCard
+  put setting "Address" of connection "Local Server" into card field "Address"
+  put empty into card field "Status"
+  pass openCard
+end openCard"#
+        .into();
+    let t = b.label("Heading", Rect::new(20, 8, 492, 34), "Connections: each person's own settings", 20);
+    b.card_part(c, t);
+    let about = b.label(
+        "About",
+        Rect::new(20, 38, 492, 96),
+        "A stack names the services it talks to, and what each person gives for them: an address, a user name, a key. \
+         What they give stays on their computer, never in the stack, and secrets go in the system's secure store. \
+         This stack's connection is in Stack Info ▸ Connections…; your settings are in File ▸ Connections….",
+        10,
+    );
+    b.card_part(c, about);
+    let l = b.label("Address Label", Rect::new(20, 106, 76, 122), "Address:", 10);
+    b.card_part(c, l);
+    let mut address = Part::new_field(b.id(), "Address", Rect::new(78, 104, 330, 122));
+    address.text_size = 10;
+    address.dont_wrap = true;
+    b.card_part(c, address);
+    let set = b.button(
+        "Set",
+        Rect::new(338, 102, 408, 124),
+        r#"on mouseUp
+  -- Saved for this user, on this computer. Empty forgets it.
+  set setting "Address" of connection "Local Server" to card field "Address"
+  if the result is not empty then put the result into card field "Status"
+  else put "Saved on this computer." into card field "Status"
+end mouseUp"#,
+    );
+    b.card_part(c, Part { style: PartStyle::RoundRect, ..set });
+    let setup = b.button("Set Up…", Rect::new(416, 102, 492, 124), "on mouseUp\n  doMenu \"Connections…\"\nend mouseUp");
+    b.card_part(c, Part { style: PartStyle::RoundRect, ..setup });
+    let l = b.label("Path Label", Rect::new(20, 134, 76, 150), "Path:", 10);
+    b.card_part(c, l);
+    let mut path = Part::new_field(b.id(), "Path", Rect::new(78, 132, 330, 150));
+    path.text_size = 10;
+    path.dont_wrap = true;
+    path.contents = "/".into();
+    b.card_part(c, path);
+    let get = b.button(
+        "Get",
+        Rect::new(338, 130, 408, 152),
+        r#"on mouseUp
+  -- with connection: a path is joined to the connection's Address. Not set
+  -- up yet, RandomCard asks for it; cancelled, it is empty and the result
+  -- says what's missing.
+  put "Waiting…" into card field "Status"
+  put url (card field "Path") with connection "Local Server" into card field "Reply"
+  if the result is not empty then put the result into card field "Status"
+  else put the responseStatus && "from" && setting "Address" of connection "Local Server" into card field "Status"
+  put setting "Address" of connection "Local Server" into card field "Address"
+end mouseUp"#,
+    );
+    b.card_part(c, Part { style: PartStyle::RoundRect, ..get });
+    let mut status = Part::new_field(b.id(), "Status", Rect::new(20, 158, 492, 176));
+    status.lock_text = true;
+    status.text_size = 10;
+    b.card_part(c, status);
+    let mut reply = Part::new_field(b.id(), "Reply", Rect::new(20, 180, 492, 290));
     reply.style = PartStyle::Scrolling;
     reply.lock_text = true;
     reply.text_size = 9;

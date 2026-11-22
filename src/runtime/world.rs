@@ -499,6 +499,10 @@ pub enum Dialog {
     /// A Dialoger dialog, by its window's name: the UI draws it from the
     /// window and replies Hit(item) for each click.
     Dialoger(String),
+    /// Setting up a stack's connection, by its name, the first time a
+    /// script uses it. The UI saves what the user gives and replies
+    /// Button("Save"), or Button("Cancel").
+    Connection(String),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -649,6 +653,8 @@ pub enum UiRequest {
     ExportPaint(std::path::PathBuf),
     ProtectStack,
     Preferences,
+    /// File ▸ Connections…: setting up the stack's connections.
+    Connections,
     /// View ▸ Tools Palette.
     TogglePalette,
     /// Show the Recent dialog.

@@ -411,13 +411,30 @@ impl Interp {
             }
             Cmd::Mark(what) => self.mark(what, true),
             Cmd::Unmark(what) => self.mark(what, false),
-            Cmd::Http { method, body, url, message } => {
+            Cmd::Http { method, body, url, connection, message } => {
                 let method = self.eval(method)?;
                 let body = match body {
                     Some(b) => Some(self.eval(b)?),
                     None => None,
                 };
                 let url = self.eval(url)?;
+                let url = match connection {
+                    Some(c) => {
+                        let c = self.eval(c)?;
+                        match self.connection_url(&c, &url)? {
+                            Ok(u) => u,
+                            // Not set up: like a request that got no reply.
+                            Err(why) => {
+                                self.result = why;
+                                if message.is_none() {
+                                    self.set_var("it", String::new());
+                                }
+                                return Ok(());
+                            }
+                        }
+                    }
+                    None => url,
+                };
                 if let Some(m) = message {
                     let m = self.eval(m)?;
                     return self.fetch_later(&method, url, body, m);
@@ -430,6 +447,26 @@ impl Interp {
                 // Key messages typed until now are dropped when they arrive.
                 self.keys_flushed = Some(std::time::Instant::now());
                 Ok(())
+            }
+            Cmd::SetConnectionSetting { connection, setting, value } => {
+                let (connection, setting, value) = (self.eval(connection)?, self.eval(setting)?, self.eval(value)?);
+                let w = self.w();
+                let mut store = super::connections::store();
+                match super::connections::write(&mut store, &w.stack, &connection, &setting, &value) {
+                    Ok(()) => {
+                        drop((store, w));
+                        self.result.clear();
+                        Ok(())
+                    }
+                    // A secret kept only for this session, or a file that
+                    // couldn't be written: the script goes on, told why.
+                    Err(why) if w.stack.connection(&connection).and_then(|c| c.setting(&setting)).is_some() => {
+                        drop((store, w));
+                        self.result = why;
+                        Ok(())
+                    }
+                    Err(why) => err(why),
+                }
             }
             Cmd::SetJson { path, value } => {
                 let Expr::Call(_, args) = path else { return err("Expected JSON") };
@@ -2409,6 +2446,7 @@ impl Interp {
             "protect stack" => self.request(UiRequest::ProtectStack),
             "text color" => self.request(UiRequest::TextColor),
             "preferences" => self.request(UiRequest::Preferences),
+            "connections" => self.request(UiRequest::Connections),
             // "Tool Panel" was RandomCard's name before the palettes.
             "tools palette" | "tool panel" => self.request(UiRequest::TogglePalette),
             "print card" => {

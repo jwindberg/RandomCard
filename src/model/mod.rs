@@ -3,6 +3,7 @@
 
 pub mod bitmap_font;
 pub mod color;
+pub mod connections;
 pub mod dialogs;
 pub mod demo;
 pub mod home;
@@ -774,6 +775,11 @@ pub const STACK_FORMAT: u32 = 1;
 pub struct Stack {
     /// The file format the stack was saved in (see `STACK_FORMAT`).
     pub format: u32,
+    /// The stack's lasting identity (`connections::new_uid`): its users'
+    /// connection settings are kept under it. Empty for a stack from before
+    /// it, until it declares a connection.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub uid: String,
     pub name: String,
     pub script: String,
     pub width: u32,
@@ -813,6 +819,10 @@ pub struct Stack {
     /// The paint pattern palette: 40 patterns of 8 rows, numbered from 1.
     #[serde(default = "default_patterns")]
     pub patterns: Vec<[u8; 8]>,
+    /// The services the stack talks to, as its author declares them. Each
+    /// user's values for them are kept on their own computer, never here.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub connections: Vec<connections::Connection>,
     #[serde(skip)]
     pub path: Option<PathBuf>,
     /// The original HyperCard file this stack was imported from, until saved.
@@ -864,6 +874,7 @@ impl Stack {
             Card { id: 3, background: 2, picture: Picture::new(w, h), show_pict: true, ..Card::default() };
         Stack {
             format: STACK_FORMAT,
+            uid: connections::new_uid(),
             name: name.into(),
             script: String::new(),
             width: w,
@@ -882,9 +893,15 @@ impl Stack {
             pictures: BTreeMap::new(),
             color_pictures: BTreeMap::new(),
             patterns: default_patterns(),
+            connections: Vec::new(),
             path: None,
             imported_from: None,
         }
+    }
+
+    /// A connection the stack declares, by name, ignoring case.
+    pub fn connection(&self, name: &str) -> Option<&connections::Connection> {
+        self.connections.iter().find(|c| c.name.eq_ignore_ascii_case(name.trim()))
     }
 
     pub fn demo() -> Stack {

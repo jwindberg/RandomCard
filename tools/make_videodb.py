@@ -80,8 +80,11 @@ on openStack
 end openStack
 
 -- The server: videodb's front end, which passes requests on to the service.
+-- Its address is each user's own: the stack's "VideoDB" connection, set up
+-- in File > Connections… (or on the Settings card), and never in the stack.
+-- Requests name the connection; a movie's address is made from it.
 function server
-  return "http://" & card field "Server" of card "Settings"
+  return setting "Address" of connection "VideoDB"
 end server
 
 -- A line along the bottom of every card.
@@ -99,7 +102,7 @@ function graphQL query, vars
   set key "query" of json body to jsonString(query)
   set key "variables" of json body to vars
   set the httpHeaders to "Content-Type: application/json"
-  post body to url (server() & "/graphql")
+  post body to url "/graphql" with connection "VideoDB"
   if the result is not empty then return "Error: the server didn't answer (" & the result & ")."
   put it into reply
   if key "errors" of json reply is not empty then
@@ -393,9 +396,9 @@ end saveMovie
 
 -- OMDb's details for the title or IMDb ID, copied into the form if wanted.
 on omdbLookup
-  put server() & "/omdb?title=" & urlEncode(card field "title") & "&imdbId=" & urlEncode(card field "imdbID") into u
+  put "/omdb?title=" & urlEncode(card field "title") & "&imdbId=" & urlEncode(card field "imdbID") into u
   showStatus "Asking OMDb…"
-  put url u into reply
+  put url u with connection "VideoDB" into reply
   showStatus empty
   if the result is not empty then
     answer "OMDb didn't answer:" && the result
@@ -565,17 +568,28 @@ end arrowKey
     p.append(field('response', (20, 300, 100, 320), '', 10, visible=False, dont_save=True))
 
     # ----- Settings -----
-    p = card('Settings')
+    p = card('Settings', '''
+-- The server's address is the user's, kept on their computer: the box shows
+-- it, and changing it sets it.
+on openCard
+  put setting "Address" of connection "VideoDB" into card field "Server"
+  pass openCard
+end openCard
+''')
     title(p, 'Settings')
     p.append(label('Server label', (20, 60, 110, 80), 'Server', 13, bold=True))
-    p.append(field('Server', (110, 56, 450, 82), 'trashcan.local:9090', 13, style='Rectangle', lock=False,
-                   dont_wrap=True))
+    server = field('Server', (110, 56, 450, 82), '', 13, style='Rectangle', lock=False, dont_wrap=True,
+                   dont_save=True)
+    server['script'] = ('on closeField\n  set setting "Address" of connection "VideoDB" to me\n'
+                        '  put setting "Address" of connection "VideoDB" into me\nend closeField')
+    p.append(server)
     p.append(button('Test', (460, 56, 620, 82),
                     'on mouseUp\n  get graphQL("query { movies(page: 0, size: 1) { totalElements } }")\n'
                     '  if word 1 of it is "Error:" then answer it\n'
                     '  else answer "videodb answered: it has" && key "totalElements" of key "movies" of json it && "movies."\n'
                     'end mouseUp'))
-    p.append(label('About', (20, 100, 620, 430),
+    p.append(button('Connections…', (460, 90, 620, 116), 'on mouseUp\n  doMenu "Connections…"\nend mouseUp'))
+    p.append(label('About', (20, 130, 620, 430),
                    'VideoDB is the front end of videodb, a movie library: a Kotlin service with a GraphQL API, and a '
                    'React front end on the web. This stack does what the web pages do, from HyperTalk: a GraphQL '
                    'request is JSON posted to /graphql (the graphQL function in the stack script), and the answer is '
@@ -585,10 +599,18 @@ end arrowKey
                    'Edit: every field, saved with the updateMovie mutation; OMDb Lookup fills the form from OMDb.\n\n'
                    'Posters: the page as a grid of posters, each an image whose source is the poster\'s address; it loads in the background. Play plays the movie from the server, in a movie window.\n\n'
                    'The server is videodb\'s web front end, which passes /graphql, /omdb and /videos on to the '
-                   'service.', 13))
+                   'service. Its address is yours, not the stack\'s: the stack\'s VideoDB connection, kept on '
+                   'this computer: File > Connections… sets it up.', 12))
 
-    stack = {'format': 1, 'name': 'VideoDB', 'script': STACK_SCRIPT.strip('\n'), 'width': WIDTH, 'height': HEIGHT,
-             'next_id': next_id, 'backgrounds': [main], 'cards': cards}
+    # The stack's identity stays the same each time it's written, so what
+    # users set up for its connection lasts.
+    connection = {'name': 'VideoDB',
+                  'description': "videodb's web front end, which passes /graphql, /omdb and /videos on to the service.",
+                  'settings': [{'name': 'Address', 'hint': 'The front end server, such as http://videos.local:9090',
+                                'default': 'http://trashcan.local:9090', 'secret': False}]}
+    stack = {'format': 1, 'uid': 'a8c0f2b6d4e94f1e9b3c5d7e6f8a1b2c', 'name': 'VideoDB',
+             'script': STACK_SCRIPT.strip('\n'), 'width': WIDTH, 'height': HEIGHT, 'next_id': next_id,
+             'backgrounds': [main], 'connections': [connection], 'cards': cards}
     return stack
 
 

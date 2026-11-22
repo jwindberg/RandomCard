@@ -2,6 +2,7 @@
 
 mod addcolor;
 mod bitmap_fonts;
+mod connections;
 mod debugger;
 mod dialoger_windows;
 mod editing;
@@ -183,6 +184,12 @@ pub struct App {
     /// Style ▸ Text Color…, while it's open.
     text_color: Option<text_color::TextColor>,
     prefs_open: bool,
+    /// File ▸ Connections…, while it's open.
+    connection_setup: Option<connections::SetupWindow>,
+    /// Stack Info ▸ Connections…, while it's open.
+    connection_declare: Option<connections::DeclareWindow>,
+    /// The setup form a script's first use of a connection opened.
+    connection_form: Option<connections::SetupForm>,
     protect_open: bool,
     password_prompt: Option<PasswordPrompt>,
     marquee: Option<Marquee>,
@@ -307,6 +314,9 @@ impl App {
             fonts_for: None,
             text_color: None,
             prefs_open: false,
+            connection_setup: None,
+            connection_declare: None,
+            connection_form: None,
             protect_open: false,
             password_prompt: None,
             tex: Textures::default(),
@@ -869,6 +879,7 @@ impl App {
                 UiRequest::ExportPaint(path) => self.export = Some(painting::Export::new(path)),
                 UiRequest::ProtectStack => self.open_protect_stack(),
                 UiRequest::Preferences => self.prefs_open = true,
+                UiRequest::Connections => self.open_connection_setup(),
                 UiRequest::Attention => {
                     ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
                 }
@@ -1443,8 +1454,10 @@ impl App {
         }
         let target = self.key_target();
         let editing = self.editing.is_some();
-        if !editing && ctx.egui_wants_keyboard_input() {
-            // Typing in the message box or a dialog.
+        let in_field = self.editing.as_ref().is_some_and(|e| ctx.memory(|m| m.has_focus(field_edit_id(e.obj))));
+        if !in_field && ctx.egui_wants_keyboard_input() {
+            // Typing in the message box, a dialog, or a window's box, even
+            // while a card field is open for editing.
             return;
         }
         let names = if editing {
@@ -2960,6 +2973,8 @@ impl eframe::App for App {
         self.show_dialog(&ctx);
         self.show_error(&ctx);
         self.show_preferences(&ctx);
+        self.show_connection_setup(&ctx);
+        self.show_connection_declare(&ctx);
         self.show_paint_dialog(&ctx);
         self.text_color_window(&ctx);
         self.show_protect_stack(&ctx);

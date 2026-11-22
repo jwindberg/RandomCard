@@ -387,8 +387,13 @@ pub enum Cmd {
     /// A web request with a body or none: `post B to url U`, `put B to url
     /// U`, `patch …`, `query …`, `delete url U`, and `request M [with B]
     /// to url U` for any method. The reply goes into `it`.
-    /// `with message "gotData"` sends the request without waiting.
-    Http { method: Expr, body: Option<Expr>, url: Expr, message: Option<Expr> },
+    /// `with message "gotData"` sends the request without waiting, and
+    /// `with connection "VideoDB"` makes it with one of the stack's
+    /// connections (a path is taken from its Address).
+    Http { method: Expr, body: Option<Expr>, url: Expr, connection: Option<Expr>, message: Option<Expr> },
+    /// `set setting "Address" of connection "VideoDB" to x`: a user's value
+    /// for a connection, kept on their computer, never in the stack.
+    SetConnectionSetting { connection: Expr, setting: Expr, value: Expr },
     /// `set key "name" of json body to "Ada"`: the JSON in a container
     /// rewritten. `path` is the `__json` call naming the container and
     /// its steps.

@@ -799,6 +799,47 @@ end gotData
   builds and changes JSON in a variable or field.
 - **Encoding:** `urlEncode`, `urlDecode`, `formEncode`, `formDecode`.
 
+#### Connections: each person's own settings
+
+A stack is an application people share, and each person who uses it brings
+their own server address, user name or key. A stack names the services it
+talks to in Stack Info ▸ Connections…: each **connection** has a name, a
+description, and the settings a person gives, each with a hint, a default,
+and whether it's secret. Every connection has an Address.
+
+```hypertalk
+on mouseUp
+  post body to url "/graphql" with connection "VideoDB"
+  put url "/videos/12" with connection "VideoDB" into reply
+  put setting "Address" of connection "VideoDB" into field "Server"
+  set setting "Address" of connection "VideoDB" to "videos.local:9090"
+end mouseUp
+```
+
+- **`with connection "X"`** after `url` and on every request (`post`, `put
+  … to url`, `patch`, `query`, `delete url`, `request`, `load url`), with
+  or before `with message`. A path is joined to the connection's Address; a
+  full address is used as it is.
+- **`setting "Y" of connection "X"`** reads a person's value, or the default.
+  An Address always comes with its scheme: https, or http for this computer
+  (`localhost`, `127.0.0.1`, `[::1]`).
+- **`set setting "Y" of connection "X" to V`** saves one for this person;
+  `empty` goes back to the default. A secret can be set but never read.
+- **Values never go in the stack.** Ordinary ones are kept in
+  `connections.json` in RandomCard's settings folder, under the stack's
+  lasting identity; secrets go in the system's secure store (the Keychain,
+  Credential Manager, or the Secret Service). With none, a secret lasts
+  until RandomCard quits, and `the result` says so.
+- **Setting up:** File ▸ Connections… shows the stack's connections, and the
+  first time a script uses one that isn't set up, RandomCard asks for what's
+  missing. Cancelled, the request is like one that got no reply: `it` is
+  empty and `the result` says what's needed ("Connection "VideoDB" isn't set
+  up: it needs Password"). A connection the stack doesn't name is a script
+  error.
+- **Settings files:** Open Settings File… in either window fills settings in
+  from a JSON file, such as one a team hands round: `{ "VideoDB": {
+  "Address": "http://videos.local:9090" } }`.
+
 The `examples/` folder has three stacks built on these: ICNDB (a REST
 client for one service), PostCard (a small Postman), and Swatches (colors
 looked up, converted and explained with The Color API, and a tour of

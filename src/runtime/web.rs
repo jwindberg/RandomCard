@@ -19,12 +19,34 @@ use std::time::Duration;
 use crate::web::{http, json};
 
 use super::interp::{Ctl, Interp, R, err};
+use super::world::{Dialog, DialogReply};
 
 impl Interp {
     /// The web's functions, or None if `name` isn't one.
     pub(super) fn web_function(&mut self, name: &str, args: &[String]) -> Option<R<String>> {
         match name {
-            "__url" => Some(self.fetch("GET", args.first().cloned().unwrap_or_default(), None)),
+            "__url" => {
+                let url = args.first().cloned().unwrap_or_default();
+                let url = match args.get(1) {
+                    Some(c) => match self.connection_url(c, &url) {
+                        Ok(Ok(u)) => u,
+                        // Not set up: like a request that got no reply.
+                        Ok(Err(why)) => {
+                            self.result = why;
+                            return Some(Ok(String::new()));
+                        }
+                        Err(e) => return Some(Err(e)),
+                    },
+                    None => url,
+                };
+                Some(self.fetch("GET", url, None))
+            }
+            "__connectionsetting" => {
+                let (connection, setting) = (args.first()?, args.get(1)?);
+                let w = self.w();
+                let store = super::connections::store();
+                Some(super::connections::read(&store, &w.stack, connection, setting).or_else(err))
+            }
             // `json x`, then its steps from the outside in, each a kind
             // ("k" for a key, "e" for an element) and a value.
             "__json" | "__jsonkeys" | "__jsonelements" | "__jsoncount" | "__jsonpretty" => {
@@ -57,6 +79,32 @@ impl Interp {
                 }))
             }
             _ => None,
+        }
+    }
+
+    /// A web address made with one of the stack's connections. A connection
+    /// the stack doesn't declare is the script's mistake (an error); one the
+    /// user hasn't set up yet is Ok(Err(why)), for `the result`.
+    pub(super) fn connection_url(&mut self, connection: &str, url: &str) -> R<Result<String, String>> {
+        let resolve = |me: &Self| {
+            let w = me.w();
+            super::connections::declared(&w.stack, connection).or_else(err)?;
+            let mut store = super::connections::store();
+            Ok(super::connections::url(&mut store, &w.stack, connection, url))
+        };
+        let first = resolve(self)?;
+        let key = connection.trim().to_lowercase();
+        if first.is_ok() || self.declined_connections.contains(&key) {
+            return Ok(first);
+        }
+        // Not set up yet: the user is asked, once, and the request goes on
+        // if they set it up.
+        match self.dialog(Dialog::Connection(connection.trim().to_string()))? {
+            DialogReply::Button(b) if b == "Save" => resolve(self),
+            _ => {
+                self.declined_connections.insert(key);
+                Ok(first)
+            }
         }
     }
 
