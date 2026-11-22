@@ -7,7 +7,7 @@ exists today, what's missing, and where the work would go. The suggested
 order at the end is shaped by what RandomCard's users ask for.
 
 The drive to make every stack on Apple's Developer CDs work ended at 1,029
-working (WORKING_STACKS.md; 1,059 at the 2026-11-14 regression run). Those stacks are now a regression suite: a
+working (WORKING_STACKS.md; 1,070 at the 2026-11-21 regression run). Those stacks are now a regression suite: a
 failing one matters only when it shows a missing HyperCard feature. Stacks
 that assume the old Mac OS (colon paths, old system calls) are updated by
 fix steps on our copies (FIX_STEPS.tsv), not by compatibility code.
@@ -429,6 +429,21 @@ Nearly all have become RandomCard features. For the rare rest, the design:
   "This stack uses the XCMD 'X', which RandomCard doesn't have", and
   Stack Info shows the list.
 
+Still to build in, from the 2026-11-21 run over every Developer CD stack:
+
+- **The Developer Info Assistant (DIA):** 20 of its 23 copies work. One
+  needs `SetFileInfo` (a file's type and creator, as a stack-level
+  feature of files). The two 1991 copies need `Popup` (planned, as
+  PopUpMenu) and stop on their Windows menu.
+- **Tools Advisor (14 copies):** its search engine (`SearchKWInx`,
+  `DevSearch`, `BuildIndex`), `PutStyles`, `RunBubbleHelp` and
+  `SystemPath`. The search engine is the real feature; it should become
+  a general one (an index of a stack's text, searched by keyword), not a
+  copy of Tools Advisor's.
+- **ProgressWindoid (3 stacks):** built in, but clicking every button in
+  card order can't work for its stacks; each needs driven steps
+  (`tests/driven`).
+
 ## Color
 
 HyperCard came out on black-and-white Macs; color arrived late, through
@@ -739,6 +754,9 @@ language's side is `src/runtime/web.rs`.
    VideoDB (`examples/VideoDB.rcstack`, made by `tools/make_videodb.py`)
    is the front end of a GraphQL movie library: its pages as cards, a
    poster grid, editing, OMDb lookup and playing.
+   Still open: `imageLoaded` goes only to images on the card that's
+   showing when the picture arrives; an image on another card finds its
+   picture already there when that card opens, with no message.
 7. **GraphQL built in.** VideoDB does GraphQL by hand: JSON posted to
    `/graphql`, with a `jsonString` function of its own so a value like
    "1984" isn't sent as a number, and the `data` and `errors` unpacked by
@@ -747,40 +765,120 @@ language's side is `src/runtime/web.rs`.
    error's message in `the result`, and variables given as HyperTalk
    values that stay strings. No library is needed: to a client, GraphQL
    is a JSON POST. Its name and form are to settle, on their own merits.
-8. **Network security.** A stack from anywhere can now reach any address,
-   the local network included, and read files to send. To work out what a
-   stack may do without asking, what asks first (a stack's first request
-   to a host, as browsers ask about the local network), and where that's
-   remembered; and on a Mac, the Local Network privacy prompt and App
-   Transport Security for plain http. For now the Mac app allows plain
-   http only on the local network (`NSAllowsLocalNetworking`, so
-   `http://trashcan.local` streams), says why in its Local Network prompt,
-   and needs https everywhere else. Secrets such as API keys shouldn't be
-   saved in a stack's file, where anyone given the stack can read them;
-   they belong in the system's secure store, as tokens do (9).
-9. **Signing in: OAuth 2.0 and single sign-on.** Services that need a
-   user's sign-in, and companies' SSO, following the standards for native
-   apps:
-   - **OAuth 2.0** (RFC 6749) with the authorization code flow and PKCE
-     (RFC 7636), as RFC 8252 says native apps should: sign-in in the
-     system's own browser, never a web view inside RandomCard, coming
-     back through a loopback redirect (`http://127.0.0.1:port`) or an
-     app URL scheme. RandomCard is a public client: no client secret in
-     the app or a stack.
-   - **OpenID Connect** for SSO (Okta, Microsoft Entra, Google and the
-     like): the provider found from its `/.well-known/openid-configuration`,
-     and who signed in from the ID token.
-   - **The device flow** (RFC 8628) where a browser is awkward, as on
-     the 720×720 cyberdeck: a code to enter on another device.
-   - **Tokens kept by the system, not the stack:** the macOS Keychain,
-     Windows Credential Manager, the Secret Service on Linux. Refreshed
-     when they run out, and sent (`Authorization: Bearer`, RFC 6750) only
-     to the hosts they were issued for.
-   - **In HyperTalk,** to design on its own merits: a stack names a
-     provider (its issuer or endpoints, client id and scopes), a script
-     asks to sign in, and requests to that service then carry the token
-     without the script handling it. Which stacks may use a sign-in is
-     part of network security (8).
+8. **Connections, secrets and signing in.** A stack is an application
+   that people share, and each person brings their own settings, as a web
+   app's customers each bring their own database. The author writes the
+   stack against a service, using RandomCard's tools for whatever security
+   that service uses; anyone else with an account there uses the stack by
+   giving it their own credentials. So RandomCard's job isn't to decide
+   what stacks may do: it's to give authors good tools, the way a web
+   framework gives you an OAuth client, and keep each user's secrets out
+   of the stack.
+
+   **Connections.** A stack declares each service it talks to, in two
+   halves:
+   - **The author's half, in the stack:** the service's address, how its
+     security works (which scheme, its endpoints and scopes), and where
+     the credentials go on each request.
+   - **Each user's half, never in the stack:** their credentials or their
+     sign-in, and settings such as which of their systems to show. Given
+     in a setup dialog RandomCard makes from the declaration (or the
+     stack's own settings card), or a settings file, so an IT department
+     can hand out a stack with its settings ready. Ordinary settings are
+     kept in RandomCard's settings, secrets (passwords, keys, client
+     secrets, tokens) in the system's secure store: the macOS Keychain,
+     Windows Credential Manager, the Secret Service on Linux. Sharing a
+     stack shares only its code.
+   - **Environments:** a connection can have several sets of settings (a
+     service's sandbox while building, production after), chosen without
+     editing the stack.
+   - **In scripts,** requests name the connection, something like
+     `put url U with connection "Enphase" into reply`, and RandomCard
+     adds the credentials. Scripts never see secrets or tokens, so a stack
+     can't send them anywhere else; tokens go only to the hosts they were
+     issued for. The syntax is to design on its own merits.
+
+   **The security schemes,** built from standard parts rather than a
+   recipe per service, so a new service is a declaration, not a new
+   RandomCard:
+   - **How a user proves who they are:** an API key; HTTP Basic (RFC
+     7617); OAuth 2.0 (RFC 6749) with the authorization code flow, with or
+     without PKCE (RFC 7636), client credentials (an app acting as itself)
+     and refresh tokens; the device flow (RFC 8628); OpenID Connect for
+     single sign-on (Okta, Microsoft Entra, Google, Facebook), the
+     provider found from its `/.well-known/openid-configuration`; client
+     certificates (mutual TLS, RFC 8705); signed JWT assertions (RFC
+     7523).
+   - **Where the proof goes:** a header (`Authorization: Bearer`, RFC
+     6750, or one the service names), a query parameter, or Basic, and
+     more than one at once (Enphase wants a bearer token and an API key).
+   - **How a sign-in comes back:** sign-in always happens in the system's
+     own browser, never a web view inside RandomCard (RFC 8252); it comes
+     back through a loopback address (`http://127.0.0.1:port`), a code
+     the user pastes (Enphase's way), or a device code entered on another
+     device (the cyberdeck's way).
+   - **Vendors' variations on a standard,** described in the declaration:
+     Facebook's device sign-in is RFC 8628 in spirit, with its own
+     endpoints, `appid|clienttoken` as the credential and a poll every 5
+     seconds.
+   - **For schemes nobody standardized** (a service's own request
+     signing), a connection can name a handler in the stack that
+     RandomCard calls before each request, with HMAC, SHA-256 and base64
+     built in. HTTP Message Signatures (RFC 9421) built in, if services
+     come to use it.
+
+   **Who owns the app credentials.** Some services give each customer
+   their own key, or let each sign in: the clean case. Others register
+   the author's app and give the author a client id and secret, which
+   customers then sign in through. Then either each user registers their
+   own app and enters its values (secure, more work for them), or the
+   author's values ship in the stack, and the secret goes to every user,
+   and the service's limits may count every user's calls against the
+   author's app. Where a service allows public clients, PKCE needs no
+   secret at all (RFC 8252); otherwise the usual answer is a small server
+   in between that holds the secret. RandomCard supports all of these and
+   says plainly which is which.
+
+   **Three example stacks drive it,** each in `examples/` (the Tour never
+   calls outside services):
+   - **VideoDB:** a server of one's own, with no security; the connection
+     is just its address, moved out of the stack file.
+   - **Enphase:** a stack for Enphase solar customers on the Enlighten v4
+     API, which takes an API key, client id and secret from a registered
+     app; the authorization code flow with a pasted code and the client
+     authenticating with Basic; refresh before expiry; and every call
+     carrying a bearer token and `?key=`. Today that's about 150 lines of
+     a Java server; it should be a declaration.
+   - **Facebook:** sign-in with Facebook Login for Devices (nothing secret
+     in the stack: the client token is meant to be embedded) and OpenID
+     Connect with PKCE; showing who signed in, with their picture in an
+     image part, and a Page's recent posts for someone who manages one.
+     Meta allows only an app's own admins, developers and testers in
+     development mode; anyone else needs Meta's App Review.
+
+   **Done when** all three stacks work against the real services: VideoDB
+   against its own server, Enphase showing a customer's solar production,
+   and Facebook showing who signed in. Each works for someone other than
+   its author, given only their own settings, with no secret of the
+   author's in the stack file. They're the proof the tools are general.
+
+   **The order:**
+   1. Connections and their settings, with the secure store; VideoDB's
+      address moves out of its stack.
+   2. API keys and Basic, in headers and query parameters.
+   3. OAuth: the authorization code flow with refresh, by loopback and by
+      pasted code; then Enphase.
+   4. The device flow and OpenID Connect; then Facebook.
+   5. The signing handler, client credentials, client certificates and
+      JWT assertions.
+   6. A safety net for stacks from strangers: a request to a host that no
+      connection declares and the user never gave the stack asks first.
+
+   Meanwhile the Mac app allows plain http only on the local network
+   (`NSAllowsLocalNetworking`, so `http://trashcan.local` streams), says
+   why in its Local Network prompt, and needs https everywhere else; the
+   same rule should hold on Linux and Windows, so a stack behaves alike
+   everywhere.
 
 ## Testing
 
