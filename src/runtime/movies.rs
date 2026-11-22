@@ -437,7 +437,12 @@ impl Interp {
             },
         };
         let opened = match &url {
-            Some(u) => Player::open_url(u),
+            // Under a connection's Address: with its credentials, asking
+            // for any settings still needed.
+            Some(u) => match self.credentials(u)? {
+                Ok(c) => Player::open_url(u, c.as_ref()),
+                Err(why) => Err(why),
+            },
             None => Player::open(&path),
         };
         let player = match opened {

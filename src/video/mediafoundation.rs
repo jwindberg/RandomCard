@@ -345,7 +345,10 @@ impl Player {
     }
 
     /// A movie on the web: the media engine streams it, http or https.
-    pub fn open_url(url: &str) -> Result<Player, String> {
+    pub fn open_url(url: &str, credentials: Option<&crate::web::http::Credentials>) -> Result<Player, String> {
+        if credentials.is_some() {
+            return Err("Movies from a connection that signs in don't play on Windows yet".into());
+        }
         Self::open_source(Source::Url(url))
     }
 

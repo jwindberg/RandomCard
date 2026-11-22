@@ -173,7 +173,9 @@ Keychain and Credential Manager are built but not yet run on their systems.
 
 ## Step 2: API keys and Basic
 
-Built 2026-11-22; movies still to do.
+Built 2026-11-22. Movies sign in on Linux (GStreamer's HTTP source gets the
+headers, and follows no redirects); the Mac and Windows players say they
+can't yet.
 
 - **A connection's credentials,** declared under "How it signs in" in its
   Connections… window: each is Basic, a header or a query parameter, with
@@ -182,7 +184,9 @@ Built 2026-11-22; movies still to do.
 - **Which requests carry them:** any from the stack whose address is under
   the connection's Address (scheme, host, port, path prefix; the closest
   Address wins), named or not: `url`, every request command, and image
-  parts. Movies are next, in each system's player.
+  parts, and movies on Linux. On a Mac, Basic can be answered through
+  AVFoundation's documented sign-in challenge; Windows needs research into
+  Media Foundation's credential manager.
 - **Kept safe:** filled in only as the request is sent, so scripts never see
   them; no redirects followed with them; plain http only on this computer
   and the local network (as the Mac app's ATS rule already says);

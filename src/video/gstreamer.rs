@@ -84,6 +84,10 @@ struct Gst {
     pull_sample: unsafe extern "C" fn(Ptr) -> Ptr,
     pull_preroll: unsafe extern "C" fn(Ptr) -> Ptr,
     set_callbacks: unsafe extern "C" fn(Ptr, *const Callbacks, Ptr, Ptr),
+    signal_connect_data: unsafe extern "C" fn(Ptr, *const c_char, Ptr, Ptr, Ptr, c_int) -> std::ffi::c_ulong,
+    class_find_property: unsafe extern "C" fn(Ptr, *const c_char) -> Ptr,
+    structure_from_string: unsafe extern "C" fn(*const c_char, *mut *const c_char) -> Ptr,
+    structure_free: unsafe extern "C" fn(Ptr),
 }
 
 // The function pointers are plain C functions GStreamer lets any thread call.
@@ -133,6 +137,10 @@ fn load() -> Result<Gst, String> {
         pull_sample: get!(app, "gst_app_sink_pull_sample"),
         pull_preroll: get!(app, "gst_app_sink_pull_preroll"),
         set_callbacks: get!(app, "gst_app_sink_set_callbacks"),
+        signal_connect_data: get!(gobject, "g_signal_connect_data"),
+        class_find_property: get!(gobject, "g_object_class_find_property"),
+        structure_from_string: get!(core, "gst_structure_from_string"),
+        structure_free: get!(core, "gst_structure_free"),
         _libs: vec![core, app, gobject, glib],
     };
     let mut err = std::ptr::null_mut();
@@ -246,6 +254,48 @@ pub struct Player {
     duration: f64,
     size: (u32, u32),
     state: Mutex<State>,
+    /// A connection's headers, as a GstStructure's text, for the HTTP
+    /// source playbin makes: kept while playbin may ask for it.
+    _headers: Option<Box<CString>>,
+}
+
+/// GstStructure text for `extra-headers`: each header a string field.
+fn headers_structure(headers: &[(String, String)]) -> Option<CString> {
+    let mut text = String::from("extra-headers");
+    for (name, value) in headers {
+        // Field names are header names (RFC 9110 tokens); values are quoted.
+        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || "!#$%&'*+-.^_`|~".contains(c)) {
+            return None;
+        }
+        let value = value.replace('\\', "\\\\").replace('"', "\\\"");
+        text.push_str(&format!(", {name}=(string)\"{value}\""));
+    }
+    text.push(';');
+    CString::new(text).ok()
+}
+
+/// playbin's source-setup: an HTTP source gets the connection's headers,
+/// and follows no redirects, so they go nowhere else.
+unsafe extern "C" fn on_source_setup(_playbin: Ptr, source: Ptr, data: Ptr) {
+    let Ok(gst) = gst() else { return };
+    let end: *const c_char = std::ptr::null();
+    // SAFETY: A GObject's first field is its class; the properties are
+    // looked up before they're set, and the structure is copied by set.
+    unsafe {
+        let class = *(source as *const Ptr);
+        if (gst.class_find_property)(class, c"extra-headers".as_ptr()).is_null() {
+            return;
+        }
+        let headers = (gst.structure_from_string)(data as *const c_char, std::ptr::null_mut());
+        if headers.is_null() {
+            return;
+        }
+        (gst.object_set)(source, c"extra-headers".as_ptr(), headers, end);
+        (gst.structure_free)(headers);
+        if !(gst.class_find_property)(class, c"automatic-redirect".as_ptr()).is_null() {
+            (gst.object_set)(source, c"automatic-redirect".as_ptr(), 0 as c_int, end);
+        }
+    }
 }
 
 // GStreamer's elements are safe to use from any thread; State is locked.
@@ -268,17 +318,29 @@ impl Player {
             (gst.free)(uri as Ptr);
             owned
         };
-        Self::open_uri(gst, &uri, super::palette::remap_for(path))
+        Self::open_uri(gst, &uri, super::palette::remap_for(path), None)
     }
 
-    /// A movie on the web: playbin streams it, http or https.
-    pub fn open_url(url: &str) -> Result<Player, String> {
+    /// A movie on the web: playbin streams it, http or https, with a
+    /// connection's credentials if it has them.
+    pub fn open_url(url: &str, credentials: Option<&crate::web::http::Credentials>) -> Result<Player, String> {
         let gst = gst()?;
-        let uri = CString::new(url).map_err(|_| "Bad address".to_string())?;
-        Self::open_uri(gst, &uri, None)
+        let (sent, headers) = crate::web::http::with_credentials(url, credentials)?;
+        let uri = CString::new(sent.as_str()).map_err(|_| "Bad address".to_string())?;
+        let headers = match headers.is_empty() {
+            true => None,
+            false => Some(Box::new(headers_structure(&headers).ok_or("A connection's header can't be sent with a movie")?)),
+        };
+        // Errors never show the address with a key in it.
+        Self::open_uri(gst, &uri, None, headers).map_err(|e| e.replace(&sent, url))
     }
 
-    fn open_uri(gst: &'static Gst, uri: &CStr, colors: Option<std::collections::HashMap<[u8; 3], [u8; 3]>>) -> Result<Player, String> {
+    fn open_uri(
+        gst: &'static Gst,
+        uri: &CStr,
+        colors: Option<std::collections::HashMap<[u8; 3], [u8; 3]>>,
+        headers: Option<Box<CString>>,
+    ) -> Result<Player, String> {
         let uri = uri.as_ptr();
         unsafe {
             let playbin = (gst.factory_make)(c"playbin".as_ptr(), std::ptr::null());
@@ -294,6 +356,17 @@ impl Player {
             let callbacks = Callbacks { eos: Some(on_eos), new_preroll: Some(on_preroll), new_sample: Some(on_sample), rest: [std::ptr::null_mut(); 4] };
             (gst.set_callbacks)(appsink, &callbacks, sink as Ptr, std::ptr::null_mut());
             (gst.object_set)(playbin, c"uri".as_ptr(), uri, c"video-sink".as_ptr(), appsink, end);
+            if let Some(h) = &headers {
+                let handler: unsafe extern "C" fn(Ptr, Ptr, Ptr) = on_source_setup;
+                (gst.signal_connect_data)(
+                    playbin,
+                    c"source-setup".as_ptr(),
+                    handler as Ptr,
+                    h.as_ptr() as Ptr,
+                    std::ptr::null_mut(),
+                    0,
+                );
+            }
             // Tests keep quiet, still playing in time.
             if cfg!(test) {
                 let quiet = (gst.factory_make)(c"fakesink".as_ptr(), std::ptr::null());
@@ -301,7 +374,16 @@ impl Player {
                 (gst.object_set)(playbin, c"audio-sink".as_ptr(), quiet, end);
             }
             let bus = (gst.get_bus)(playbin);
-            let mut player = Player { gst, playbin, bus, sink, duration: 0.0, size: (0, 0), state: Mutex::new(State { rate: 0.0, held: 0.0, sent: 1.0 }) };
+            let mut player = Player {
+                gst,
+                playbin,
+                bus,
+                sink,
+                duration: 0.0,
+                size: (0, 0),
+                state: Mutex::new(State { rate: 0.0, held: 0.0, sent: 1.0 }),
+                _headers: headers,
+            };
             // Paused, it decodes the first frame, and knows its length.
             (gst.set_state)(playbin, STATE_PAUSED);
             let (mut now, mut pending) = (0, 0);
@@ -467,5 +549,23 @@ impl Drop for Player {
             (self.gst.object_unref)(self.playbin);
             drop(Box::from_raw(self.sink as *mut Sink));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn headers_for_the_http_source() {
+        let h = |pairs: &[(&str, &str)]| {
+            let owned: Vec<(String, String)> = pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+            super::headers_structure(&owned).map(|c| c.into_string().unwrap())
+        };
+        assert_eq!(
+            h(&[("Authorization", "Basic YWRhOnB3"), ("X-API-Key", r#"a"b\c"#)]).unwrap(),
+            r#"extra-headers, Authorization=(string)"Basic YWRhOnB3", X-API-Key=(string)"a\"b\\c";"#
+        );
+        // A name that isn't a header name can't be sent.
+        assert!(h(&[("Bad Name", "x")]).is_none());
+        assert!(h(&[("", "x")]).is_none());
     }
 }

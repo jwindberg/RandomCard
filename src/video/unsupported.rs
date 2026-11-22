@@ -12,7 +12,7 @@ impl Player {
         Err("RandomCard can't play movies on this system yet".into())
     }
 
-    pub fn open_url(_url: &str) -> Result<Player, String> {
+    pub fn open_url(_url: &str, _credentials: Option<&crate::web::http::Credentials>) -> Result<Player, String> {
         Err("RandomCard can't play movies on this system yet".into())
     }
     pub fn size(&self) -> (u32, u32) {

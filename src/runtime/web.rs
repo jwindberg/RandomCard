@@ -118,7 +118,7 @@ impl Interp {
     /// The credentials for a request to `url`, from the connection whose
     /// Address covers it (asking for any settings still needed), or why
     /// it can't be sent.
-    fn credentials(&mut self, url: &str) -> R<Result<Option<http::Credentials>, String>> {
+    pub(super) fn credentials(&mut self, url: &str) -> R<Result<Option<http::Credentials>, String>> {
         use super::connections::{SignError, sign, store};
         let signed = {
             let w = self.w();

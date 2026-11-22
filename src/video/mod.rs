@@ -53,9 +53,10 @@ impl Player {
         imp::Player::open(path).map(Player)
     }
 
-    /// Open a movie on the web (http or https), paused on its first frame.
-    pub fn open_url(url: &str) -> Result<Player, String> {
-        imp::Player::open_url(url).map(Player)
+    /// Open a movie on the web (http or https), paused on its first frame,
+    /// with a connection's credentials if the address is under one.
+    pub fn open_url(url: &str, credentials: Option<&crate::web::http::Credentials>) -> Result<Player, String> {
+        imp::Player::open_url(url, credentials).map(Player)
     }
 
     /// The movie's size in pixels, or 0,0 if it has no picture (sound only).
