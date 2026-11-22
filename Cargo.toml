@@ -74,8 +74,8 @@ muda = "0.21"
 # Secrets in the Keychain.
 apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
 objc2 = { version = "0.6.5", default-features = false, features = ["std"] }
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSDictionary", "NSError", "NSObject", "NSString", "NSURL", "NSValue"] }
-objc2-av-foundation = { version = "0.3.2", default-features = false, features = ["std", "AVAsset", "AVAssetReader", "AVAssetReaderOutput", "AVAssetTrack", "AVMediaFormat", "AVQueuedSampleBufferRendering", "AVSampleBufferAudioRenderer", "AVSampleBufferRenderSynchronizer", "AVPlayer", "AVPlayerItem", "AVPlayerItemOutput", "objc2-core-foundation", "objc2-core-media", "objc2-core-video"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSData", "NSDate", "NSDictionary", "NSError", "NSObject", "NSRunLoop", "NSString", "NSURL", "NSValue"] }
+objc2-av-foundation = { version = "0.3.2", default-features = false, features = ["std", "AVAsset", "AVAssetReader", "AVAssetResourceLoader", "AVAssetReaderOutput", "AVAssetTrack", "AVMediaFormat", "AVQueuedSampleBufferRendering", "AVSampleBufferAudioRenderer", "AVSampleBufferRenderSynchronizer", "AVPlayer", "AVPlayerItem", "AVPlayerItemOutput", "dispatch2", "objc2-core-foundation", "objc2-core-media", "objc2-core-video"] }
 objc2-core-media = { version = "0.3.2", default-features = false, features = ["std", "CMSampleBuffer", "CMTime", "CMTimeRange", "objc2", "objc2-core-video"] }
 objc2-core-video = { version = "0.3.2", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn", "objc2"] }
 # Movies on the web: AVPlayer is made on the main thread.

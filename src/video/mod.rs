@@ -21,6 +21,8 @@ use gstreamer as imp;
 #[cfg(target_os = "macos")]
 mod avfoundation;
 #[cfg(target_os = "macos")]
+mod avloader;
+#[cfg(target_os = "macos")]
 mod avplayer;
 #[cfg(target_os = "macos")]
 use avfoundation as imp;

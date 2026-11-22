@@ -330,10 +330,7 @@ impl Player {
     }
 
     pub fn open_url(url: &str, credentials: Option<&crate::web::http::Credentials>) -> Result<Player, String> {
-        if credentials.is_some() {
-            return Err("Movies from a connection that signs in don't play on a Mac yet".into());
-        }
-        super::avplayer::StreamPlayer::open(url).map(Player::Stream)
+        super::avplayer::StreamPlayer::open(url, credentials).map(Player::Stream)
     }
 
     pub fn size(&self) -> (u32, u32) {

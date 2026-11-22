@@ -17,9 +17,13 @@ use objc2_av_foundation::{
     AVPlayer, AVPlayerItem, AVPlayerItemStatus, AVPlayerItemVideoOutput, AVURLAsset, AVURLAssetOverrideMIMETypeKey,
 };
 use objc2_core_video::{kCVPixelBufferPixelFormatTypeKey, kCVPixelFormatType_32BGRA};
-use objc2_foundation::{NSDictionary, NSNumber, NSString, NSURL};
+use dispatch2::{DispatchQueue, DispatchRetained};
+use objc2::runtime::ProtocolObject;
+use objc2_foundation::{NSDate, NSDictionary, NSNumber, NSRunLoop, NSString, NSURL};
 
-use super::Frame;
+use crate::web::http;
+
+use super::{Frame, avloader};
 use super::avfoundation::{Rot, cm_time, copy_bgra_to_rgba, valid_seconds};
 
 /// How long a movie on the web may take to be ready to play.
@@ -30,6 +34,10 @@ struct Objects {
     player: Retained<AVPlayer>,
     item: Retained<AVPlayerItem>,
     output: Retained<AVPlayerItemVideoOutput>,
+    /// A signed-in movie's loader and its queue: AVFoundation holds the
+    /// loader weakly, so the player keeps it.
+    _loader: Option<Retained<avloader::Loader>>,
+    _queue: Option<DispatchRetained<DispatchQueue>>,
 }
 
 // SAFETY: Made on the main thread; AVPlayer, its item and the output are
@@ -37,6 +45,50 @@ struct Objects {
 // playback control, time and video output.
 unsafe impl Send for Objects {}
 unsafe impl Sync for Objects {}
+
+/// How AVPlayer gets the movie.
+enum How {
+    /// From its address, told its type when the server doesn't say.
+    Direct { address: String, mime: Option<&'static str> },
+    /// Through the loader, which signs in.
+    Loader(Arc<avloader::Source>),
+}
+
+/// What a signed-in movie is, and how long, from its first bytes: the
+/// loader must tell AVPlayer both before it asks for any of it.
+fn probe(shown: &str, sent: &str, headers: Vec<(String, String)>) -> Result<avloader::Source, String> {
+    use std::io::Read;
+    let mut reply = http::get_range(sent, &headers, 0, Some(15))?;
+    let mut head = Vec::with_capacity(16);
+    (&mut reply.body).take(16).read_to_end(&mut head).map_err(|e| e.to_string())?;
+    if super::web_movie_type(&reply.content_type, &head) == Some("application/vnd.apple.mpegurl")
+        || reply.content_type.to_ascii_lowercase().contains("mpegurl")
+    {
+        return Err("A live stream from a connection that signs in doesn't play on a Mac yet".into());
+    }
+    let mime = super::web_movie_type(&reply.content_type, &head).unwrap_or(&reply.content_type);
+    let uti = avloader::uti(mime).ok_or("The server didn't say what kind of movie it is")?;
+    let length = reply.total.ok_or("The server didn't say how long the movie is")?;
+    Ok(avloader::Source {
+        sent: sent.to_string(),
+        shown: shown.to_string(),
+        headers,
+        uti,
+        length,
+        ranges: reply.status == 206,
+        failed: Mutex::new(None),
+    })
+}
+
+/// A moment, while AVPlayer loads. On the main thread (in tests), its run
+/// loop runs, as AVPlayer's news comes there.
+fn wait() {
+    if objc2::MainThreadMarker::new().is_some() {
+        NSRunLoop::currentRunLoop().runUntilDate(&NSDate::dateWithTimeIntervalSinceNow(0.02));
+    } else {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
 
 /// The newest picture, and how many there have been.
 struct Shown {
@@ -52,27 +104,56 @@ pub struct StreamPlayer {
 }
 
 impl StreamPlayer {
-    /// Open a movie at an http or https address, paused at its start.
-    pub fn open(url: &str) -> Result<StreamPlayer, String> {
-        let address = url.to_string();
-        // A server that doesn't say what the movie is (and an address with
-        // no extension) leaves AVPlayer unable to open it ("Cannot Open"):
-        // its first bytes say, and AVPlayer is told. When the peek fails,
-        // AVPlayer tries anyway, and says why it can't.
-        let mime = crate::web::http::peek(url, None, 16, Duration::from_secs(10))
-            .ok()
-            .and_then(|(ct, head)| super::web_movie_type(&ct, &head));
+    /// Open a movie at an http or https address, paused at its start, with
+    /// a connection's credentials if it has them: query keys go in the
+    /// address AVPlayer gets, and headers mean the movie comes through the
+    /// loader (see avloader), which sends them.
+    pub fn open(url: &str, credentials: Option<&http::Credentials>) -> Result<StreamPlayer, String> {
+        let (sent, headers) = http::with_credentials(url, credentials)?;
+        let hide = |e: String| if sent == url { e } else { e.replace(&sent, url) };
+        let how = if headers.is_empty() {
+            // A server that doesn't say what the movie is (and an address
+            // with no extension) leaves AVPlayer unable to open it ("Cannot
+            // Open"): its first bytes say, and AVPlayer is told. When the
+            // peek fails, AVPlayer tries anyway, and says why it can't.
+            let mime = match http::peek(url, credentials, 16, Duration::from_secs(10)) {
+                Ok((ct, head)) => super::web_movie_type(&ct, &head),
+                // A server that wants signing in says so better than AVPlayer.
+                Err(e) if e.starts_with("401") || e.starts_with("403") => return Err(e),
+                Err(_) => None,
+            };
+            How::Direct { address: sent.clone(), mime }
+        } else {
+            How::Loader(Arc::new(probe(url, &sent, headers).map_err(hide)?))
+        };
         let objects = dispatch2::run_on_main(move |mtm| {
             autoreleasepool(|_| {
                 // SAFETY: Making AVFoundation objects on the main thread, with
                 // BGRA pixel buffers asked of the output.
                 unsafe {
-                    let url = NSURL::URLWithString(&NSString::from_str(&address)).ok_or("That isn't a web address".to_string())?;
-                    let options = mime.map(|m| {
-                        let m = NSString::from_str(m);
-                        NSDictionary::<NSString, AnyObject>::from_slices(&[AVURLAssetOverrideMIMETypeKey], &[m.as_ref()])
-                    });
-                    let asset = AVURLAsset::URLAssetWithURL_options(&url, options.as_deref());
+                    let bad = || "That isn't a web address".to_string();
+                    let (asset, loader, queue) = match how {
+                        How::Direct { address, mime } => {
+                            let url = NSURL::URLWithString(&NSString::from_str(&address)).ok_or_else(bad)?;
+                            let options = mime.map(|m| {
+                                let m = NSString::from_str(m);
+                                NSDictionary::<NSString, AnyObject>::from_slices(&[AVURLAssetOverrideMIMETypeKey], &[m.as_ref()])
+                            });
+                            (AVURLAsset::URLAssetWithURL_options(&url, options.as_deref()), None, None)
+                        }
+                        How::Loader(source) => {
+                            // The address under our own scheme, so AVPlayer
+                            // asks the loader for it.
+                            let rest = source.shown.split_once("://").map(|(_, r)| r).ok_or_else(bad)?;
+                            let ours = format!("{}://{rest}", avloader::SCHEME);
+                            let url = NSURL::URLWithString(&NSString::from_str(&ours)).ok_or_else(bad)?;
+                            let asset = AVURLAsset::URLAssetWithURL_options(&url, None);
+                            let loader = avloader::Loader::new(source);
+                            let queue = DispatchQueue::new("RandomCard movie loader", None);
+                            asset.resourceLoader().setDelegate_queue(Some(ProtocolObject::from_ref(&*loader)), Some(&queue));
+                            (asset, Some(loader), Some(queue))
+                        }
+                    };
                     let item = AVPlayerItem::playerItemWithAsset(&asset, mtm);
                     let fmt = NSNumber::numberWithUnsignedInt(kCVPixelFormatType_32BGRA);
                     let fmt_key: &NSString = &*(kCVPixelBufferPixelFormatTypeKey as *const _ as *const NSString);
@@ -80,7 +161,12 @@ impl StreamPlayer {
                     let output = AVPlayerItemVideoOutput::initWithPixelBufferAttributes(AVPlayerItemVideoOutput::alloc(), Some(&attrs));
                     item.addOutput(&output);
                     let player = AVPlayer::playerWithPlayerItem(Some(&item), mtm);
-                    Ok::<Objects, String>(Objects { player, item, output })
+                    // Apple's advice for a loader that loads the media itself:
+                    // AVPlayer's guesses at what's coming don't hold for it.
+                    if loader.is_some() {
+                        player.setAutomaticallyWaitsToMinimizeStalling(false);
+                    }
+                    Ok::<Objects, String>(Objects { player, item, output, _loader: loader, _queue: queue })
                 }
             })
         })?;
@@ -93,15 +179,17 @@ impl StreamPlayer {
                 break;
             }
             if status == AVPlayerItemStatus::Failed {
-                let why = unsafe { objects.item.error() }
-                    .map(|e| e.localizedDescription().to_string())
+                // The loader's own reason first: AVPlayer's for it is vaguer.
+                let loaded = objects._loader.as_ref().and_then(|l| l.source().failed.lock().ok().and_then(|f| f.clone()));
+                let why = loaded
+                    .or_else(|| unsafe { objects.item.error() }.map(|e| e.localizedDescription().to_string()))
                     .unwrap_or_else(|| "The movie couldn't be played".into());
-                return Err(why);
+                return Err(hide(why));
             }
             if start.elapsed() > OPEN_WAIT {
                 return Err("The movie took too long to open".into());
             }
-            std::thread::sleep(Duration::from_millis(20));
+            wait();
         }
         // SAFETY: Reading the ready item's size and length, and going to its
         // start, which brings its first picture.

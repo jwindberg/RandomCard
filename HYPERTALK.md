@@ -844,7 +844,7 @@ end mouseUp
   them, not even in a `with message` handler's URL. They go with every
   request under the connection's Address (same scheme, host, port, and a
   path at or below it), whether the script names the connection or not,
-  pictures and (on Linux, so far) movies included, and nowhere else. A request that carries them
+  pictures and movies included (Linux and Mac, so far), and nowhere else. A request that carries them
   doesn't follow redirects: `the result` is the 3xx, and the script
   decides. Over plain http they go only to this computer and the local
   network (`localhost`, `.local` names, private addresses); elsewhere the

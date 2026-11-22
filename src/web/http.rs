@@ -257,6 +257,69 @@ pub fn peek(url: &str, credentials: Option<&Credentials>, n: usize, timeout: Dur
     Ok((content_type, head))
 }
 
+/// A stretch of a URL's body, read as it arrives, for the Mac's movie
+/// player: the bytes from `start` to `end` (inclusive; None to the end).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub struct Range {
+    pub status: u16,
+    pub content_type: String,
+    /// Where the body starts: `start` when the server sent the range, 0
+    /// when it sent the whole thing.
+    pub start: u64,
+    /// The whole body's length, when the server says.
+    pub total: Option<u64>,
+    pub body: ureq::BodyReader<'static>,
+}
+
+/// Ask for a range of a URL's body, with headers (a connection's, which go
+/// to this address only: no redirects are followed). A movie can be long,
+/// so no limit on the whole: only on connecting, the reply, and each read.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn get_range(url: &str, headers: &[(String, String)], start: u64, end: Option<u64>) -> Result<Range, String> {
+    let mut request = ureq::http::Request::builder().method("GET").uri(url);
+    for (k, v) in headers {
+        request = request.header(k.as_str(), v.as_str());
+    }
+    let range = match end {
+        Some(e) => format!("bytes={start}-{e}"),
+        None => format!("bytes={start}-"),
+    };
+    let request = request.header("range", range).body(()).map_err(|e| e.to_string())?;
+    let config = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .max_redirects(0)
+        .max_redirects_will_error(false)
+        .timeout_connect(Some(Duration::from_secs(10)))
+        .timeout_recv_response(Some(Duration::from_secs(20)))
+        .timeout_per_read(Some(Duration::from_secs(20)));
+    #[cfg(not(target_os = "linux"))]
+    let config = config.tls_config(ureq::tls::TlsConfig::builder().provider(ureq::tls::TlsProvider::NativeTls).build());
+    let agent: ureq::Agent = config.build().into();
+    let reply = agent.run(request).map_err(|e| e.to_string())?;
+    let status = reply.status();
+    if !status.is_success() {
+        return Err(format!("{} {}", status.as_u16(), status.canonical_reason().unwrap_or("")).trim().to_string());
+    }
+    let header = |name: &str| reply.headers().get(name).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+    let content_type = header("content-type");
+    let (start, total) = if status.as_u16() == 206 {
+        parse_content_range(&header("content-range")).ok_or("The server sent a range it didn't say")?
+    } else {
+        (0, header("content-length").trim().parse().ok())
+    };
+    Ok(Range { status: status.as_u16(), content_type, start, total, body: reply.into_body().into_reader() })
+}
+
+/// `bytes 0-15/1755374811`: where the range starts, and the whole length
+/// (None for `*`).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn parse_content_range(text: &str) -> Option<(u64, Option<u64>)> {
+    let rest = text.trim().strip_prefix("bytes")?.trim_start();
+    let (span, total) = rest.split_once('/')?;
+    let start = span.split_once('-')?.0.trim().parse().ok()?;
+    Some((start, total.trim().parse().ok()))
+}
+
 #[cfg(test)]
 pub mod test_server {
     //! A web server for tests, on a free local port: it answers each
@@ -376,5 +439,16 @@ mod tests {
         // No server there at all.
         let none = Request { url: "http://127.0.0.1:1/".into(), ..req("GET", "/", None) };
         assert!(send(&none).is_err());
+    }
+}
+
+#[cfg(test)]
+mod range_tests {
+    #[test]
+    fn content_range() {
+        assert_eq!(super::parse_content_range("bytes 0-15/1755374811"), Some((0, Some(1755374811))));
+        assert_eq!(super::parse_content_range("bytes 100-199/*"), Some((100, None)));
+        assert_eq!(super::parse_content_range("items 0-1/2"), None);
+        assert_eq!(super::parse_content_range(""), None);
     }
 }

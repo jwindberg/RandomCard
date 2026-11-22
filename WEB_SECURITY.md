@@ -174,8 +174,12 @@ Keychain and Credential Manager are built but not yet run on their systems.
 ## Step 2: API keys and Basic
 
 Built 2026-11-22. Movies sign in on Linux (GStreamer's HTTP source gets the
-headers, and follows no redirects); the Mac and Windows players say they
-can't yet.
+headers, and follows no redirects) and on a Mac (AVPlayer gets the movie
+under a scheme of RandomCard's own, and an AVAssetResourceLoaderDelegate
+fetches each range it asks for with RandomCard's HTTP client, so headers,
+Basic and query keys all work, with no redirects); the Windows player says
+it can't yet. A live (HLS) stream that signs in doesn't play on a Mac yet:
+its segments would need the same loading.
 
 - **A connection's credentials,** declared under "How it signs in" in its
   Connections… window: each is Basic, a header or a query parameter, with
@@ -184,8 +188,7 @@ can't yet.
 - **Which requests carry them:** any from the stack whose address is under
   the connection's Address (scheme, host, port, path prefix; the closest
   Address wins), named or not: `url`, every request command, and image
-  parts, and movies on Linux. On a Mac, Basic can be answered through
-  AVFoundation's documented sign-in challenge; Windows needs research into
+  parts, and movies on Linux and the Mac. Windows needs research into
   Media Foundation's credential manager.
 - **Kept safe:** filled in only as the request is sent, so scripts never see
   them; no redirects followed with them; plain http only on this computer
