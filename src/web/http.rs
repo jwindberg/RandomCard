@@ -34,9 +34,9 @@ impl std::fmt::Debug for Credentials {
 
 impl Credentials {
     /// The URL with the query parameters added (form-encoded, as queries
-    /// are), and the headers, replacing any of the same name.
+    /// are), and the headers added after the script's. Nothing the script
+    /// sends is taken away: two headers of one name both go.
     fn apply(&self, url: &str, headers: &mut Vec<(String, String)>) -> Result<String, String> {
-        headers.retain(|(k, _)| !self.headers.iter().any(|(c, _)| c.eq_ignore_ascii_case(k)));
         headers.extend(self.headers.iter().cloned());
         if self.query.is_empty() {
             return Ok(url.to_string());
@@ -45,6 +45,25 @@ impl Credentials {
         u.query_pairs_mut().extend_pairs(self.query.iter());
         Ok(u.into())
     }
+}
+
+/// Base64 (RFC 4648) of text's UTF-8.
+pub fn base64_encode(text: &str) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(text.as_bytes())
+}
+
+/// Text from Base64 (RFC 4648), with or without its padding and ignoring
+/// line breaks and spaces; empty if it isn't Base64. Bytes that aren't
+/// UTF-8 come out as U+FFFD.
+pub fn base64_decode(text: &str) -> String {
+    use base64::Engine;
+    let engine = base64::engine::GeneralPurpose::new(
+        &base64::alphabet::STANDARD,
+        base64::engine::GeneralPurposeConfig::new().with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent),
+    );
+    let clean: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    engine.decode(clean).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default()
 }
 
 /// What went wrong, without the URL a connection added a key to.
@@ -172,10 +191,11 @@ pub fn send(req: &Request) -> Result<Response, String> {
     for (k, v) in &headers {
         builder = builder.header(k.as_str(), v.as_str());
     }
-    // Content says what it is (RFC 9110 §8.3): unless the script's headers
-    // do, JSON (RFC 8259) as application/json, other text as text/plain.
+    // Content says what it is (RFC 9110 §8.3): unless the script's or the
+    // connection's headers do, JSON (RFC 8259) as application/json, other
+    // text as text/plain.
     if let Some(body) = req.body.as_deref().filter(|b| !b.is_empty())
-        && !req.headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("content-type"))
+        && !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("content-type"))
     {
         let json = serde_json::from_str::<serde_json::Value>(body).is_ok();
         builder = builder.header("content-type", if json { "application/json" } else { "text/plain; charset=utf-8" });

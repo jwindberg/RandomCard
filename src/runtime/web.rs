@@ -44,7 +44,8 @@ impl Interp {
             "__connectionsetting" => {
                 let (connection, setting) = (args.first()?, args.get(1)?);
                 let w = self.w();
-                Some(super::connections::read(&w.stack, connection, setting).or_else(err))
+                let mut store = super::connections::store();
+                Some(super::connections::read(&mut store, &w.stack, connection, setting).or_else(err))
             }
             // `json x`, then its steps from the outside in, each a kind
             // ("k" for a key, "e" for an element) and a value.

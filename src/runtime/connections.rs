@@ -11,7 +11,9 @@ use std::collections::BTreeMap;
 use std::sync::{LazyLock, Mutex, MutexGuard};
 
 use crate::model::Stack;
-use crate::model::connections::{BEARER, Connection, Field, Given, HEADER, HEADERS, KEY_NAME, QUERY, SEND_AS, TYPE, Type, URL};
+use crate::model::connections::{
+    ANYWHERE, BEARER, Connection, Field, Given, HEADER, HEADERS, KEY_NAME, OVER_HTTP, QUERY, READ_SECRETS, SEND_AS, TYPE, Type, URL,
+};
 use crate::web::http::Credentials;
 
 /// The name RandomCard's secrets go under in the secure store.
@@ -106,7 +108,8 @@ pub fn set(store: &mut Store, stack: &str, conn: &mut Connection, field: &Field,
 }
 
 /// A connection's Headers as lines of `Name: value`, or why not: each name
-/// a token (RFC 9110), and none that signs in, which is the type's job.
+/// a token (RFC 9110). Any header may go, Authorization too, alongside what
+/// the type sends: the type is a helper, not a rule.
 fn header_lines(text: &str) -> Result<Vec<(String, String)>, String> {
     let mut out = Vec::new();
     for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
@@ -117,9 +120,6 @@ fn header_lines(text: &str) -> Result<Vec<(String, String)>, String> {
         let token = |c: char| c.is_ascii_alphanumeric() || "!#$%&'*+-.^_`|~".contains(c);
         if name.is_empty() || !name.chars().all(token) {
             return Err(format!("\"{name}\" isn't a header's name"));
-        }
-        if name.eq_ignore_ascii_case("Authorization") {
-            return Err("Authorization is the type's to send, not a header of the connection's".into());
         }
         dynamic(value.trim())?;
         out.push((name.to_string(), value.trim().to_string()));
@@ -349,14 +349,26 @@ fn declared_field(conn: &Connection, name: &str) -> Result<Field, String> {
 }
 
 /// `setting "URL" of connection "VideoDB"`: the user's value, or the
-/// author's. Secrets are never given to scripts.
-pub fn read(stack: &Stack, conn: &str, setting: &str) -> Result<String, String> {
+/// author's. A secret only when the connection's "Scripts read secrets"
+/// is Yes.
+pub fn read(store: &mut Store, stack: &Stack, conn: &str, setting: &str) -> Result<String, String> {
     let conn = declared(stack, conn)?;
     let f = declared_field(conn, setting)?;
     if f.secret {
-        return Err(format!("Setting \"{}\" of connection \"{}\" is secret: scripts can set it but not read it", f.name, conn.name));
+        if !readable(conn) {
+            return Err(format!(
+                "Setting \"{}\" of connection \"{}\" is secret: scripts can set it, and read it only when its \"{READ_SECRETS}\" is Yes",
+                f.name, conn.name
+            ));
+        }
+        return Ok(store.secret(&stack.name, conn, &f)?.unwrap_or_default());
     }
     Ok(value(conn, &f))
+}
+
+/// Whether scripts may read a connection's secrets.
+fn readable(conn: &Connection) -> bool {
+    conn.find(READ_SECRETS).is_some_and(|f| value(conn, &f).eq_ignore_ascii_case("Yes"))
 }
 
 /// `set setting "URL" of connection "VideoDB" to x`: saved in this copy of
@@ -509,9 +521,10 @@ pub fn sign(store: &mut Store, stack: &Stack, url: &str, named: Option<&str>) ->
         });
     }
     let kind = kind.unwrap_or_default();
-    if kind != Type::None && request.scheme() == "http" && !request.host().is_some_and(|h| local_host(&h)) {
+    let anywhere = conn.find(OVER_HTTP).is_some_and(|f| value(conn, &f) == ANYWHERE);
+    if kind != Type::None && !anywhere && request.scheme() == "http" && !request.host().is_some_and(|h| local_host(&h)) {
         return Err(SignError::Refused(format!(
-            "Connection \"{}\" won't sign in over plain http to {}: its URL needs https",
+            "Connection \"{}\" won't sign in over plain http to {}: its URL needs https, or its \"{OVER_HTTP}\" set to {ANYWHERE}",
             conn.name,
             request.host_str().unwrap_or("")
         )));
@@ -584,18 +597,18 @@ mod tests {
     #[test]
     fn values_and_defaults() {
         let (mut st, mut s) = (Store::in_memory(), stack());
-        assert_eq!(read(&s, "videodb", "url").unwrap(), "http://media.local:9090");
-        assert_eq!(read(&s, "VideoDB", "Type").unwrap(), "");
+        assert_eq!(read(&mut st, &s, "videodb", "url").unwrap(), "http://media.local:9090");
+        assert_eq!(read(&mut st, &s, "VideoDB", "Type").unwrap(), "");
         assert_eq!(st.missing(&s.name, &s.connections[0]), ["Type"]);
         write(&mut st, &mut s, "VideoDB", "type", "basic").unwrap();
-        assert_eq!(read(&s, "VideoDB", "type").unwrap(), "Basic");
+        assert_eq!(read(&mut st, &s, "VideoDB", "type").unwrap(), "Basic");
         assert!(write(&mut st, &mut s, "VideoDB", "Type", "Kerberos").unwrap_err().contains("one of None, Key, Basic, OAuth"));
         write(&mut st, &mut s, "VideoDB", "User name", "ada").unwrap();
-        assert_eq!(read(&s, "VideoDB", "user name").unwrap(), "ada");
+        assert_eq!(read(&mut st, &s, "VideoDB", "user name").unwrap(), "ada");
         // Another stack declares its own connections.
         let other = Stack::new("Other");
-        assert!(read(&other, "VideoDB", "URL").unwrap_err().contains("no connection"));
-        assert!(read(&s, "VideoDB", "Color").unwrap_err().contains("no setting \"Color\""));
+        assert!(read(&mut st, &other, "VideoDB", "URL").unwrap_err().contains("no connection"));
+        assert!(read(&mut st, &s, "VideoDB", "Color").unwrap_err().contains("no setting \"Color\""));
     }
 
     #[test]
@@ -605,9 +618,9 @@ mod tests {
         s.connections[0].declare(URL, Given::Fixed, "https://api.example.com");
         let mut st = Store::in_memory();
         assert!(write(&mut st, &mut s, "VideoDB", "URL", "https://evil.example.com").unwrap_err().contains("fixed by the stack"));
-        assert_eq!(read(&s, "VideoDB", "URL").unwrap(), "https://api.example.com");
+        assert_eq!(read(&mut st, &s, "VideoDB", "URL").unwrap(), "https://api.example.com");
         // A fixed Key has no user name.
-        assert!(read(&s, "VideoDB", "User name").is_err());
+        assert!(read(&mut st, &s, "VideoDB", "User name").is_err());
         assert_eq!(st.missing(&s.name, &s.connections[0]), ["Key"]);
     }
 
@@ -619,7 +632,11 @@ mod tests {
         // A secret doesn't change the stack: it's in the secure store.
         assert!(!write(&mut st, &mut s, "VideoDB", "Password", "hunter2").unwrap());
         assert!(!s.connections[0].values.contains_key("password"));
-        assert!(read(&s, "VideoDB", "Password").unwrap_err().contains("secret"));
+        assert!(read(&mut st, &s, "VideoDB", "Password").unwrap_err().contains("secret"));
+        // Readable when the connection says so.
+        write(&mut st, &mut s, "VideoDB", "Scripts read secrets", "Yes").unwrap();
+        assert_eq!(read(&mut st, &s, "VideoDB", "Password").unwrap(), "hunter2");
+        write(&mut st, &mut s, "VideoDB", "Scripts read secrets", "No").unwrap();
         let c = &s.connections[0];
         let p = c.find("password").unwrap();
         assert_eq!(st.secret(&s.name, c, &p).unwrap().as_deref(), Some("hunter2"));
@@ -762,23 +779,25 @@ mod tests {
         let at = "http://media.local:9090/graphql";
         assert_eq!(sign(&mut st, &s, at, None), Ok(None));
         write(&mut st, &mut s, "VideoDB", "Headers", "x-client-app:RandomCard\n\n  x-request-id: {{$guid}}  ").unwrap();
-        assert_eq!(read(&s, "VideoDB", "headers").unwrap(), "x-client-app: RandomCard\nx-request-id: {{$guid}}");
+        assert_eq!(read(&mut st, &s, "VideoDB", "headers").unwrap(), "x-client-app: RandomCard\nx-request-id: {{$guid}}");
         let one = sign(&mut st, &s, at, None).unwrap().unwrap().headers;
         let two = sign(&mut st, &s, at, None).unwrap().unwrap().headers;
         assert_eq!(one[0], ("x-client-app".to_string(), "RandomCard".to_string()));
         let id = &one[1].1;
         assert_eq!((id.len(), &id[14..15], id.matches('-').count()), (36, "4", 4), "{id}");
         assert_ne!(one[1], two[1]);
-        // Refused when set: not Name: value, a bad name, Authorization, an
-        // unknown dynamic value.
+        // Refused when set: not Name: value, a bad name, an unknown
+        // dynamic value.
         for (bad, why) in [
             ("no colon", "Name: value"),
             ("bad name: x", "isn't a header's name"),
-            ("Authorization: Bearer x", "the type's"),
             ("X-Id: {{$uuid}}", "isn't a dynamic value"),
         ] {
             assert!(write(&mut st, &mut s, "VideoDB", "Headers", bad).unwrap_err().contains(why), "{bad}");
         }
+        // Authorization too, beside what the type sends.
+        write(&mut st, &mut s, "VideoDB", "Headers", "Authorization: Token abc").unwrap();
+        assert_eq!(sign(&mut st, &s, at, None).unwrap().unwrap().headers[0].1, "Token abc");
         let n = dynamic("t={{$timestamp}} n={{$randomInt}} {{$randomUUID}} {{plain}}").unwrap();
         assert!(n.starts_with("t=1") && n.ends_with(" {{plain}}"), "{n}");
     }
@@ -809,6 +828,10 @@ mod tests {
         // Plain http signs in only on this computer and the local network.
         write(&mut st, &mut s, "API", "URL", "http://videos.example.com").unwrap();
         assert!(matches!(sign(&mut st, &s, "http://videos.example.com/graphql", None), Err(SignError::Refused(w)) if w.contains("plain http")));
+        // Unless the connection allows it, for a server that only speaks http.
+        write(&mut st, &mut s, "API", "Sign in over http", "anywhere").unwrap();
+        assert!(sign(&mut st, &s, "http://videos.example.com/graphql", None).unwrap().is_some());
+        write(&mut st, &mut s, "API", "Sign in over http", "").unwrap();
         for local in ["http://localhost:8080", "http://127.0.0.1", "http://media.local:9090", "http://192.168.1.44", "http://[::1]:80"] {
             write(&mut st, &mut s, "API", "URL", local).unwrap();
             assert!(sign(&mut st, &s, &format!("{local}/graphql"), None).unwrap().is_some(), "{local}");
@@ -826,7 +849,7 @@ mod tests {
         assert_eq!(url(&mut st, &s, "VideoDB", "https://x.org/a").unwrap(), "https://x.org/a");
         write(&mut st, &mut s, "VideoDB", "URL", "videodb.example.com/").unwrap();
         assert_eq!(url(&mut st, &s, "VideoDB", "/graphql").unwrap(), "https://videodb.example.com/graphql");
-        assert_eq!(read(&s, "VideoDB", "url").unwrap(), "https://videodb.example.com/");
+        assert_eq!(read(&mut st, &s, "VideoDB", "url").unwrap(), "https://videodb.example.com/");
         for (typed, full) in [
             ("localhost:8080", "http://localhost:8080"),
             ("127.0.0.1/api", "http://127.0.0.1/api"),

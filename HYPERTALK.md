@@ -395,7 +395,7 @@ A function is called with parentheses, `max(3, 7)`, or with `the`,
 | Kind | Functions |
 | --- | --- |
 | Math | `abs`, `annuity`, `atan`, `average`, `compound`, `cos`, `exp`, `exp1`, `exp2`, `ln`, `ln1`, `log2`, `max`, `min`, `random`, `round`, `sin`, `sqrt`, `sum`, `tan`, `trunc` |
-| Text | `charToNum`, `numToChar`, `length`, `offset`, `value`, `textWidth`, `urlEncode`, `urlDecode`, `formEncode`, `formDecode` |
+| Text | `charToNum`, `numToChar`, `length`, `offset`, `value`, `textWidth`, `urlEncode`, `urlDecode`, `formEncode`, `formDecode`, `base64Encode`, `base64Decode` |
 | Time | `the date` (`short`, `long`, `abbrev`), `the time` (`long`), `the seconds`, `the ticks`, `the dateItems` |
 | Mouse | `the mouse`, `the mouseClick`, `the mouseLoc`, `the mouseH`, `the mouseV`, `the clickLoc`, `the clickH`, `the clickV`, `the clickChunk`, `the clickLine`, `the clickText` |
 | Keys | `the shiftKey`, `the optionKey`, `the commandKey` (`cmdKey`), `the controlKey`, `the keysDown` |
@@ -796,7 +796,10 @@ end gotData
   json x` and `the elements of json x`, one a line; `the number of elements
   of json x`; `the pretty of json x`. `set key "name" of json x to "Ada"`
   builds and changes JSON in a variable or field.
-- **Encoding:** `urlEncode`, `urlDecode`, `formEncode`, `formDecode`.
+- **Encoding:** `urlEncode`, `urlDecode`, `formEncode`, `formDecode`, and
+  `base64Encode` and `base64Decode` (RFC 4648, of the text's UTF-8;
+  decoding takes it with or without padding, and gives empty for what
+  isn't Base64).
 
 #### Connections: each person's own settings
 
@@ -830,8 +833,18 @@ Postman names them: `{{$guid}}` and `{{$randomUUID}}` (a random UUID, RFC
 9562 version 4), `{{$timestamp}}` (Unix time in seconds) and
 `{{$randomInt}}` (0 to 1000), so `X-Request-Id: {{$guid}}` sends a new id
 each time. Setting Headers refuses a line that isn't `Name: value`, a name
-that isn't a token (RFC 9110), `Authorization` (signing in is the type's
-job) and a dynamic value it doesn't know.
+that isn't a token (RFC 9110) and a dynamic value it doesn't know.
+
+**Types are helpers, not rules.** Any header can go in Headers or in `the
+httpHeaders`, `Authorization` too, and nothing a script or a connection
+sends is taken away: if a stack sends its own `Authorization` and its
+connection's type sends one as well, both go. A stack that signs in a way
+no type covers uses type None and makes the header itself, with
+`base64Encode` for Basic: `set the httpHeaders to "Authorization: Basic"
+&& base64Encode(user & ":" & password)`. A body sent without a
+Content-Type, from the script or the connection, goes as
+`application/json` when it's JSON and `text/plain; charset=utf-8`
+otherwise.
 
 ```hypertalk
 on mouseUp
@@ -853,7 +866,10 @@ end mouseUp
   computer (`localhost`, `127.0.0.1`, `[::1]`). While the type is open, a
   script can name any type's settings; once it's fixed, only its own.
 - **`set setting "Y" of connection "X" to V`** saves one for this person;
-  `empty` goes back to the author's. A secret can be set but never read.
+  `empty` goes back to the author's. A secret can be set, and read only
+  when the connection's **Scripts read secrets** setting is Yes (it's No
+  until the author or a script says otherwise), for a stack that signs
+  requests its own way.
   A value refused (a fixed setting, or not one of a choice's values) leaves
   the script running, with `the result` saying why.
 - **Values are saved in the stack,** in each person's copy, as an address
@@ -881,7 +897,10 @@ end mouseUp
   that carries it doesn't follow redirects: `the result` is the 3xx, and the
   script decides. Over plain http a sign-in goes only to this computer and
   the local network (`localhost`, `.local` names, private addresses);
-  elsewhere the request isn't sent and `the result` says why.
+  elsewhere the request isn't sent and `the result` says why, unless the
+  connection's **Sign in over http** setting is Anywhere (it's Local
+  network only until the author or a script says otherwise), for a server
+  that only speaks http.
 
 The `examples/` folder has three stacks built on these: ICNDB (a REST
 client for one service), PostCard (a small Postman), and Swatches (colors

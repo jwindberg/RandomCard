@@ -111,6 +111,9 @@ impl Interp {
             // HTML forms' encoding, where + is a space.
             "formencode" => crate::web::http::form_encode(&arg(0)),
             "formdecode" => crate::web::http::form_decode(&arg(0)),
+            // Base64 (RFC 4648), of the text's UTF-8: `"Basic" && base64Encode(user & ":" & pw)`.
+            "base64encode" => crate::web::http::base64_encode(&arg(0)),
+            "base64decode" => crate::web::http::base64_decode(&arg(0)),
             "chartonum" => arg(0).chars().next().map(|c| c as u32).unwrap_or(0).to_string(),
             "numtochar" => {
                 let n = to_int(&arg(0))?;

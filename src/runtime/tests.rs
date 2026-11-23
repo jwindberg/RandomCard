@@ -3502,10 +3502,14 @@ fn connections_sign_in() {
     // Echoes the path, and the credentials it was sent.
     fn echo(_: &str, path: &str, headers: &str, _: &str) -> (u16, &'static str, String) {
         let header = |name: &str| {
-            headers.lines().find_map(|l| {
-                let (k, v) = l.split_once(':')?;
-                k.trim().eq_ignore_ascii_case(name).then(|| v.trim().to_string())
-            })
+            let all: Vec<String> = headers
+                .lines()
+                .filter_map(|l| {
+                    let (k, v) = l.split_once(':')?;
+                    k.trim().eq_ignore_ascii_case(name).then(|| v.trim().to_string())
+                })
+                .collect();
+            (!all.is_empty()).then(|| all.join(","))
         };
         if path.split('?').next() == Some("/moved") {
             return (302, "text/plain", "moved".into());
@@ -3526,11 +3530,16 @@ fn connections_sign_in() {
     run(&mut i, "set setting \"Password\" of connection \"VideoDB\" to \"blueberry\"");
     // Basic (RFC 7617).
     assert_eq!(run(&mut i, "put url \"/graphql\" with connection \"VideoDB\""), "/graphql Basic andpbmRiZXJnOmJsdWViZXJyeQ== ");
-    // The script's own Authorization gives way to the connection's.
+    // The script's own Authorization goes too: nothing it sends is taken
+    // away. (The echo shows each header's values, joined.)
     assert_eq!(
         run(&mut i, &format!("set the httpHeaders to \"Authorization: Bearer mine\"\nput url \"{base}/x\"")),
-        "/x Basic andpbmRiZXJnOmJsdWViZXJyeQ== "
+        "/x Bearer mine,Basic andpbmRiZXJnOmJsdWViZXJyeQ== "
     );
+    // Base64 for a stack that signs in its own way.
+    assert_eq!(run(&mut i, "put base64Encode(\"jwindberg:blueberry\")"), "andpbmRiZXJnOmJsdWViZXJyeQ==");
+    assert_eq!(run(&mut i, "put base64Decode(\"andpbmRiZXJnOmJsdWViZXJyeQ\")"), "jwindberg:blueberry");
+    assert_eq!(run(&mut i, "put base64Decode(\"not base64!\")"), "");
     run(&mut i, "set the httpHeaders to empty");
     // A key: as a header, then a query parameter, which the script's URL
     // (and a message's) never shows.

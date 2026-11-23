@@ -151,7 +151,8 @@ these; which one a stack uses is the author's call.
    there, so a stack works without any setup screens of its own.
 3. **Script access** to them: which connections a stack declares and
    their types; read and set any element that isn't secret and the
-   author didn't fix; set a secret but never read it; whether a
+   author didn't fix; set a secret, and read it where the connection
+   allows (Scripts read secrets: Yes); whether a
    connection is set up; which context is in use; start a sign-in and
    forget one. Enough for an author to build any setup they like. The
    syntax is to design on its own merits.
@@ -173,7 +174,9 @@ these; which one a stack uses is the author's call.
      scheme, host and port, and whole path segments at or below its
      path), and tokens only to the hosts they were issued for.
    - Plain http only on this computer and the local network; https
-     everywhere else, as the Mac app's ATS rule already says.
+     everywhere else, as the Mac app's ATS rule already says. A default,
+     not a cage: a connection's Sign in over http setting, Anywhere,
+     lets its type sign in over http to a server that only speaks it.
    - No redirects followed with credentials, and no URL with a key in it
      shown in an error.
    - Secrets and tokens belong to the URL they were given for: changing

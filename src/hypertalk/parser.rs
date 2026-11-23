@@ -26,7 +26,7 @@ const ZERO_ARG_FUNCS: &[&str] = &[
 const ONE_ARG_FUNCS: &[&str] = &[
     "average", "min", "max", "sum", "random", "round", "sqrt", "trunc", "sin", "cos", "tan", "atan", "exp",
     "exp1", "exp2", "ln", "ln1", "log2", "abs", "chartonum", "numtochar", "value", "length", "param",
-    "urlencode", "urldecode", "formencode", "formdecode",
+    "urlencode", "urldecode", "formencode", "formdecode", "base64encode", "base64decode",
 ];
 
 /// Properties that may be written without `the`, e.g. `visible of field 1`.

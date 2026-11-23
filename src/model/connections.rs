@@ -30,6 +30,17 @@ pub const URL: &str = "URL";
 /// afresh for each request (see `runtime::connections::dynamic`).
 pub const HEADERS: &str = "Headers";
 
+/// The element every connection has for whether its type signs in over
+/// plain http beyond this computer and the local network: by default not,
+/// but a server that only speaks http can be reached.
+pub const OVER_HTTP: &str = "Sign in over http";
+pub const LOCAL_ONLY: &str = "Local network only";
+pub const ANYWHERE: &str = "Anywhere";
+/// The element every connection has for whether scripts can read its
+/// secrets: by default not, but a stack that signs requests its own way
+/// needs them.
+pub const READ_SECRETS: &str = "Scripts read secrets";
+
 /// A connection's type: how its requests sign in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Type {
@@ -77,6 +88,12 @@ pub const KEY_NAME: &str = "Key name";
 const TYPE_DEF: Def = Def { choices: &["None", "Key", "Basic", "OAuth"], ..def(TYPE, "How it signs in") };
 const URL_DEF: Def = def(URL, "Such as https://api.example.com/v2");
 const HEADERS_DEF: Def = Def { optional: true, ..def(HEADERS, "One a line, Name: value") };
+const OVER_HTTP_DEF: Def =
+    Def { optional: true, choices: &[LOCAL_ONLY, ANYWHERE], ..def(OVER_HTTP, "Where the type may sign in over plain http") };
+const READ_SECRETS_DEF: Def =
+    Def { optional: true, choices: &["No", "Yes"], ..def(READ_SECRETS, "Whether scripts can read its secrets") };
+/// The elements every connection has, whatever its type, after its type's.
+const COMMON: [&Def; 3] = [&HEADERS_DEF, &OVER_HTTP_DEF, &READ_SECRETS_DEF];
 const KEY: &[Def] = &[
     Def { secret: true, ..def("Key", "The key the service gave you") },
     Def { choices: &[BEARER, HEADER, QUERY], ..def(SEND_AS, "Bearer, a header, or a query parameter") },
@@ -220,7 +237,7 @@ impl Field {
 /// extra can't take it.
 pub fn reserved(name: &str) -> bool {
     let n = name.trim();
-    [TYPE, URL, HEADERS].iter().chain(Type::ALL.iter().flat_map(|t| t.elements().iter().map(|d| &d.name))).any(|r| r.eq_ignore_ascii_case(n))
+    [TYPE, URL, HEADERS, OVER_HTTP, READ_SECRETS].iter().chain(Type::ALL.iter().flat_map(|t| t.elements().iter().map(|d| &d.name))).any(|r| r.eq_ignore_ascii_case(n))
 }
 
 impl Connection {
@@ -311,7 +328,7 @@ impl Connection {
     pub fn fields(&self, t: Type) -> Vec<Field> {
         let mut out = vec![self.field(&TYPE_DEF), self.field(&URL_DEF)];
         out.extend(t.elements().iter().map(|d| self.field(d)));
-        out.push(self.field(&HEADERS_DEF));
+        out.extend(COMMON.iter().map(|d| self.field(d)));
         out.extend(self.extras());
         out
     }
@@ -320,8 +337,9 @@ impl Connection {
     /// extra: what a script may name.
     pub fn find(&self, name: &str) -> Option<Field> {
         let n = name.trim();
-        [&TYPE_DEF, &URL_DEF, &HEADERS_DEF]
+        [&TYPE_DEF, &URL_DEF]
             .into_iter()
+            .chain(COMMON)
             .chain(self.types().into_iter().flat_map(|t| t.elements().iter()))
             .find(|d| d.name.eq_ignore_ascii_case(n))
             .map(|d| self.field(d))
@@ -337,7 +355,8 @@ mod tests {
     fn a_new_connection() {
         let c = Connection::new("VideoDB");
         let f = c.fields(Type::None);
-        assert_eq!(f.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), [TYPE, URL, HEADERS]);
+        assert_eq!(f.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), [TYPE, URL, HEADERS, OVER_HTTP, READ_SECRETS]);
+        assert_eq!((f[3].fallback(), f[4].fallback()), (LOCAL_ONLY, "No"));
         assert_eq!((f[0].given, f[0].fallback()), (Given::Default, "None"));
         assert_eq!((f[1].given, f[1].fallback()), (Given::Open, ""));
         assert_eq!(c.types(), Type::ALL);
@@ -347,8 +366,8 @@ mod tests {
     fn types_decide_the_elements() {
         let mut c = Connection::new("API");
         let names = |c: &Connection, t| c.fields(t).into_iter().map(|f| f.name).collect::<Vec<_>>();
-        assert_eq!(names(&c, Type::Basic), [TYPE, URL, "User name", "Password", HEADERS]);
-        assert_eq!(names(&c, Type::Key), [TYPE, URL, "Key", SEND_AS, KEY_NAME, HEADERS]);
+        assert_eq!(names(&c, Type::Basic), [TYPE, URL, "User name", "Password", HEADERS, OVER_HTTP, READ_SECRETS]);
+        assert_eq!(names(&c, Type::Key), [TYPE, URL, "Key", SEND_AS, KEY_NAME, HEADERS, OVER_HTTP, READ_SECRETS]);
         assert_eq!(c.fields(Type::Key)[3].fallback(), BEARER);
         assert_eq!(Type::parse(" oauth "), Some(Type::OAuth));
         // Any type's elements while the type is open; only its own once fixed.
@@ -369,6 +388,6 @@ mod tests {
         assert_eq!(c.find("tenant").unwrap().fallback(), "acme");
         assert_eq!(c.find("pin").unwrap().value, "");
         assert!(reserved("user NAME") && !reserved("Tenant"));
-        assert_eq!(c.fields(Type::None).len(), 5);
+        assert_eq!(c.fields(Type::None).len(), 7);
     }
 }

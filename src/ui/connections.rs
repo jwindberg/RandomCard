@@ -7,7 +7,7 @@
 use eframe::egui::{self, RichText};
 
 use super::App;
-use crate::model::connections::{Connection, Element, Field, Given, Header as SentHeader, TYPE, Type, reserved};
+use crate::model::connections::{Connection, Element, Field, Given, Header as SentHeader, Type, reserved};
 
 /// A key ignoring case, as element names are.
 fn key(s: &str) -> String {
@@ -171,7 +171,7 @@ impl App {
                     for t in &types {
                         ui.label(RichText::new(t.name()).strong());
                         ui.end_row();
-                        let own: Vec<Field> = conn.fields(*t).into_iter().filter(|f| !f.extra && f.name != TYPE && f.name != crate::model::connections::URL && f.name != crate::model::connections::HEADERS).collect();
+                        let own: Vec<Field> = conn.fields(*t).into_iter().filter(|f| t.elements().iter().any(|d| d.name == f.name)).collect();
                         changed |= type_rows(ui, conn, &own);
                     }
                 });
