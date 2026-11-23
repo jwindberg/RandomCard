@@ -2049,12 +2049,26 @@ end mouseUp"#,
     b.stack.connections.push(super::connections::Connection {
         name: "Local Server".into(),
         description: "A web server on this computer, such as one you're writing. The Tour only asks it for what you type.".into(),
-        settings: vec![super::connections::Setting {
-            name: super::connections::ADDRESS.into(),
-            hint: "Such as http://localhost:8080".into(),
-            ..Default::default()
+        settings: vec![
+            super::connections::Setting {
+                name: super::connections::ADDRESS.into(),
+                hint: "Such as http://localhost:8080".into(),
+                ..Default::default()
+            },
+            super::connections::Setting {
+                name: "API Key".into(),
+                hint: "If your server wants one: sent as the X-API-Key header".into(),
+                secret: true,
+                optional: true,
+                ..Default::default()
+            },
+        ],
+        // Each request under the Address carries the key, once there is one.
+        credentials: vec![super::connections::Credential {
+            place: super::connections::Place::Header,
+            name: "X-API-Key".into(),
+            value: "{API Key}".into(),
         }],
-        credentials: Vec::new(),
     });
     let c = b.card(main, "Connections");
     b.stack.cards[c].script = r#"-- The address is the user's own, kept on their computer, not in the stack.
@@ -2069,9 +2083,10 @@ end openCard"#
     let about = b.label(
         "About",
         Rect::new(20, 38, 492, 96),
-        "A stack names the services it talks to, and what each person gives for them: an address, a user name, a key. \
-         What they give stays on their computer, never in the stack, and secrets go in the system's secure store. \
-         This stack's connection is in Stack Info ▸ Connections…; your settings are in File ▸ Connections….",
+        "A stack names the services it talks to, what each person gives for them, and how requests sign in. \
+         What they give stays on their computer, never in the stack; secrets go in the system's secure store, and \
+         go only to the connection's Address. This stack's connection is in Stack Info ▸ Connections…; \
+         your settings are in File ▸ Connections….",
         10,
     );
     b.card_part(c, about);
@@ -2116,6 +2131,21 @@ end mouseUp"#,
 end mouseUp"#,
     );
     b.card_part(c, Part { style: PartStyle::RoundRect, ..get });
+    let key = b.button(
+        "Key…",
+        Rect::new(416, 130, 492, 152),
+        r#"on mouseUp
+  -- A secret: a script can set it, never read it. It goes with every
+  -- request under the Address as the X-API-Key header, and nowhere else.
+  ask password "A key for your server, sent as the X-API-Key header (empty to forget it):"
+  if the result is "Cancel" then exit mouseUp
+  set setting "API Key" of connection "Local Server" to it
+  if the result is not empty then put the result into card field "Status"
+  else if it is empty then put "No key: requests go without one." into card field "Status"
+  else put "Kept in the system's secure store. Each Get now sends it." into card field "Status"
+end mouseUp"#,
+    );
+    b.card_part(c, Part { style: PartStyle::RoundRect, ..key });
     let mut status = Part::new_field(b.id(), "Status", Rect::new(20, 158, 492, 176));
     status.lock_text = true;
     status.text_size = 10;
