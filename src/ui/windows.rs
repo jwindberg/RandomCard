@@ -1362,9 +1362,6 @@ impl App {
             }
             return;
         }
-        if self.show_connection_dialog(ctx, &d) {
-            return;
-        }
         if let Dialog::List(list) = &d {
             if !self.dialog_init {
                 self.dialog_init = true;
@@ -1407,7 +1404,7 @@ impl App {
                         reply = Some(DialogReply::Button(b.clone()));
                     }
                 }
-                Dialog::Menu { .. } | Dialog::List(_) | Dialog::Dialoger(_) | Dialog::Connection(_) => {}
+                Dialog::Menu { .. } | Dialog::List(_) | Dialog::Dialoger(_) => {}
                 Dialog::Ask { prompt, password, .. } => {
                     ui.label(RichText::new(prompt).size(14.0));
                     let resp = ui.add(

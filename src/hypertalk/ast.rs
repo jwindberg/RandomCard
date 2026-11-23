@@ -324,6 +324,11 @@ pub enum Cmd {
         value: Expr,
     },
     CreateMenu(Expr),
+    /// `create connection "videodb-basic"`: a new connection in the stack.
+    CreateConnection(Expr),
+    /// `delete connection "videodb-basic"`: gone from the stack, with its
+    /// secrets.
+    DeleteConnection(Expr),
     /// `start using stack "Library"`.
     StartUsing(Expr),
     StopUsing(Expr),

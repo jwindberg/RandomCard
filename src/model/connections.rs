@@ -1,16 +1,179 @@
 //! The services a stack talks to, as its author declares them.
 //!
 //! A stack is an application people share, and each person who uses it
-//! brings their own settings: the address of their server, their user name,
-//! their key. So a connection has two halves. This is the author's half,
-//! saved in the stack: a name, what it's for, and the settings a user gives.
-//! The user's half, the values, is never in the stack: see
-//! `runtime::connections`.
+//! brings their own values: the URL of their server, their user name, their
+//! key. Like an address book shared empty and filled in by each friend, a
+//! connection has the author's half (a name, what it's for, and for each of
+//! its elements whether the author's value is fixed, a default, or left
+//! open) and each user's values, both saved in the stack. Secrets are the
+//! exception: they go in the system's secure store, never in the stack
+//! (see `runtime::connections`).
+//!
+//! Each connection has a type, a helper built into RandomCard (None, Key,
+//! Basic, OAuth), which decides its elements and how a request signs in.
+//! The type is an element too, so it can be fixed by the author or left to
+//! each user: one person's server is open, another's uses Basic.
+
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-/// The setting every connection has: where the service is.
-pub const ADDRESS: &str = "Address";
+/// The element every connection has for its type.
+pub const TYPE: &str = "Type";
+/// The element every connection has for its base: the scheme, host, port
+/// and any path, to which each request adds its own path and query.
+pub const URL: &str = "URL";
+
+/// The element every connection has for headers sent on each request under
+/// its URL: lines of `Name: value`, as `the httpHeaders` has them, such as a
+/// service's `X-Client-App`. A value may hold dynamic values, filled in
+/// afresh for each request (see `runtime::connections::dynamic`).
+pub const HEADERS: &str = "Headers";
+
+/// A connection's type: how its requests sign in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Type {
+    /// Just the URL: a server of one's own, with no security.
+    #[default]
+    None,
+    /// A key, sent as `Authorization: Bearer` (RFC 6750), a header the
+    /// service names, or a query parameter.
+    Key,
+    /// A user name and a password (RFC 7617).
+    Basic,
+    /// OAuth 2.0 (RFC 6749). Its elements are declared; signing in comes
+    /// in a later step.
+    OAuth,
+}
+
+/// One element a type has.
+#[derive(Debug)]
+pub struct Def {
+    pub name: &'static str,
+    /// Shown beside its box, unless the author gives a hint of their own.
+    pub hint: &'static str,
+    /// Kept in the system's secure store, never the author's to give, and
+    /// never given to scripts.
+    pub secret: bool,
+    /// The connection is set up without it.
+    pub optional: bool,
+    /// The values it takes, when it's a choice; the first is its value
+    /// until someone gives one.
+    pub choices: &'static [&'static str],
+}
+
+const fn def(name: &'static str, hint: &'static str) -> Def {
+    Def { name, hint, secret: false, optional: false, choices: &[] }
+}
+
+/// How a Key is sent.
+pub const SEND_AS: &str = "Send as";
+pub const BEARER: &str = "Bearer";
+pub const HEADER: &str = "Header";
+pub const QUERY: &str = "Query";
+/// The header's or query parameter's name, for a Key not sent as Bearer.
+pub const KEY_NAME: &str = "Key name";
+
+const TYPE_DEF: Def = Def { choices: &["None", "Key", "Basic", "OAuth"], ..def(TYPE, "How it signs in") };
+const URL_DEF: Def = def(URL, "Such as https://api.example.com/v2");
+const HEADERS_DEF: Def = Def { optional: true, ..def(HEADERS, "One a line, Name: value") };
+const KEY: &[Def] = &[
+    Def { secret: true, ..def("Key", "The key the service gave you") },
+    Def { choices: &[BEARER, HEADER, QUERY], ..def(SEND_AS, "Bearer, a header, or a query parameter") },
+    Def { optional: true, ..def(KEY_NAME, "The header's or parameter's name, such as X-API-Key or key") },
+];
+const BASIC: &[Def] = &[def("User name", ""), Def { secret: true, ..def("Password", "") }];
+const OAUTH: &[Def] = &[
+    def("Authorization URL", "Where the user signs in"),
+    def("Token URL", "Where tokens come from"),
+    def("Client ID", "The app's id, from the service"),
+    Def { secret: true, optional: true, ..def("Client secret", "None for a public client (PKCE)") },
+    Def { optional: true, ..def("Scopes", "What the app asks to do, separated by spaces") },
+    Def { choices: &["Loopback", "Pasted code"], ..def("Sign-in returns", "How the sign-in comes back to RandomCard") },
+];
+
+impl Type {
+    pub const ALL: [Type; 4] = [Type::None, Type::Key, Type::Basic, Type::OAuth];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Type::None => "None",
+            Type::Key => "Key",
+            Type::Basic => "Basic",
+            Type::OAuth => "OAuth",
+        }
+    }
+
+    /// A type by name, ignoring case.
+    pub fn parse(s: &str) -> Option<Type> {
+        Type::ALL.into_iter().find(|t| t.name().eq_ignore_ascii_case(s.trim()))
+    }
+
+    /// The type's own elements, beyond Type and URL.
+    pub fn elements(self) -> &'static [Def] {
+        match self {
+            Type::None => &[],
+            Type::Key => KEY,
+            Type::Basic => BASIC,
+            Type::OAuth => OAUTH,
+        }
+    }
+}
+
+/// Who gives an element's value.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Given {
+    /// The author's value, which no one changes.
+    Fixed,
+    /// The author's value, which a user may change.
+    Default,
+    /// Each user gives it.
+    #[default]
+    Open,
+}
+
+impl Given {
+    pub const ALL: [Given; 3] = [Given::Fixed, Given::Default, Given::Open];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Given::Fixed => "Fixed",
+            Given::Default => "Default",
+            Given::Open => "Open",
+        }
+    }
+}
+
+/// The author's word on one element: a type's, or one of the author's own
+/// (an extra, such as a tenant id). An element of a type that isn't listed
+/// is open, with the type's hint.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Element {
+    pub name: String,
+    /// The author's value, when it's fixed or a default. Never for a secret:
+    /// it would be in the stack for anyone to read.
+    pub value: String,
+    pub given: Given,
+    /// A hint of the author's own, shown beside its box.
+    pub hint: String,
+    /// For an extra: kept in the secure store, never given to scripts.
+    pub secret: bool,
+    /// For an extra: the connection is set up without it.
+    pub optional: bool,
+}
+
+/// A header sent on every request under the connection's URL (`Accept`, a
+/// service's version header): a fixed value, or an element's. Headers carry
+/// no security: that's the type's job.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Header {
+    pub name: String,
+    pub value: String,
+    /// The element whose value it sends, in place of `value`.
+    pub element: String,
+}
 
 /// A service the stack talks to.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -20,102 +183,150 @@ pub struct Connection {
     pub name: String,
     /// What it is, shown to the user who sets it up.
     pub description: String,
-    /// What a user gives, in the order they're asked: Address first.
-    pub settings: Vec<Setting>,
-    /// How each request to the Address proves who's asking, made from the
-    /// settings: Basic, a header, a query parameter, or more than one.
-    pub credentials: Vec<Credential>,
+    /// The author's word on its elements: Type and URL, the types', and
+    /// extras of the author's own.
+    pub elements: Vec<Element>,
+    pub headers: Vec<Header>,
+    /// The values this copy's user has given, by element name in lower
+    /// case: never a secret's.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub values: BTreeMap<String, String>,
 }
 
-/// Where a credential goes on each request.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Place {
-    /// HTTP Basic (RFC 7617): the value is `user:password`, sent as
-    /// `Authorization: Basic` and its base64.
-    #[default]
-    Basic,
-    /// A header: `Authorization` with `Bearer {Token}` (RFC 6750), or one
-    /// the service names, such as `X-API-Key`.
-    Header,
-    /// A query parameter, such as `key`, added to the address.
-    Query,
-}
-
-/// One proof sent with each request. Its value is text with settings in
-/// braces, `{User name}:{Password}` or `Bearer {API Key}`, filled in from
-/// the user's values when the request is sent; scripts never see it.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Credential {
-    pub place: Place,
-    /// The header's or query parameter's name; none for Basic.
+/// An element as a connection has it: the type's definition (or the
+/// extra's) with the author's word on it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Field {
     pub name: String,
-    pub value: String,
-}
-
-/// One thing a user gives for a connection.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Setting {
-    pub name: String,
-    /// A hint shown beside its box ("Your account's API key").
     pub hint: String,
-    /// The value until the user gives one, such as a usual address. Never
-    /// for a secret: a default would be in the stack for anyone to read.
-    pub default: String,
-    /// Kept in the system's secure store, never shown again once saved,
-    /// and never given to scripts.
     pub secret: bool,
-    /// The connection is set up without it; a credential that uses it is
-    /// left off while it's empty (a key some people have, for more calls).
     pub optional: bool,
+    pub choices: &'static [&'static str],
+    pub given: Given,
+    /// The author's value; empty for a secret, and for one left open.
+    pub value: String,
+    /// One of the author's own, not a type's.
+    pub extra: bool,
+}
+
+impl Field {
+    /// The value until someone gives one: the author's, or a choice's first.
+    pub fn fallback(&self) -> &str {
+        if !self.value.is_empty() { &self.value } else { self.choices.first().copied().unwrap_or("") }
+    }
+}
+
+/// Whether a name is one of any type's elements, Type and URL included: an
+/// extra can't take it.
+pub fn reserved(name: &str) -> bool {
+    let n = name.trim();
+    [TYPE, URL, HEADERS].iter().chain(Type::ALL.iter().flat_map(|t| t.elements().iter().map(|d| &d.name))).any(|r| r.eq_ignore_ascii_case(n))
 }
 
 impl Connection {
-    /// A new connection, with its Address.
+    /// A new connection: its type a default of None, its URL open.
     pub fn new(name: &str) -> Connection {
         Connection {
             name: name.to_string(),
-            description: String::new(),
-            settings: vec![Setting { name: ADDRESS.into(), ..Setting::default() }],
-            credentials: Vec::new(),
+            elements: vec![Element { name: TYPE.into(), value: "None".into(), given: Given::Default, ..Element::default() }],
+            ..Connection::default()
         }
     }
 
-    /// HTTP Basic from a user name and a secret password, the usual way.
-    pub fn add_basic(&mut self) {
-        for (name, secret) in [("User name", false), ("Password", true)] {
-            if self.setting(name).is_none() {
-                self.settings.push(Setting { name: name.into(), secret, ..Setting::default() });
+    /// The author's word on an element, by name, ignoring case.
+    pub fn element(&self, name: &str) -> Option<&Element> {
+        self.elements.iter().find(|e| e.name.eq_ignore_ascii_case(name.trim()))
+    }
+
+    /// The author's word on an element, added open if there was none.
+    pub fn element_mut(&mut self, name: &str) -> &mut Element {
+        let i = match self.elements.iter().position(|e| e.name.eq_ignore_ascii_case(name.trim())) {
+            Some(i) => i,
+            None => {
+                self.elements.push(Element { name: name.trim().to_string(), ..Element::default() });
+                self.elements.len() - 1
             }
+        };
+        &mut self.elements[i]
+    }
+
+    /// Set the author's word on an element: who gives it, and the value.
+    pub fn declare(&mut self, name: &str, given: Given, value: &str) {
+        let e = self.element_mut(name);
+        e.given = given;
+        e.value = value.to_string();
+    }
+
+    /// The type the author fixed, if they did.
+    pub fn fixed_type(&self) -> Option<Type> {
+        self.element(TYPE).filter(|e| e.given == Given::Fixed).and_then(|e| Type::parse(&e.value))
+    }
+
+    /// The types a user may choose: the fixed one, or all of them.
+    pub fn types(&self) -> Vec<Type> {
+        match self.fixed_type() {
+            Some(t) => vec![t],
+            None => Type::ALL.to_vec(),
         }
-        self.credentials.push(Credential { place: Place::Basic, name: String::new(), value: "{User name}:{Password}".into() });
     }
 
-    /// A setting by name, ignoring case.
-    pub fn setting(&self, name: &str) -> Option<&Setting> {
-        self.settings.iter().find(|s| s.name.eq_ignore_ascii_case(name.trim()))
+    fn field(&self, d: &Def) -> Field {
+        let e = self.element(d.name);
+        let given = if d.secret { Given::Open } else { e.map_or(Given::Open, |e| e.given) };
+        Field {
+            name: d.name.to_string(),
+            hint: e.map(|e| e.hint.clone()).filter(|h| !h.is_empty()).unwrap_or_else(|| d.hint.to_string()),
+            secret: d.secret,
+            optional: d.optional,
+            choices: d.choices,
+            given,
+            value: if given == Given::Open { String::new() } else { e.map(|e| e.value.clone()).unwrap_or_default() },
+            extra: false,
+        }
     }
-}
 
-/// The settings a credential's value names, in braces, in order.
-pub fn named_settings(value: &str) -> Vec<&str> {
-    let mut names = Vec::new();
-    let mut rest = value;
-    while let Some(open) = rest.find('{') {
-        let Some(close) = rest[open..].find('}') else { break };
-        names.push(rest[open + 1..open + close].trim());
-        rest = &rest[open + close + 1..];
+    /// The author's own elements, beyond any type's.
+    pub fn extras(&self) -> Vec<Field> {
+        self.elements
+            .iter()
+            .filter(|e| !reserved(&e.name))
+            .map(|e| {
+                let given = if e.secret { Given::Open } else { e.given };
+                Field {
+                    name: e.name.clone(),
+                    hint: e.hint.clone(),
+                    secret: e.secret,
+                    optional: e.optional,
+                    choices: &[],
+                    given,
+                    value: if given == Given::Open { String::new() } else { e.value.clone() },
+                    extra: true,
+                }
+            })
+            .collect()
     }
-    names
-}
 
-/// A new stack's lasting identity: 128 random bits, in hex. Users' settings
-/// for a stack's connections are kept under it, so they follow the stack
-/// when its file is moved or renamed. A copy of a stack keeps it: it's the
-/// same application.
-pub fn new_uid() -> String {
-    format!("{:032x}", rand::random::<u128>())
+    /// The elements a connection of type `t` has, in the order they're
+    /// asked: Type, URL, the type's, Headers, then the author's own.
+    pub fn fields(&self, t: Type) -> Vec<Field> {
+        let mut out = vec![self.field(&TYPE_DEF), self.field(&URL_DEF)];
+        out.extend(t.elements().iter().map(|d| self.field(d)));
+        out.push(self.field(&HEADERS_DEF));
+        out.extend(self.extras());
+        out
+    }
+
+    /// An element by name, of any type the connection may have, or an
+    /// extra: what a script may name.
+    pub fn find(&self, name: &str) -> Option<Field> {
+        let n = name.trim();
+        [&TYPE_DEF, &URL_DEF, &HEADERS_DEF]
+            .into_iter()
+            .chain(self.types().into_iter().flat_map(|t| t.elements().iter()))
+            .find(|d| d.name.eq_ignore_ascii_case(n))
+            .map(|d| self.field(d))
+            .or_else(|| self.extras().into_iter().find(|f| f.name.eq_ignore_ascii_case(n)))
+    }
 }
 
 #[cfg(test)]
@@ -123,31 +334,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_connection_has_an_address() {
+    fn a_new_connection() {
         let c = Connection::new("VideoDB");
-        assert_eq!(c.settings.len(), 1);
-        assert!(c.setting("address").is_some() && c.setting(" ADDRESS ").is_some());
-        assert!(c.setting("Password").is_none());
+        let f = c.fields(Type::None);
+        assert_eq!(f.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), [TYPE, URL, HEADERS]);
+        assert_eq!((f[0].given, f[0].fallback()), (Given::Default, "None"));
+        assert_eq!((f[1].given, f[1].fallback()), (Given::Open, ""));
+        assert_eq!(c.types(), Type::ALL);
     }
 
     #[test]
-    fn basic_and_its_settings() {
-        let mut c = Connection::new("VideoDB");
-        c.add_basic();
-        assert_eq!(c.settings.iter().map(|s| (s.name.as_str(), s.secret)).collect::<Vec<_>>(), [
-            ("Address", false),
-            ("User name", false),
-            ("Password", true)
-        ]);
-        assert_eq!(named_settings(&c.credentials[0].value), ["User name", "Password"]);
-        assert_eq!(named_settings("Bearer { Token }"), ["Token"]);
-        assert!(named_settings("no braces {").is_empty());
+    fn types_decide_the_elements() {
+        let mut c = Connection::new("API");
+        let names = |c: &Connection, t| c.fields(t).into_iter().map(|f| f.name).collect::<Vec<_>>();
+        assert_eq!(names(&c, Type::Basic), [TYPE, URL, "User name", "Password", HEADERS]);
+        assert_eq!(names(&c, Type::Key), [TYPE, URL, "Key", SEND_AS, KEY_NAME, HEADERS]);
+        assert_eq!(c.fields(Type::Key)[3].fallback(), BEARER);
+        assert_eq!(Type::parse(" oauth "), Some(Type::OAuth));
+        // Any type's elements while the type is open; only its own once fixed.
+        assert!(c.find("password").is_some() && c.find("client id").is_some());
+        c.declare(TYPE, Given::Fixed, "Key");
+        assert_eq!(c.types(), [Type::Key]);
+        assert!(c.find("Password").is_none() && c.find("key name").is_some());
     }
 
     #[test]
-    fn stack_ids_differ() {
-        let (a, b) = (new_uid(), new_uid());
-        assert_eq!(a.len(), 32);
-        assert_ne!(a, b);
+    fn secrets_are_never_the_authors() {
+        let mut c = Connection::new("API");
+        c.declare("Password", Given::Fixed, "hunter2");
+        let p = c.find("Password").unwrap();
+        assert_eq!((p.given, p.value.as_str()), (Given::Open, ""));
+        c.elements.push(Element { name: "Tenant".into(), value: "acme".into(), given: Given::Default, ..Element::default() });
+        c.elements.push(Element { name: "Pin".into(), value: "1234".into(), given: Given::Fixed, secret: true, ..Element::default() });
+        assert_eq!(c.find("tenant").unwrap().fallback(), "acme");
+        assert_eq!(c.find("pin").unwrap().value, "");
+        assert!(reserved("user NAME") && !reserved("Tenant"));
+        assert_eq!(c.fields(Type::None).len(), 5);
     }
 }

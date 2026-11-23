@@ -19,7 +19,7 @@ const ZERO_ARG_FUNCS: &[&str] = &[
     "clickloc", "clickh", "clickv", "clickchunk", "clickline", "clicktext", "shiftkey", "optionkey",
     "commandkey", "cmdkey", "controlkey", "ctrlkey", "result", "tool", "paramcount", "params", "version",
     "selectedtext", "selectedchunk", "selectedline", "selectedfield", "selectedloc", "foundtext",
-    "foundchunk", "foundline", "foundfield", "menus", "stacks", "stacksinuse", "windows", "sound", "speech", "voices",
+    "foundchunk", "foundline", "foundfield", "menus", "connections", "stacks", "stacksinuse", "windows", "sound", "speech", "voices",
     "destination", "screenrect", "systemversion", "diskspace", "heapspace", "osname", "pathseparator", "osversion", "dateitems",
 ];
 
@@ -1180,6 +1180,10 @@ impl Parser {
                 let (connection, message) = self.url_options()?;
                 Cmd::Http { method: Expr::Lit("DELETE".into()), body: None, url, connection, message }
             }
+            "delete" if self.is("connection") && self.starts_term_at(1) => {
+                self.advance();
+                Cmd::DeleteConnection(self.expr()?)
+            }
             "delete" => Cmd::Delete(self.expr()?),
             // `post body to url "…"`, and patch and query the same way.
             "post" | "patch" | "query" => {
@@ -1520,6 +1524,10 @@ impl Parser {
                 }
             }
             "arrowkey" => Cmd::ArrowKey(self.expr()?),
+            "create" if self.is("connection") && self.starts_term_at(1) => {
+                self.advance();
+                Cmd::CreateConnection(self.expr()?)
+            }
             "create" if self.is("menu") => {
                 self.advance();
                 Cmd::CreateMenu(self.expr()?)

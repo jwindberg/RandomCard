@@ -73,9 +73,9 @@ pub fn lookup(source: &str, stack: &Stack) -> Option<Image> {
         known.insert(source.to_string(), Image::Loading);
         drop(known);
         let url = source.to_string();
-        // A picture under a connection's Address is fetched with its
+        // A picture under a connection's URL is fetched with its
         // credentials, as the stack's requests are.
-        let credentials = super::connections::sign(&mut super::connections::store(), stack, &url);
+        let credentials = super::connections::sign(&mut super::connections::store(), stack, &url, None);
         std::thread::spawn(move || {
             let fetched = credentials
                 .map_err(super::connections::SignError::why)

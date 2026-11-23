@@ -234,6 +234,8 @@ impl Interp {
                     _ => String::new(),
                 }
             }
+            // The stack's connections, by name, a line each.
+            "connections" => self.w().stack.connections.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join("\n"),
             "menus" => self.w().menus.iter().map(|m| m.name.as_str()).collect::<Vec<_>>().join("\n"),
             // Every open stack, the current one first.
             "stacks" => {

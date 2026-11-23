@@ -498,9 +498,6 @@ fn tour_palette() -> super::Palette {
 
 pub fn build() -> Stack {
     let mut s = Stack::new("Tour");
-    // The same each time it's built, so what users set up for its
-    // connection lasts.
-    s.uid = "5f2c7e0a9b1d4c3e8a6f0b2d4e6c8a1f".into();
     s.backgrounds.clear();
     s.cards.clear();
     s.script = STACK_SCRIPT.into();
@@ -2043,34 +2040,22 @@ end mouseUp"#,
     // (Stack Info ▸ Connections…), with each person's own settings kept on
     // their computer. The Tour's has no address until the user gives one, so
     // the first Get asks for it: a server of their own, on their computer.
-    b.stack.connections.push(super::connections::Connection {
-        name: "Local Server".into(),
-        description: "A web server on this computer, such as one you're writing. The Tour only asks it for what you type.".into(),
-        settings: vec![
-            super::connections::Setting {
-                name: super::connections::ADDRESS.into(),
-                hint: "Such as http://localhost:8080".into(),
-                ..Default::default()
-            },
-            super::connections::Setting {
-                name: "API Key".into(),
-                hint: "If your server wants one: sent as the X-API-Key header".into(),
-                secret: true,
-                optional: true,
-                ..Default::default()
-            },
-        ],
-        // Each request under the Address carries the key, once there is one.
-        credentials: vec![super::connections::Credential {
-            place: super::connections::Place::Header,
-            name: "X-API-Key".into(),
-            value: "{API Key}".into(),
-        }],
-    });
+    {
+        use super::connections::{Connection, Given, KEY_NAME, SEND_AS, TYPE, URL};
+        let mut conn = Connection::new("Local Server");
+        conn.description = "A web server on this computer, such as one you're writing. The Tour only asks it for what you type.".into();
+        // Open, or a key sent as the X-API-Key header once there is one.
+        conn.declare(TYPE, Given::Default, "None");
+        conn.declare(URL, Given::Open, "");
+        conn.element_mut(URL).hint = "Such as http://localhost:8080".into();
+        conn.declare(SEND_AS, Given::Fixed, "Header");
+        conn.declare(KEY_NAME, Given::Fixed, "X-API-Key");
+        b.stack.connections.push(conn);
+    }
     let c = b.card(main, "Connections");
-    b.stack.cards[c].script = r#"-- The address is the user's own, kept on their computer, not in the stack.
+    b.stack.cards[c].script = r#"-- The URL is the user's own, kept on their computer, not in the stack.
 on openCard
-  put setting "Address" of connection "Local Server" into card field "Address"
+  put setting "URL" of connection "Local Server" into card field "Address"
   put empty into card field "Status"
   pass openCard
 end openCard"#
@@ -2084,8 +2069,8 @@ end openCard"#
         Rect::new(20, 38, 492, 96),
         "A stack names a server it talks to, and each person says where theirs is and how to sign in. That stays on \
          their computer, never in the stack, and a key goes only to its server. Try it with a server of your own, \
-         such as python3 -m http.server 8000 in a terminal. The stack's side is in Stack Info ▸ Connections…, \
-         yours in File ▸ Connections….",
+         such as python3 -m http.server 8000 in a terminal. The stack's side is in Stack Info ▸ Connections…; \
+         your URL and key are set by the buttons here.",
         10,
     );
     b.card_part(c, about);
@@ -2100,14 +2085,12 @@ end openCard"#
         Rect::new(338, 102, 408, 124),
         r#"on mouseUp
   -- Saved for this user, on this computer. Empty forgets it.
-  set setting "Address" of connection "Local Server" to card field "Address"
+  set setting "URL" of connection "Local Server" to card field "Address"
   if the result is not empty then put the result into card field "Status"
   else put "Saved on this computer." into card field "Status"
 end mouseUp"#,
     );
     b.card_part(c, Part { style: PartStyle::RoundRect, ..set });
-    let setup = b.button("Set Up…", Rect::new(416, 102, 492, 124), "on mouseUp\n  doMenu \"Connections…\"\nend mouseUp");
-    b.card_part(c, Part { style: PartStyle::RoundRect, ..setup });
     let l = b.label("Path Label", Rect::new(20, 134, 76, 150), "Path:", 10);
     b.card_part(c, l);
     let mut path = Part::new_field(b.id(), "Path", Rect::new(78, 132, 330, 150));
@@ -2119,14 +2102,13 @@ end mouseUp"#,
         "Get",
         Rect::new(338, 130, 408, 152),
         r#"on mouseUp
-  -- with connection: a path is joined to the connection's Address. Not set
-  -- up yet, RandomCard asks for it; cancelled, it is empty and the result
-  -- says what's missing.
+  -- with connection: a path is joined to the connection's URL. Not set
+  -- up yet, it is empty and the result says what's missing.
   put "Waiting…" into card field "Status"
   put url (card field "Path") with connection "Local Server" into card field "Reply"
   if the result is not empty then put the result into card field "Status"
-  else put the responseStatus && "from" && setting "Address" of connection "Local Server" into card field "Status"
-  put setting "Address" of connection "Local Server" into card field "Address"
+  else put the responseStatus && "from" && setting "URL" of connection "Local Server" into card field "Status"
+  put setting "URL" of connection "Local Server" into card field "Address"
 end mouseUp"#,
     );
     b.card_part(c, Part { style: PartStyle::RoundRect, ..get });
@@ -2135,10 +2117,14 @@ end mouseUp"#,
         Rect::new(416, 130, 492, 152),
         r#"on mouseUp
   -- A secret: a script can set it, never read it. It goes with every
-  -- request under the Address as the X-API-Key header, and nowhere else.
+  -- request under the URL as the X-API-Key header, and nowhere else.
   ask password "A key for your server, sent as the X-API-Key header (empty to forget it):"
   if the result is "Cancel" then exit mouseUp
-  set setting "API Key" of connection "Local Server" to it
+  set setting "Key" of connection "Local Server" to it
+  if the result is empty then
+    if it is empty then set setting "Type" of connection "Local Server" to "None"
+    else set setting "Type" of connection "Local Server" to "Key"
+  end if
   if the result is not empty then put the result into card field "Status"
   else if it is empty then put "No key: requests go without one." into card field "Status"
   else put "Kept in the system's secure store. Each Get now sends it." into card field "Status"

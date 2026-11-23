@@ -248,6 +248,12 @@ text goes from one field to another (by menu, keyboard or `doMenu`).
   `the selectedLine` reporting such selections.
 - **The selection in the message box:** `the selection` and
   `the selectedText` only see fields.
+- **Password fields,** which HyperCard never had: `set the password of
+  field "Password" to true` shows dots for what's typed, as every modern
+  system's password box does, while the field's text is still what was
+  typed. Stacks that sign in to a server ask for a secret on a card of
+  their own (the example stack's New Connection card), and today it shows
+  as typed.
 - **`autoTab`** behavior. Character positions within a word come from
   egui's font, so a click can land a character away from where it would
   have in HyperCard; line breaks and line heights match.

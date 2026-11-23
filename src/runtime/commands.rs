@@ -450,17 +450,22 @@ impl Interp {
             }
             Cmd::SetConnectionSetting { connection, setting, value } => {
                 let (connection, setting, value) = (self.eval(connection)?, self.eval(setting)?, self.eval(value)?);
-                let w = self.w();
+                let mut w = self.w();
+                let declared = w.stack.connection(&connection).and_then(|c| c.find(&setting)).is_some();
                 let mut store = super::connections::store();
-                match super::connections::write(&mut store, &w.stack, &connection, &setting, &value) {
-                    Ok(()) => {
+                match super::connections::write(&mut store, &mut w.stack, &connection, &setting, &value) {
+                    Ok(changed) => {
+                        // Saved in this copy of the stack, as a field's text is.
+                        if changed {
+                            w.dirty = true;
+                        }
                         drop((store, w));
                         self.result.clear();
                         Ok(())
                     }
-                    // A secret kept only for this session, or a file that
-                    // couldn't be written: the script goes on, told why.
-                    Err(why) if w.stack.connection(&connection).and_then(|c| c.setting(&setting)).is_some() => {
+                    // A value refused, or a secret kept only for this
+                    // session: the script goes on, told why.
+                    Err(why) if declared => {
                         drop((store, w));
                         self.result = why;
                         Ok(())
@@ -646,6 +651,20 @@ impl Interp {
             Cmd::Enable(e) | Cmd::Disable(e) if is_menu(e) => Ok(()),
             Cmd::Enable(Expr::Menu(r)) => self.enable_menu(r, true),
             Cmd::Disable(Expr::Menu(r)) => self.enable_menu(r, false),
+            Cmd::CreateConnection(e) => {
+                let name = self.eval(e)?;
+                let mut w = self.w();
+                super::connections::create(&mut w.stack, &name).or_else(err)?;
+                w.dirty = true;
+                Ok(())
+            }
+            Cmd::DeleteConnection(e) => {
+                let name = self.eval(e)?;
+                let mut w = self.w();
+                super::connections::delete(&mut super::connections::store(), &mut w.stack, &name).or_else(err)?;
+                w.dirty = true;
+                Ok(())
+            }
             Cmd::CreateMenu(e) => {
                 let name = self.eval(e)?;
                 self.create_menu(&name)
@@ -2446,7 +2465,6 @@ impl Interp {
             "protect stack" => self.request(UiRequest::ProtectStack),
             "text color" => self.request(UiRequest::TextColor),
             "preferences" => self.request(UiRequest::Preferences),
-            "connections" => self.request(UiRequest::Connections),
             // "Tool Panel" was RandomCard's name before the palettes.
             "tools palette" | "tool panel" => self.request(UiRequest::TogglePalette),
             "print card" => {

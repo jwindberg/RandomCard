@@ -801,55 +801,87 @@ end gotData
 #### Connections: each person's own settings
 
 A stack is an application people share, and each person who uses it brings
-their own server address, user name or key. A stack names the services it
-talks to in Stack Info ▸ Connections…: each **connection** has a name, a
-description, and the settings a person gives, each with a hint, a default,
-and whether it's secret. Every connection has an Address.
+their own server, user name or key. A stack names the services it talks to
+in Stack Info ▸ Connections…: each **connection** has a name, a
+description, and a **type** that decides its settings and how each request
+signs in:
+
+| Type | Settings | Each request carries |
+|---|---|---|
+| None | URL | nothing more |
+| Key | URL, Key, Send as (Bearer, Header or Query), Key name | `Authorization: Bearer` (RFC 6750), the header named, or the query parameter named |
+| Basic | URL, User name, Password | `Authorization: Basic` (RFC 7617) |
+| OAuth | URL, Authorization URL, Token URL, Client ID, Client secret, Scopes, Sign-in returns | not yet: declared, signing in comes later |
+
+For every setting, the type included, the author says who gives it:
+**Fixed** (the author's value, for everyone), **Default** (the author's
+value, which each person may change) or **Open** (each person gives it).
+Secrets (Key, Password, Client secret) are always each person's own. With
+the type open, the same stack serves an open server for one person and
+Basic for another. A connection can also have settings of the author's
+own, and headers sent on every request under its URL (`Accept`, a
+version header), each a fixed value or a setting's.
+
+Every connection also has a **Headers** setting, given like any other:
+lines of `Name: value`, as `the httpHeaders` has them, sent on every
+request under its URL, such as `X-Client-App: RandomCard`. A header's
+value can hold dynamic values, made afresh for each request, named as
+Postman names them: `{{$guid}}` and `{{$randomUUID}}` (a random UUID, RFC
+9562 version 4), `{{$timestamp}}` (Unix time in seconds) and
+`{{$randomInt}}` (0 to 1000), so `X-Request-Id: {{$guid}}` sends a new id
+each time. Setting Headers refuses a line that isn't `Name: value`, a name
+that isn't a token (RFC 9110), `Authorization` (signing in is the type's
+job) and a dynamic value it doesn't know.
 
 ```hypertalk
 on mouseUp
   post body to url "/graphql" with connection "VideoDB"
   put url "/videos/12" with connection "VideoDB" into reply
-  put setting "Address" of connection "VideoDB" into field "Server"
-  set setting "Address" of connection "VideoDB" to "videos.local:9090"
+  put setting "URL" of connection "VideoDB" into field "Server"
+  set setting "URL" of connection "VideoDB" to "videos.local:9090"
+  set setting "Type" of connection "VideoDB" to "Basic"
 end mouseUp
 ```
 
 - **`with connection "X"`** after `url` and on every request (`post`, `put
   … to url`, `patch`, `query`, `delete url`, `request`, `load url`), with
-  or before `with message`. A path is joined to the connection's Address; a
-  full address is used as it is.
-- **`setting "Y" of connection "X"`** reads a person's value, or the default.
-  An Address always comes with its scheme: https, or http for this computer
-  (`localhost`, `127.0.0.1`, `[::1]`).
+  or before `with message`. A path is joined to the connection's URL, its
+  base (`https://host.com/videodb` and `/movies/12` send
+  `https://host.com/videodb/movies/12`); a full address is used as it is.
+- **`setting "Y" of connection "X"`** reads a person's value, or the
+  author's. A URL always comes with its scheme: https, or http for this
+  computer (`localhost`, `127.0.0.1`, `[::1]`). While the type is open, a
+  script can name any type's settings; once it's fixed, only its own.
 - **`set setting "Y" of connection "X" to V`** saves one for this person;
-  `empty` goes back to the default. A secret can be set but never read.
-- **Values never go in the stack.** Ordinary ones are kept in
-  `connections.json` in RandomCard's settings folder, under the stack's
-  lasting identity; secrets go in the system's secure store (the Keychain,
-  Credential Manager, or the Secret Service). With none, a secret lasts
-  until RandomCard quits, and `the result` says so.
-- **Setting up:** File ▸ Connections… shows the stack's connections, and the
-  first time a script uses one that isn't set up, RandomCard asks for what's
-  missing. Cancelled, the request is like one that got no reply: `it` is
-  empty and `the result` says what's needed ("Connection "VideoDB" isn't set
-  up: it needs Password"). A connection the stack doesn't name is a script
-  error.
-- **Signing in:** a connection can say how each request proves who's
-  asking: HTTP Basic (RFC 7617) from `{User name}:{Password}`, a header
-  such as `Authorization: Bearer {Token}` or `X-API-Key: {Key}`, a query
-  parameter such as `key={API Key}`, or several at once. Settings go in
-  braces and are filled in as the request is sent; scripts never see
-  them, not even in a `with message` handler's URL. They go with every
-  request under the connection's Address (same scheme, host, port, and a
-  path at or below it), whether the script names the connection or not,
-  pictures and movies included (Linux and Mac, so far), and nowhere else. A request that carries them
-  doesn't follow redirects: `the result` is the 3xx, and the script
-  decides. Over plain http they go only to this computer and the local
-  network (`localhost`, `.local` names, private addresses); elsewhere the
-  request isn't sent and `the result` says why. An **optional** setting
-  doesn't need to be set up; a credential that uses it is left off while
-  it's empty.
+  `empty` goes back to the author's. A secret can be set but never read.
+  A value refused (a fixed setting, or not one of a choice's values) leaves
+  the script running, with `the result` saying why.
+- **Values are saved in the stack,** in each person's copy, as an address
+  book's are. Secrets go in the system's secure store (the Keychain,
+  Credential Manager, or the Secret Service), named by the stack, the
+  connection and the setting, and never in the stack. With no secure
+  store, a secret lasts until RandomCard quits, and `the result` says so.
+- **Setting up is the stack's own:** RandomCard has no setup form. A
+  request on a connection that isn't set up isn't sent: `it` is empty and
+  `the result` says what's needed ("Connection "VideoDB" isn't set up: it
+  needs Password"), for the stack to show its own settings card. A
+  connection the stack doesn't name is a script error.
+- **`the connections`** lists the stack's connections, a line each.
+  **`create connection "videodb-basic"`** adds one (its type a default of
+  None, its URL open), and **`delete connection "videodb-basic"`**
+  removes it and forgets its secrets: enough for a stack's own editor,
+  where each server is a connection and the stack chooses which it uses.
+- **Signing in:** scripts never see what the type adds, not even in a `with
+  message` handler's URL. It goes with every request under the
+  connection's URL (same scheme, host, port, and a path at or below it),
+  whether the script names the connection or not, pictures and movies
+  included (Linux and Mac, so far), and nowhere else. A request that names
+  its connection is signed by that one, so several connections can share
+  a server; otherwise the one whose URL fits closest signs it. A request
+  that carries it doesn't follow redirects: `the result` is the 3xx, and the
+  script decides. Over plain http a sign-in goes only to this computer and
+  the local network (`localhost`, `.local` names, private addresses);
+  elsewhere the request isn't sent and `the result` says why.
 
 The `examples/` folder has three stacks built on these: ICNDB (a REST
 client for one service), PostCard (a small Postman), and Swatches (colors

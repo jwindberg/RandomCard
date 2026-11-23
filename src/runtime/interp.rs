@@ -141,9 +141,9 @@ pub struct Interp {
     pub pushed_cards: Vec<(Id, String)>,
     /// For tests: canned dialog answers.
     pub canned_answers: Vec<DialogReply>,
-    /// Connections the user chose not to set up when asked, so a script
-    /// that keeps trying doesn't keep asking.
-    pub(super) declined_connections: std::collections::HashSet<String>,
+    /// The connection a script's request names, from making its URL until
+    /// the request is signed.
+    pub(super) via_connection: Option<String>,
     pub audio: crate::sound::Player,
     /// Names of all message handlers in the stack's scripts, gathered when a
     /// command first needs them during an event.
@@ -208,7 +208,7 @@ impl Interp {
             clipboard_card: None,
             pushed_cards: Vec::new(),
             canned_answers: Vec::new(),
-            declined_connections: std::collections::HashSet::new(),
+            via_connection: None,
             audio: crate::sound::Player::silent(),
             handler_names: None,
             fileexists_codes: None,

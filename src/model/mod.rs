@@ -775,11 +775,6 @@ pub const STACK_FORMAT: u32 = 1;
 pub struct Stack {
     /// The file format the stack was saved in (see `STACK_FORMAT`).
     pub format: u32,
-    /// The stack's lasting identity (`connections::new_uid`): its users'
-    /// connection settings are kept under it. Empty for a stack from before
-    /// it, until it declares a connection.
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub uid: String,
     pub name: String,
     pub script: String,
     pub width: u32,
@@ -874,7 +869,6 @@ impl Stack {
             Card { id: 3, background: 2, picture: Picture::new(w, h), show_pict: true, ..Card::default() };
         Stack {
             format: STACK_FORMAT,
-            uid: connections::new_uid(),
             name: name.into(),
             script: String::new(),
             width: w,
@@ -902,6 +896,10 @@ impl Stack {
     /// A connection the stack declares, by name, ignoring case.
     pub fn connection(&self, name: &str) -> Option<&connections::Connection> {
         self.connections.iter().find(|c| c.name.eq_ignore_ascii_case(name.trim()))
+    }
+
+    pub fn connection_mut(&mut self, name: &str) -> Option<&mut connections::Connection> {
+        self.connections.iter_mut().find(|c| c.name.eq_ignore_ascii_case(name.trim()))
     }
 
     pub fn demo() -> Stack {

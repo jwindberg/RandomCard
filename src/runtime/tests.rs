@@ -3456,35 +3456,49 @@ fn connections_from_hypertalk() {
         _ => (404, "text/plain", "gone".into()),
     });
     let mut s = stack();
-    let mut c = crate::model::connections::Connection::new("VideoDB");
-    c.settings[0].default = base.clone();
-    c.settings.push(crate::model::connections::Setting { name: "Password".into(), secret: true, ..Default::default() });
+    use crate::model::connections::{Connection, Given, TYPE, URL};
+    let mut c = Connection::new("VideoDB");
+    c.declare(TYPE, Given::Fixed, "Key");
+    c.declare(URL, Given::Default, &base);
     s.connections.push(c);
     let mut i = interp_with(s);
     // Not set up yet: like a request that got no reply.
-    assert_eq!(run(&mut i, "put url \"/graphql\" with connection \"VideoDB\" into r\nput r & \"|\" & the result"), "|Connection \"VideoDB\" isn't set up: it needs Password");
-    run(&mut i, "set setting \"Password\" of connection \"VideoDB\" to \"pw\"");
-    // A path is taken from the Address; a request with a body too.
+    assert_eq!(run(&mut i, "put url \"/graphql\" with connection \"VideoDB\" into r\nput r & \"|\" & the result"), "|Connection \"VideoDB\" isn't set up: it needs Key");
+    run(&mut i, "set setting \"Key\" of connection \"VideoDB\" to \"pw\"");
+    // A path is joined to the URL; a request with a body too.
     assert_eq!(run(&mut i, "put url \"/graphql\" with connection \"videodb\""), "GET:");
     assert_eq!(run(&mut i, "post \"q\" to url \"graphql\" with connection \"VideoDB\"\nput it & \"|\" & the result"), "POST:q|");
     assert_eq!(run(&mut i, "put \"/graphql\" into p\nput \"VideoDB\" into c\nrequest \"PUT\" with \"x\" to url p with connection c\nput it"), "PUT:x");
-    // Settings: read, set, the default; a secret can't be read.
-    assert_eq!(run(&mut i, "put setting \"Address\" of connection \"VideoDB\""), base);
-    run(&mut i, "set setting \"address\" of connection \"VideoDB\" to \"http://elsewhere.invalid\"");
-    assert_eq!(run(&mut i, "put setting \"Address\" of connection \"VideoDB\""), "http://elsewhere.invalid");
-    run(&mut i, "set setting \"Address\" of connection \"VideoDB\" to empty");
-    assert_eq!(run(&mut i, "put setting \"Address\" of connection \"VideoDB\""), base);
-    assert!(run(&mut i, "put setting \"Password\" of connection \"VideoDB\"").contains("is secret"));
+    // Settings: read, set, the default; a secret can't be read; a fixed
+    // one can't be set.
+    assert_eq!(run(&mut i, "put setting \"URL\" of connection \"VideoDB\""), base);
+    run(&mut i, "set setting \"url\" of connection \"VideoDB\" to \"http://elsewhere.invalid\"");
+    assert_eq!(run(&mut i, "put setting \"URL\" of connection \"VideoDB\""), "http://elsewhere.invalid");
+    run(&mut i, "set setting \"URL\" of connection \"VideoDB\" to empty");
+    assert_eq!(run(&mut i, "put setting \"URL\" of connection \"VideoDB\""), base);
+    assert!(run(&mut i, "put setting \"Key\" of connection \"VideoDB\"").contains("is secret"));
+    assert_eq!(run(&mut i, "put setting \"Type\" of connection \"VideoDB\""), "Key");
+    // A value refused, fixed or not one of the choices, is in the result.
+    assert!(run(&mut i, "set setting \"Type\" of connection \"VideoDB\" to \"None\"\nput the result").contains("fixed by the stack"));
     // A connection the stack doesn't declare is the script's mistake.
     assert!(run(&mut i, "put url \"/x\" with connection \"Nope\"").contains("no connection \"Nope\""));
     assert!(run(&mut i, "set setting \"Color\" of connection \"VideoDB\" to 1").contains("no setting \"Color\""));
     // A variable named setting still works.
     assert_eq!(run(&mut i, "put 3 into setting\nput setting + 1"), "4");
+    // A stack's own cards make and remove connections.
+    run(&mut i, "create connection \"videodb-basic\"");
+    assert_eq!(run(&mut i, "put the connections"), "VideoDB\nvideodb-basic");
+    run(&mut i, "set setting \"Type\" of connection \"videodb-basic\" to \"basic\"");
+    assert_eq!(run(&mut i, "put setting \"type\" of connection \"videodb-basic\""), "Basic");
+    assert!(run(&mut i, "create connection \"VIDEODB-BASIC\"").contains("already has"));
+    run(&mut i, "delete connection \"videodb-basic\"");
+    assert_eq!(run(&mut i, "put the connections"), "VideoDB");
+    assert!(run(&mut i, "delete connection \"videodb-basic\"").contains("no connection"));
 }
 
 #[test]
 fn connections_sign_in() {
-    use crate::model::connections::{Connection, Credential, Place, Setting};
+    use crate::model::connections::{Connection, Given, URL};
     // Echoes the path, and the credentials it was sent.
     fn echo(_: &str, path: &str, headers: &str, _: &str) -> (u16, &'static str, String) {
         let header = |name: &str| {
@@ -3501,19 +3515,16 @@ fn connections_sign_in() {
     let (base, other) = (crate::web::http::test_server::start(echo), crate::web::http::test_server::start(echo));
     let mut s = stack();
     let mut c = Connection::new("VideoDB");
-    c.settings[0].default = base.clone();
-    c.add_basic();
-    c.settings.push(Setting { name: "Key".into(), secret: true, optional: true, ..Default::default() });
-    c.credentials.push(Credential { place: Place::Header, name: "X-API-Key".into(), value: "{Key}".into() });
-    c.credentials.push(Credential { place: Place::Query, name: "key".into(), value: "{Key}".into() });
+    c.declare("Type", Given::Default, "Basic");
+    c.declare(URL, Given::Default, &base);
     s.connections.push(c);
     let mut i = interp_with(s);
-    // Not set up: even a request that doesn't name the connection, to its
-    // Address, isn't sent.
+    // Not set up: even a request that doesn't name the connection, under
+    // its URL, isn't sent.
     assert_eq!(run(&mut i, &format!("put url \"{base}/x\" into r\nput r & \"|\" & the result")), "|Connection \"VideoDB\" isn't set up: it needs User name, Password");
     run(&mut i, "set setting \"User name\" of connection \"VideoDB\" to \"jwindberg\"");
     run(&mut i, "set setting \"Password\" of connection \"VideoDB\" to \"blueberry\"");
-    // Basic (RFC 7617), and the optional key left off while it's empty.
+    // Basic (RFC 7617).
     assert_eq!(run(&mut i, "put url \"/graphql\" with connection \"VideoDB\""), "/graphql Basic andpbmRiZXJnOmJsdWViZXJyeQ== ");
     // The script's own Authorization gives way to the connection's.
     assert_eq!(
@@ -3521,10 +3532,14 @@ fn connections_sign_in() {
         "/x Basic andpbmRiZXJnOmJsdWViZXJyeQ== "
     );
     run(&mut i, "set the httpHeaders to empty");
-    // With the key: a header and a query parameter, which the script's URL
+    // A key: as a header, then a query parameter, which the script's URL
     // (and a message's) never shows.
-    run(&mut i, "set setting \"Key\" of connection \"VideoDB\" to \"k 1\"");
-    assert_eq!(run(&mut i, "put url \"/x?a=1\" with connection \"VideoDB\""), "/x?a=1&key=k+1 Basic andpbmRiZXJnOmJsdWViZXJyeQ== k 1");
+    for line in ["Type\" of connection \"VideoDB\" to \"Key", "Key\" of connection \"VideoDB\" to \"k 1", "Send as\" of connection \"VideoDB\" to \"Header", "Key name\" of connection \"VideoDB\" to \"X-API-Key"] {
+        assert_eq!(run(&mut i, &format!("set setting \"{line}\"\nput the result")), "");
+    }
+    assert_eq!(run(&mut i, "put url \"/x?a=1\" with connection \"VideoDB\""), "/x?a=1  k 1");
+    run(&mut i, "set setting \"Send as\" of connection \"VideoDB\" to \"Query\"\nset setting \"Key name\" of connection \"VideoDB\" to \"key\"");
+    assert_eq!(run(&mut i, "put url \"/x?a=1\" with connection \"VideoDB\""), "/x?a=1&key=k+1  ");
     // Another server gets none of it.
     assert_eq!(run(&mut i, &format!("put url \"{other}/x\"")), "/x  ");
     // A redirect isn't followed with credentials: the script decides.

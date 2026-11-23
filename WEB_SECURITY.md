@@ -71,13 +71,15 @@ RandomCard's connections are the same hierarchy:
   author's to give. The author can also declare **named contexts**, as
   Spring has profiles (`production`, `dev`), each with its own values,
   one in use at a time.
-- **The stored connection** is each user's values for a stack's
-  connection, kept on their own computer, under the stack's lasting
-  identity, so it follows the file when it moves. It belongs to the
-  stack, at one installation. Secrets (passwords, keys, client secrets,
-  tokens) go in the system's secure store (the macOS Keychain, Windows
-  Credential Manager, the Secret Service on Linux), never in a plain
-  file and never in the stack. Sharing a stack shares only its code.
+- **Each user's values are in their copy of the stack,** the way an
+  address book is shared empty and each friend fills in their own.
+  Secrets (passwords, keys, client secrets, tokens) are the exception:
+  they go in the system's secure store (the macOS Keychain, Windows
+  Credential Manager, the Secret Service on Linux), named plainly by
+  stack, connection and setting (`VideoDB / videodb-basic / Password`),
+  never in the stack. Sharing a filled copy shares its URLs and user
+  names, never its secrets; emptying a copy before sharing it is the
+  author's to provide, as it is for an address book.
 - **Scripts use a connection by name:** `put url "/phases" with
   connection "enphase" into reply`. The type adds what the request needs:
   a header, a query key, Basic, a bearer token from a sign-in it keeps
@@ -97,10 +99,11 @@ Services can sit on ports of their own (`http://media.local:9090`,
 
 ### Who sets things up
 
-How the values get there is the author's design, not ours. A stack can
-leave it to RandomCard's own setup form; build a settings card of its own
-from the script tools; read a file a company hands out; or tell users to
-fill in File ▸ Connections… themselves. One person might write the
+How the values get there is the author's design, not ours: RandomCard has
+no setup form or menu of its own. A stack builds a settings card from the
+script tools, reads a file a company hands out, or anything else its
+author likes. Which of a stack's connections is in use, when it has
+several, is the author's design too. One person might write the
 stack, an IT department fill in the company's server, and each user add
 their own password: the tools allow that without RandomCard knowing
 anything about it.
@@ -161,11 +164,10 @@ these; which one a stack uses is the author's call.
    request signing uses built-ins that sign with a secret by name (HMAC,
    SHA-256, base64), without handing it to the script. The message names
    are to design.
-5. **A default setup form,** made from the type: it asks only for what
-   the author left open (the type first, if that's open), and shows a
-   default as one the user may change. It's asked for the first time a
-   script uses a connection that isn't set up, and any time from File ▸
-   Connections….
+5. **No setup form of RandomCard's own.** A request on a connection that
+   isn't set up isn't sent, and `the result` says what it needs; the
+   stack decides what to show. Connections are a networking library for
+   scripts, not parts for cards.
 6. **Safety rules,** which aren't the author's to choose:
    - Credentials go only to requests under their connection's URL (same
      scheme, host and port, and whole path segments at or below its
@@ -259,17 +261,24 @@ Each part is built, tried and looked at before the next.
   and Basic, each signing its requests; OAuth's elements declared, its
   sign-in left for step 4. Extras: elements of the author's own and
   fixed headers. The element is URL, not Address. The credential
-  templates go.
-- **3b. The store.** Users' values as now (`connections.json` and the
-  secure store), with the rule that secrets belong to their URL.
-  Named contexts: their values, and which is in use.
+  templates go. *Built 2026-11-23, with Stack Info ▸ Connections…
+  showing Fixed, Default or Open for each element, for 3d to look over.*
+- **3b. The store.** *Decided 2026-11-23:* users' values are saved in
+  the stack, secrets in the secure store under the stack's, connection's
+  and setting's names; no `connections.json`, no stack identity, no File
+  ▸ Connections… and no setup form. *Built the same day.* Still to do:
+  the rule that secrets belong to their URL. Named contexts are on hold:
+  a stack with several servers declares a connection for each, and
+  chooses the one in use itself.
 - **3c. HyperTalk.** `setting "URL" of connection "VideoDB"` and `set
-  setting …` keep working; new: the connections a stack declares, a
-  connection's type, whether it's set up, the context in use. The
-  interceptor messages. Syntax shown for a decision before it's built.
-- **3d. The windows.** Stack Info ▸ Connections…: name, type, and each
-  element's value and whether it's fixed, a default or open. File ▸
-  Connections… and the first-use dialog: only what's open, from the type.
+  setting …` keep working. *Built 2026-11-23, for the example stack's
+  own editor:* `the connections`, `create connection "name"` and `delete
+  connection "name"` (which forgets its secrets too). Still to do:
+  whether a connection is set up, a setting's hint, choices and who
+  gives it; the interceptor messages. Syntax shown for a decision before
+  it's built.
+- **3d. The window.** Stack Info ▸ Connections…: name, type, and each
+  element's value and whether it's fixed, a default or open.
 - **3e. The stacks.** The example for a server of one's own: its type and
   URL open, so each user picks None or Basic. The Tour: no connection of its own; Web page 2 explains,
   with no buttons that touch a stored connection. HYPERTALK.md to match.
@@ -278,12 +287,8 @@ Each part is built, tried and looked at before the next.
 
 Built 2026-11-22, and kept where the new design agrees:
 
-- **A lasting identity** for each stack (`uid`: 128 random bits), made
-  with the stack or when an old one is first saved. A copy keeps it: it's
-  the same application.
-- **The store:** ordinary values in `connections.json` in RandomCard's
-  settings folder, under the stack's identity and the connection's name;
-  secrets through the `keyring-core` crate in each system's secure store.
+- **The secure store:** secrets through the `keyring-core` crate in each
+  system's secure store.
   Where none is running, RandomCard says so and keeps a secret only until
   it quits. The Linux Secret Service is tried; the Keychain and
   Credential Manager are built but not yet run on their systems.
@@ -292,7 +297,8 @@ Built 2026-11-22, and kept where the new design agrees:
   never read), and `with connection "VideoDB"` on `url`, every request
   command and `load url` joins a path to the connection's URL.
 - **Signing:** credentials go on any request under the connection's URL,
-  named or not, including image parts and movies. Movies sign in on Linux
+  named or not, including image parts and movies. A request that names
+  its connection is signed by that one, so several can share a server. Movies sign in on Linux
   (GStreamer's HTTP source gets the headers) and on a Mac (an
   AVAssetResourceLoaderDelegate fetches each range with RandomCard's HTTP
   client); Windows says it can't yet. A live (HLS) stream that signs in

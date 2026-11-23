@@ -19,7 +19,7 @@ use std::time::Duration;
 use crate::web::{http, json};
 
 use super::interp::{Ctl, Interp, R, err};
-use super::world::{Dialog, DialogReply};
+
 
 impl Interp {
     /// The web's functions, or None if `name` isn't one.
@@ -44,8 +44,7 @@ impl Interp {
             "__connectionsetting" => {
                 let (connection, setting) = (args.first()?, args.get(1)?);
                 let w = self.w();
-                let store = super::connections::store();
-                Some(super::connections::read(&store, &w.stack, connection, setting).or_else(err))
+                Some(super::connections::read(&w.stack, connection, setting).or_else(err))
             }
             // `json x`, then its steps from the outside in, each a kind
             // ("k" for a key, "e" for an element) and a value.
@@ -83,57 +82,28 @@ impl Interp {
     }
 
     /// A web address made with one of the stack's connections. A connection
-    /// the stack doesn't declare is the script's mistake (an error); one the
-    /// user hasn't set up yet is Ok(Err(why)), for `the result`.
+    /// the stack doesn't declare is the script's mistake (an error); one
+    /// that isn't set up yet is Ok(Err(why)), for `the result`: the stack
+    /// decides what to show.
     pub(super) fn connection_url(&mut self, connection: &str, url: &str) -> R<Result<String, String>> {
-        let resolve = |me: &Self| {
-            let w = me.w();
+        let made = {
+            let w = self.w();
             super::connections::declared(&w.stack, connection).or_else(err)?;
             let mut store = super::connections::store();
-            Ok(super::connections::url(&mut store, &w.stack, connection, url))
+            super::connections::url(&mut store, &w.stack, connection, url)
         };
-        let first = resolve(self)?;
-        if first.is_ok() || !self.ask_setup(connection)? {
-            return Ok(first);
-        }
-        resolve(self)
+        // The request made from it, next, is signed by this connection.
+        self.via_connection = made.is_ok().then(|| connection.to_string());
+        Ok(made)
     }
 
-    /// Ask the user to set up a connection that isn't, once a run: whether
-    /// they did.
-    fn ask_setup(&mut self, connection: &str) -> R<bool> {
-        let key = connection.trim().to_lowercase();
-        if self.declined_connections.contains(&key) {
-            return Ok(false);
-        }
-        match self.dialog(Dialog::Connection(connection.trim().to_string()))? {
-            DialogReply::Button(b) if b == "Save" => Ok(true),
-            _ => {
-                self.declined_connections.insert(key);
-                Ok(false)
-            }
-        }
-    }
-
-    /// The credentials for a request to `url`, from the connection whose
-    /// Address covers it (asking for any settings still needed), or why
-    /// it can't be sent.
+    /// What a request to `url` carries, from the connection whose URL
+    /// covers it, or why it can't be sent.
     pub(super) fn credentials(&mut self, url: &str) -> R<Result<Option<http::Credentials>, String>> {
         use super::connections::{SignError, sign, store};
-        let signed = {
-            let w = self.w();
-            sign(&mut store(), &w.stack, url)
-        };
-        match signed {
-            Err(SignError::NotSetUp { connection, why }) => {
-                if !self.ask_setup(&connection)? {
-                    return Ok(Err(why));
-                }
-                let w = self.w();
-                Ok(sign(&mut store(), &w.stack, url).map_err(SignError::why))
-            }
-            other => Ok(other.map_err(SignError::why)),
-        }
+        let named = self.via_connection.take();
+        let w = self.w();
+        Ok(sign(&mut store(), &w.stack, url, named.as_deref()).map_err(SignError::why))
     }
 
     /// A request with the script's headers and timeout, and its

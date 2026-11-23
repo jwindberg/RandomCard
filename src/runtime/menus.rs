@@ -116,7 +116,6 @@ pub fn standard_menus() -> Vec<Menu> {
                 "Import Paint…",
                 "Export Paint…",
                 "Preferences…",
-                "Connections…",
                 "-",
                 "Page Setup…",
                 "Print Field…",
