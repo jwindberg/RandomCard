@@ -751,14 +751,11 @@ language's side is `src/runtime/web.rs`.
    imageLoaded and imageFailed; and `Movie "https://…"`, streamed:
    GStreamer on Linux, Media Foundation on Windows, AVPlayer on a Mac
    (the Mac's file player, AVAssetReader, reads only files).
-   VideoDB (`examples/VideoDB.rcstack`, made by `tools/make_videodb.py`)
-   is the front end of a GraphQL movie library: its pages as cards, a
-   poster grid, editing, OMDb lookup and playing.
    Still open: `imageLoaded` goes only to images on the card that's
    showing when the picture arrives; an image on another card finds its
    picture already there when that card opens, with no message.
-7. **GraphQL built in.** VideoDB does GraphQL by hand: JSON posted to
-   `/graphql`, with a `jsonString` function of its own so a value like
+7. **GraphQL built in.** A stack does GraphQL by hand today: JSON posted
+   to `/graphql`, with a `jsonString` function of its own so a value like
    "1984" isn't sent as a number, and the `data` and `errors` unpacked by
    its script. A command would make that one line, something like
    `graphql query [with variables] to url U`: the `data` in `it`, the first
@@ -769,8 +766,8 @@ language's side is `src/runtime/web.rs`.
    [WEB_SECURITY.md](WEB_SECURITY.md). A stack declares the services it
    talks to; each user brings their own credentials, kept on their own
    computer and in the system's secure store, never in the stack. Done
-   when VideoDB, Enphase and Facebook example stacks work for users other
-   than their author.
+   when example stacks for a server of one's own, Enphase and Facebook
+   work for users other than their author.
 
 ## Testing
 

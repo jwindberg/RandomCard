@@ -388,7 +388,7 @@ fn tour_dialog() -> super::dialogs::DialogTemplate {
 const STACK_SCRIPT: &str = r#"-- A menu of the stack's own. Its items arrive as doMenu messages.
 on openStack
   if there is no menu "Tour" then create menu "Tour"
-  put "Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Movies,Pictures,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,Card Window,The Web,Connections,Japanese,-,Address Book" into menu "Tour"
+  put "Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Movies,Pictures,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,Card Window,The Web,Japanese,-,Address Book" into menu "Tour"
   -- HyperCard's Apple menu: the About item is the stack's to rename.
   put "About the Tour…" into menuItem 1 of menu "Apple"
   set the menuMsg of menuItem 1 of menu "Apple" to "aboutTour"
@@ -403,7 +403,7 @@ on doMenu what
   if what is "Address Book" then
     visual effect zoom open
     go to first card of background "Address"
-  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Movies,Pictures,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,Card Window,The Web,Connections,Japanese," then
+  else if "," & what & "," is in ",Contents,Basics,Dice,Drawing,Animation,Sound,Channels,Movies,Pictures,Keys,Fields,More Text,Print & Find,Icons,Debugging,Palettes,Card Window,The Web,Japanese," then
     visual effect dissolve
     go to card what
   else
@@ -1936,7 +1936,7 @@ on showReply theURL, reply
   put reply into card field "Reply"
 end showReply"#
         .into();
-    let t = b.label("Heading", Rect::new(20, 8, 492, 34), "The web: REST and JSON", 20);
+    let t = b.label("Heading", Rect::new(20, 8, 492, 34), "The Web, 1 of 2: REST and JSON", 20);
     b.card_part(c, t);
     let mut json = Part::new_field(b.id(), "JSON", Rect::new(20, 40, 250, 150));
     json.style = PartStyle::Scrolling;
@@ -2035,12 +2035,9 @@ end mouseUp"#,
     reply.text_size = 9;
     b.card_part(c, reply);
 
-    let to = b.button(
-        "Connections",
-        Rect::new(392, 10, 492, 32),
-        "on mouseUp\n  visual effect scroll left\n  go to card \"Connections\"\nend mouseUp",
-    );
-    b.card_part(c, Part { style: PartStyle::RoundRect, ..to });
+    // Two pages of one topic: Next and Back turn them, in the same corner.
+    let next = b.button("Next ▶", Rect::new(412, 10, 492, 32), "on mouseUp\n  visual effect scroll left\n  go to card \"Connections\"\nend mouseUp");
+    b.card_part(c, Part { style: PartStyle::RoundRect, ..next });
 
     // ----- Connections: a service the stack talks to, named in the stack
     // (Stack Info ▸ Connections…), with each person's own settings kept on
@@ -2078,15 +2075,17 @@ on openCard
   pass openCard
 end openCard"#
         .into();
-    let t = b.label("Heading", Rect::new(20, 8, 492, 34), "Connections: each person's own settings", 20);
+    let t = b.label("Heading", Rect::new(20, 8, 492, 34), "The Web, 2 of 2: Connections", 20);
     b.card_part(c, t);
+    let back = b.button("◀ Back", Rect::new(412, 10, 492, 32), "on mouseUp\n  visual effect scroll right\n  go to card \"The Web\"\nend mouseUp");
+    b.card_part(c, Part { style: PartStyle::RoundRect, ..back });
     let about = b.label(
         "About",
         Rect::new(20, 38, 492, 96),
-        "A stack names the services it talks to, what each person gives for them, and how requests sign in. \
-         What they give stays on their computer, never in the stack; secrets go in the system's secure store, and \
-         go only to the connection's Address. This stack's connection is in Stack Info ▸ Connections…; \
-         your settings are in File ▸ Connections….",
+        "A stack names a server it talks to, and each person says where theirs is and how to sign in. That stays on \
+         their computer, never in the stack, and a key goes only to its server. Try it with a server of your own, \
+         such as python3 -m http.server 8000 in a terminal. The stack's side is in Stack Info ▸ Connections…, \
+         yours in File ▸ Connections….",
         10,
     );
     b.card_part(c, about);

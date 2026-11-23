@@ -309,60 +309,6 @@ pub fn url(store: &mut Store, stack: &Stack, conn: &str, url: &str) -> Result<St
     })
 }
 
-/// A settings file, which fills in a stack's settings for a user: given by
-/// whoever runs the service, so each person needn't type them. It's JSON,
-/// with the settings of each connection by name:
-///
-/// ```json
-/// { "VideoDB": { "Address": "http://videos.local:9090", "Password": "…" } }
-/// ```
-///
-/// The values are saved as if typed, secrets to the secure store; the file
-/// itself is only read. Returns what was filled in, one line for each
-/// connection, and the names this stack doesn't have.
-pub fn import(store: &mut Store, stack: &Stack, text: &str) -> Result<Vec<String>, String> {
-    let file: serde_json::Value = serde_json::from_str(text).map_err(|e| format!("That isn't a settings file: {e}"))?;
-    let serde_json::Value::Object(conns) = file else {
-        return Err("That isn't a settings file: it should list connections by name".into());
-    };
-    let mut report = Vec::new();
-    let mut problems = Vec::new();
-    for (name, settings) in &conns {
-        let Some(conn) = stack.connection(name) else {
-            report.push(format!("This stack has no connection \"{name}\""));
-            continue;
-        };
-        let serde_json::Value::Object(settings) = settings else {
-            report.push(format!("\"{name}\" should list settings by name"));
-            continue;
-        };
-        let mut filled = Vec::new();
-        for (setting, value) in settings {
-            let Some(s) = conn.setting(setting) else {
-                report.push(format!("Connection \"{}\" has no setting \"{setting}\"", conn.name));
-                continue;
-            };
-            let value = match value {
-                serde_json::Value::String(v) => v.clone(),
-                serde_json::Value::Null => String::new(),
-                other => other.to_string(),
-            };
-            match store.set(&stack.uid, conn, s, &value) {
-                Ok(()) => filled.push(s.name.clone()),
-                Err(why) => {
-                    filled.push(s.name.clone());
-                    problems.push(why);
-                }
-            }
-        }
-        if !filled.is_empty() {
-            report.insert(0, format!("{}: {}", conn.name, filled.join(", ")));
-        }
-    }
-    report.extend(problems);
-    Ok(report)
-}
-
 /// Why a request can't carry a connection's credentials.
 #[derive(Debug, PartialEq)]
 pub enum SignError {
@@ -490,7 +436,7 @@ mod tests {
     fn stack() -> Stack {
         let mut s = Stack::new("Movies");
         let mut c = Connection::new("VideoDB");
-        c.settings[0].default = "http://trashcan.local:9090".into();
+        c.settings[0].default = "http://media.local:9090".into();
         c.settings.push(Setting { name: "User name".into(), ..Setting::default() });
         c.settings.push(Setting { name: "Password".into(), secret: true, ..Setting::default() });
         s.connections.push(c);
@@ -500,7 +446,7 @@ mod tests {
     #[test]
     fn values_and_defaults() {
         let (mut st, s) = (Store::in_memory(), stack());
-        assert_eq!(read(&st, &s, "videodb", "address").unwrap(), "http://trashcan.local:9090");
+        assert_eq!(read(&st, &s, "videodb", "address").unwrap(), "http://media.local:9090");
         assert_eq!(read(&st, &s, "VideoDB", "User name").unwrap(), "");
         write(&mut st, &s, "VideoDB", "User name", "ada").unwrap();
         assert_eq!(read(&st, &s, "VideoDB", "user name").unwrap(), "ada");
@@ -565,21 +511,6 @@ mod tests {
     }
 
     #[test]
-    fn settings_files() {
-        let stack = stack();
-        let mut store = Store::in_memory();
-        let file = r#"{ "videodb": { "address": "http://videos.local", "Password": "pw", "Port": 9 }, "Other": {} }"#;
-        let report = import(&mut store, &stack, file).unwrap();
-        assert_eq!(report[0], "VideoDB: Address, Password");
-        assert!(report.iter().any(|l| l.contains("no setting \"Port\"")));
-        assert!(report.iter().any(|l| l.contains("no connection \"Other\"")));
-        assert_eq!(read(&store, &stack, "VideoDB", "Address").unwrap(), "http://videos.local");
-        let c = stack.connection("VideoDB").unwrap();
-        assert_eq!(store.secret(&stack.uid, c, c.setting("Password").unwrap()).unwrap().as_deref(), Some("pw"));
-        assert!(import(&mut store, &stack, "[1]").is_err() && import(&mut store, &stack, "{").is_err());
-    }
-
-    #[test]
     fn credentials_go_only_to_their_address() {
         use crate::model::connections::{Credential, Place};
         let mut s = Stack::new("Signed");
@@ -623,7 +554,7 @@ mod tests {
         // local network.
         write(&mut st, &s, "API", "Address", "http://videos.example.com").unwrap();
         assert!(matches!(sign(&mut st, &s, "http://videos.example.com/graphql"), Err(SignError::Refused(w)) if w.contains("plain http")));
-        for local in ["http://localhost:8080", "http://127.0.0.1", "http://trashcan.local:9090", "http://192.168.7.44", "http://[::1]:80"] {
+        for local in ["http://localhost:8080", "http://127.0.0.1", "http://media.local:9090", "http://192.168.1.44", "http://[::1]:80"] {
             write(&mut st, &s, "API", "Address", local).unwrap();
             assert!(sign(&mut st, &s, &format!("{local}/graphql")).unwrap().is_some(), "{local}");
         }
@@ -635,9 +566,9 @@ mod tests {
         assert!(url(&mut st, &s, "VideoDB", "/graphql").unwrap_err().contains("isn't set up: it needs User name, Password"));
         write(&mut st, &s, "VideoDB", "User name", "ada").unwrap();
         write(&mut st, &s, "VideoDB", "Password", "pw").unwrap();
-        assert_eq!(url(&mut st, &s, "VideoDB", "/graphql").unwrap(), "http://trashcan.local:9090/graphql");
-        assert_eq!(url(&mut st, &s, "VideoDB", "videos/1").unwrap(), "http://trashcan.local:9090/videos/1");
-        assert_eq!(url(&mut st, &s, "VideoDB", "?page=2").unwrap(), "http://trashcan.local:9090?page=2");
+        assert_eq!(url(&mut st, &s, "VideoDB", "/graphql").unwrap(), "http://media.local:9090/graphql");
+        assert_eq!(url(&mut st, &s, "VideoDB", "videos/1").unwrap(), "http://media.local:9090/videos/1");
+        assert_eq!(url(&mut st, &s, "VideoDB", "?page=2").unwrap(), "http://media.local:9090?page=2");
         assert_eq!(url(&mut st, &s, "VideoDB", "https://x.org/a").unwrap(), "https://x.org/a");
         write(&mut st, &s, "VideoDB", "Address", "videodb.example.com/").unwrap();
         assert_eq!(url(&mut st, &s, "VideoDB", "/graphql").unwrap(), "https://videodb.example.com/graphql");

@@ -583,8 +583,7 @@ A movie on the web plays from its address: `Movie
 "https://example.com/videos/42"`. It streams, and can be played, paused
 and moved through like a file. On a Mac, plain http works only on the
 local network (a `.local` name or an address); elsewhere it must be https.
-Its name is the last part of the address. The VideoDB example stack plays
-its movies this way.
+Its name is the last part of the address.
 
 - **Style:** `windoid` (the default), `tallWindoid`, `plain`, `zoom`,
   `dialog`, `shadow`, `rect` or `borderLess`. Plain, zoom and tallWindoid
@@ -851,9 +850,6 @@ end mouseUp
   request isn't sent and `the result` says why. An **optional** setting
   doesn't need to be set up; a credential that uses it is left off while
   it's empty.
-- **Settings files:** Open Settings File… in either window fills settings in
-  from a JSON file, such as one a team hands round: `{ "VideoDB": {
-  "Address": "http://videos.local:9090" } }`.
 
 The `examples/` folder has three stacks built on these: ICNDB (a REST
 client for one service), PostCard (a small Postman), and Swatches (colors
@@ -942,8 +938,7 @@ put the pictureWidth of image "Poster" into w
   and fields), New Image in the Objects menu, and Image Info to set it up.
   A stack saves an image's source, not its picture.
 
-The Tour's Pictures card has one, and the VideoDB example stack shows its
-movies' posters this way.
+The Tour's Pictures card has one.
 
 ### Parts
 

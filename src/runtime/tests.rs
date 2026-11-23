@@ -327,7 +327,7 @@ fn demo_stack_runs() {
         w.stack.card(w.card_id).unwrap().name.clone()
     };
     // The stack's own Tour menu.
-    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "22");
+    assert_eq!(run(&mut i, "put the number of menuItems of menu \"Tour\""), "21");
     i.handle_event(Event::DoMenu("Dice".into()));
     assert_eq!(current(&i), "Dice");
     i.handle_event(Event::DoMenu("First".into()));

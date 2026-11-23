@@ -8,7 +8,7 @@ use eframe::egui::{self, RichText};
 
 use super::App;
 use crate::model::connections::{ADDRESS, Connection, Credential, Place, Setting};
-use crate::runtime::connections::{self, store};
+use crate::runtime::connections::store;
 use crate::runtime::world::{Dialog, DialogReply};
 
 /// What the user is typing for one connection, before Save.
@@ -243,24 +243,6 @@ impl App {
         let w = self.world();
         Header { uid: w.stack.uid.clone(), name: w.stack.name.clone(), connections: w.stack.connections.clone() }
     }
-
-    /// Read a settings file into the stack's connections, saying what it did.
-    fn read_settings_file(&self) -> Option<Vec<String>> {
-        let path = rfd::FileDialog::new()
-            .set_title("Open a settings file")
-            .add_filter("Settings file", &["rcsettings", "json"])
-            .pick_file()?;
-        let text = match std::fs::read_to_string(&path) {
-            Ok(t) => t,
-            Err(e) => return Some(vec![format!("Can't read {}: {e}", path.display())]),
-        };
-        let w = self.world();
-        Some(match connections::import(&mut store(), &w.stack, &text) {
-            Ok(r) if r.is_empty() => vec!["The file has no settings for this stack".into()],
-            Ok(r) => r,
-            Err(why) => vec![why],
-        })
-    }
 }
 
 impl App {
@@ -286,7 +268,6 @@ impl App {
             self.connection_form = Some(SetupForm::new(&uid, &conn));
         }
         let mut reply = None;
-        let mut read_file = false;
         egui::Modal::new(egui::Id::unique("connection-dialog")).show(ctx, |ui| {
             ui.set_min_width(420.0);
             ui.label(RichText::new(format!("Set up “{}”", conn.name)).size(15.0).strong());
@@ -296,9 +277,6 @@ impl App {
             form.show(ui, &uid, &conn);
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("Open Settings File…").on_hover_text("Fill these in from a file you were given").clicked() {
-                    read_file = true;
-                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if (ui.button(RichText::new("Save").strong()).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)))
                         && form.save(&uid, &conn)
@@ -312,11 +290,6 @@ impl App {
                 });
             });
         });
-        if read_file && let Some(report) = self.read_settings_file() {
-            let mut form = SetupForm::new(&uid, &conn);
-            form.notes = report;
-            self.connection_form = Some(form);
-        }
         if let Some(r) = reply {
             self.connection_form = None;
             self.reply_dialog(DialogReply::Button(r.into()));
@@ -336,7 +309,6 @@ impl App {
         let stack = self.header();
         let uid = stack.uid.clone();
         let mut open = true;
-        let mut read_file = false;
         egui::Window::new("Connections").open(&mut open).resizable(false).collapsible(false).show(ctx, |ui| {
             ui.set_min_width(400.0);
             if stack.connections.is_empty() {
@@ -364,9 +336,6 @@ impl App {
             form.show(ui, &uid, conn);
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("Open Settings File…").on_hover_text("Fill these in from a file you were given").clicked() {
-                    read_file = true;
-                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button(RichText::new("Save").strong()).clicked() && form.save(&uid, conn) && form.notes.is_empty() {
                         form.notes.push("Saved".into());
@@ -374,14 +343,6 @@ impl App {
                 });
             });
         });
-        if read_file
-            && let Some(report) = self.read_settings_file()
-            && let Some(conn) = stack.connections.get(win.chosen)
-        {
-            let mut form = SetupForm::new(&uid, conn);
-            form.notes = report;
-            win.form = Some(form);
-        }
         if open {
             self.connection_setup = Some(win);
         }

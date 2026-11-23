@@ -1,211 +1,314 @@
 # Web security: connections, secrets and signing in
 
-The plan for how stacks talk to services that need credentials, and how
+The plan for how stacks talk to web APIs that need credentials, and how
 each user's credentials are kept. It grew out of item 8 of the web section
 of [ROADMAP.md](ROADMAP.md), which now points here.
 
+Web APIs secure themselves in many different ways. This is a big topic
+and we'll keep finding more of it; the plan starts with what we know and
+what's most common, and grows type by type.
+
 ## The idea
 
-A stack is an application that people share, and each person brings
-their own settings, as a web app's customers each bring their own
-database. The author writes the
-stack against a service, using RandomCard's tools for whatever security
-that service uses; anyone else with an account there uses the stack by
-giving it their own credentials. So RandomCard's job isn't to decide
-what stacks may do: it's to give authors good tools, the way a web
-framework gives you an OAuth client, and keep each user's secrets out
-of the stack.
+RandomCard is an authoring tool. We don't build what stack authors
+build: we build their tools. A stack that talks to web services is an
+application, like a web app that talks to other servers, and the tools
+should feel like a web framework's: the app declares the services it
+uses, a configuration supplies the values, and the framework handles the
+security.
 
-**Connections.** A stack declares each service it talks to, in two
-halves:
-- **The author's half, in the stack:** the service's address, how its
-  security works (which scheme, its endpoints and scopes), and where
-  the credentials go on each request.
-- **Each user's half, never in the stack:** their credentials or their
-  sign-in, and settings such as which of their systems to show. Given
-  in a setup dialog RandomCard makes from the declaration (or the
-  stack's own settings card), or a settings file, so an IT department
-  can hand out a stack with its settings ready. Ordinary settings are
-  kept in RandomCard's settings, secrets (passwords, keys, client
-  secrets, tokens) in the system's secure store: the macOS Keychain,
-  Windows Credential Manager, the Secret Service on Linux. Sharing a
-  stack shares only its code.
-- **Environments:** a connection can have several sets of settings (a
-  service's sandbox while building, production after), chosen without
-  editing the stack.
-- **In scripts,** requests name the connection, something like
-  `put url U with connection "Enphase" into reply`, and RandomCard
-  adds the credentials. Scripts never see secrets or tokens, so a stack
-  can't send them anywhere else; tokens go only to the hosts they were
-  issued for. The syntax is to design on its own merits.
+The tools are open and flexible, for authors who will have their own
+ideas about how to use them, and shaped so the easy way is the good
+practice: a declaration covers the common cases with no code, scripts can
+reach in where an author needs more, and the safety rules hold whichever
+way they go. That is the HyperCard way.
 
-**The security schemes,** built from standard parts rather than a
-recipe per service, so a new service is a declaration, not a new
-RandomCard:
-- **How a user proves who they are:** an API key; HTTP Basic (RFC
-  7617); OAuth 2.0 (RFC 6749) with the authorization code flow, with or
-  without PKCE (RFC 7636), client credentials (an app acting as itself)
-  and refresh tokens; the device flow (RFC 8628); OpenID Connect for
-  single sign-on (Okta, Microsoft Entra, Google, Facebook), the
-  provider found from its `/.well-known/openid-configuration`; client
-  certificates (mutual TLS, RFC 8705); signed JWT assertions (RFC
-  7523).
-- **Where the proof goes:** a header (`Authorization: Bearer`, RFC
-  6750, or one the service names), a query parameter, or Basic, and
-  more than one at once (Enphase wants a bearer token and an API key).
-- **How a sign-in comes back:** sign-in always happens in the system's
-  own browser, never a web view inside RandomCard (RFC 8252); it comes
-  back through a loopback address (`http://127.0.0.1:port`), a code
-  the user pastes (Enphase's way), or a device code entered on another
-  device (the cyberdeck's way).
-- **Vendors' variations on a standard,** described in the declaration:
-  Facebook's device sign-in is RFC 8628 in spirit, with its own
-  endpoints, `appid|clienttoken` as the credential and a poll every 5
-  seconds.
-- **For schemes nobody standardized** (a service's own request
-  signing), a connection can name a handler in the stack that
-  RandomCard calls before each request, with HMAC, SHA-256 and base64
-  built in. HTTP Message Signatures (RFC 9421) built in, if services
-  come to use it.
+### Connections
 
-**Who owns the app credentials.** Some services give each customer
-their own key, or let each sign in: the clean case. Others register
-the author's app and give the author a client id and secret, which
-customers then sign in through. Then either each user registers their
-own app and enters its values (secure, more work for them), or the
-author's values ship in the stack, and the secret goes to every user,
-and the service's limits may count every user's calls against the
-author's app. Where a service allows public clients, PKCE needs no
-secret at all (RFC 8252); otherwise the usual answer is a small server
-in between that holds the secret. RandomCard supports all of these and
-says plainly which is which.
+A web app keeps its services' configuration as a hierarchy, by app, by
+service, by element:
 
-**Three example stacks drive it,** each in `examples/` (the Tour never
-calls outside services):
-- **VideoDB:** a server of one's own, with no security; the connection
-  is just its address, moved out of the stack file.
+```yaml
+tourStack:
+  moon:
+    type: key
+    url: https://moon.com
+    key: …
+  space:
+    type: oauth
+    url: https://space.org
+    authUrl: https://oauth.space.com/authorize
+    tokenUrl: https://oauth.space.com/token
+    clientId: …
+    clientSecret: …
+```
+
+RandomCard's connections are the same hierarchy:
+
+- **A stack names the connections it needs:** `moon`, `space`,
+  `VideoDB`, as many as it uses.
+- **Each connection has a type,** a helper built into RandomCard (None,
+  Key, Basic, OAuth, and more to come). The type decides the connection's
+  elements, and knows how to use them on every request, so an author
+  writes no security code.
+- **The elements of a type are always the same; what varies is who
+  gives each value.** Some are constant for every user on the planet:
+  Facebook's URL, endpoints and app id. Some differ by user: VideoDB's
+  URL, user and password. The type is an element too: Facebook's is
+  always OAuth, but one user's VideoDB server is open (None), another's
+  uses Basic and a third's OAuth, and the same stack serves all three
+  with no change to its scripts.
+- **The author controls the config,** because it's all about context: a
+  value constant for a stack's users may not be for the people building
+  it, as a Facebook engineer points the same stack at `dev01` instead of
+  `graph`. For each element the author decides:
+  - **fixed:** the author's value, which no one changes;
+  - **a default:** the author's value, which a user may change;
+  - **open:** each user gives it.
+
+  A stack can fix everything but the user's own sign-in, or leave
+  everything open but the connection's name. Secrets are never the
+  author's to give. The author can also declare **named contexts**, as
+  Spring has profiles (`production`, `dev`), each with its own values,
+  one in use at a time.
+- **The stored connection** is each user's values for a stack's
+  connection, kept on their own computer, under the stack's lasting
+  identity, so it follows the file when it moves. It belongs to the
+  stack, at one installation. Secrets (passwords, keys, client secrets,
+  tokens) go in the system's secure store (the macOS Keychain, Windows
+  Credential Manager, the Secret Service on Linux), never in a plain
+  file and never in the stack. Sharing a stack shares only its code.
+- **Scripts use a connection by name:** `put url "/phases" with
+  connection "enphase" into reply`. The type adds what the request needs:
+  a header, a query key, Basic, a bearer token from a sign-in it keeps
+  and refreshes. Scripts never see secrets or tokens.
+
+### The URL
+
+A connection's URL is its base: the scheme (so nothing assumes http or
+https), the host, the port and any path the app lives under, never used
+alone. Each request adds the rest: its path, path variables and query.
+With a URL of `https://host.com/videodb`, `put url "/movies/12?full=1"
+with connection "VideoDB"` sends `https://host.com/videodb/movies/12?full=1`.
+In a connection, URL always means this, so the element is just URL.
+Services can sit on ports of their own (`http://media.local:9090`,
+`:9191`) or on paths of one server (`http://media.local:8080/videodb`,
+`/solar`); stacks don't care which.
+
+### Who sets things up
+
+How the values get there is the author's design, not ours. A stack can
+leave it to RandomCard's own setup form; build a settings card of its own
+from the script tools; read a file a company hands out; or tell users to
+fill in File ▸ Connections… themselves. One person might write the
+stack, an IT department fill in the company's server, and each user add
+their own password: the tools allow that without RandomCard knowing
+anything about it.
+
+**Who owns the app credentials.** Some services give each customer their
+own key, or let each sign in: the clean case. Others register the
+author's app and give the author a client id and secret, which customers
+then sign in through. Then either each user registers their own app and
+enters its values (secure, more work for them), or the author's values
+are handed to every user, and the service's limits may count every
+user's calls against the author's app. Where a service allows public
+clients, PKCE needs no secret at all; otherwise the usual answer is a
+small server in between that holds the secret. The tools support all of
+these; which one a stack uses is the author's call.
+
+## The tools
+
+1. **Connection types,** each a helper with its own elements, built from
+   standard parts rather than a recipe per service. Every type has a URL.
+   - **None:** just the URL. A server of one's own, with no security.
+   - **Key:** a key, and where it goes: `Authorization: Bearer` (RFC
+     6750), a header the service names, or a query parameter.
+   - **Basic:** a user and a password (RFC 7617).
+   - **OAuth:** the authorization and token endpoints, a client id and
+     secret (or none, for a public client with PKCE, RFC 7636), the
+     scopes, and how the sign-in comes back: a loopback address
+     (`http://127.0.0.1:port`) or a code the user pastes. Tokens are kept
+     and refreshed (RFC 6749). Sign-in happens in the system's own
+     browser, never a web view inside RandomCard (RFC 8252).
+   - **Later,** as we meet them: a login endpoint that returns a JWT (see
+     below); the device flow (RFC 8628, for the cyberdeck); OpenID
+     Connect, its provider found from `/.well-known/openid-configuration`;
+     client credentials (an app acting as itself); client certificates
+     (mutual TLS, RFC 8705); signed JWT assertions (RFC 7523).
+   - **Extras on any type:** elements of the author's own beyond the
+     type's (a tenant id, which of a user's systems to show), and headers
+     sent on every request under the URL (`Accept`, a service's version
+     header, `X-Tenant`), each a fixed value or an element's. They carry
+     no security: that's the type's job.
+   - **Vendors' variations,** where a service bends a standard, are
+     elements of the type, not new types: Enphase wants a bearer token
+     and a `?key=` on every call; Facebook's device sign-in is RFC 8628
+     with its own endpoints and `appid|clienttoken` as the credential.
+2. **The stored connections,** for each stack and each user, always
+   there, so a stack works without any setup screens of its own.
+3. **Script access** to them: which connections a stack declares and
+   their types; read and set any element that isn't secret and the
+   author didn't fix; set a secret but never read it; whether a
+   connection is set up; which context is in use; start a sign-in and
+   forget one. Enough for an author to build any setup they like. The
+   syntax is to design on its own merits.
+4. **Interceptors,** as messages, the way Spring's interceptors work: one
+   sent before each request on a connection, so a handler can add or
+   change headers and the query, and one after its reply, before the
+   script that asked sees it. A handler can be in the card, background or
+   stack, for every connection or one by name. It runs before the type
+   adds the security, so it never sees secrets or tokens. A service's own
+   request signing uses built-ins that sign with a secret by name (HMAC,
+   SHA-256, base64), without handing it to the script. The message names
+   are to design.
+5. **A default setup form,** made from the type: it asks only for what
+   the author left open (the type first, if that's open), and shows a
+   default as one the user may change. It's asked for the first time a
+   script uses a connection that isn't set up, and any time from File ▸
+   Connections….
+6. **Safety rules,** which aren't the author's to choose:
+   - Credentials go only to requests under their connection's URL (same
+     scheme, host and port, and whole path segments at or below its
+     path), and tokens only to the hosts they were issued for.
+   - Plain http only on this computer and the local network; https
+     everywhere else, as the Mac app's ATS rule already says.
+   - No redirects followed with credentials, and no URL with a key in it
+     shown in an error.
+   - Secrets and tokens belong to the URL they were given for: changing
+     a connection's URL, or its context, never sends them to the new one.
+   - Later, a safety net for stacks from strangers: a request to a host
+     no connection declares asks first.
+
+### JWT
+
+JSON Web Tokens (RFC 7519) turn up in several places, and only some
+need a type of their own:
+
+- **A JWT handed to the user,** from a service's dashboard: the Key type,
+  as a bearer token. Nothing new.
+- **OAuth tokens that are JWTs:** the OAuth type, which reads the `exp`
+  claim to refresh before it expires.
+- **A login endpoint that returns one,** common in Spring apps: POST a
+  user and password to a login path, get a JWT and maybe a refresh
+  token, send it as a bearer token, refresh at a refresh path. Neither
+  OAuth nor Basic: likely a type of its own (Login: the login and
+  refresh paths, a user and password, and where the token is in the
+  reply).
+- **Signed JWT assertions** (RFC 7523): the client signs a JWT with its
+  own private key, kept in the secure store, to get a token, as Google's
+  service accounts do. A type of its own, later.
+- **Knowing when a token expires,** for every type that gets one
+  (OAuth, Login): from the token reply's `expires_in`, or a JWT's `exp`
+  claim when the token is one. A token that expires within a margin
+  (time for the request to arrive, plus clock skew between the two
+  computers) isn't used: a fresh one is fetched first, by its refresh
+  token, or by signing in again. Requests made while one is being
+  fetched wait for it instead of each fetching their own. A 401 anyway
+  (a token revoked early) gets one fresh token and one retry, never a
+  loop. The user never sees a token expire, and never copies one from
+  one request into another, as Postman makes them do.
+- **Claims:** a script might read a token's claims, such as who signed
+  in, without seeing the token. Claims aren't secrets; to decide.
+
+## The Tour and the examples
+
+**The Tour explains; it doesn't configure.** Its two Web pages (REST
+and JSON, then Connections) show what an author declares and what a
+script says, in words and short examples. They never read, set or use a
+stored connection, and never call a service. Working examples are stacks
+of their own:
+
+- **A server of one's own:** one stack for every user's own server, its
+  type open: None for an open server, Basic or OAuth for a secured one.
 - **Enphase:** a stack for Enphase solar customers on the Enlighten v4
-  API, which takes an API key, client id and secret from a registered
-  app; the authorization code flow with a pasted code and the client
-  authenticating with Basic; refresh before expiry; and every call
-  carrying a bearer token and `?key=`. Today that's about 150 lines of
-  a Java server; it should be a declaration.
-- **Facebook:** sign-in with Facebook Login for Devices (nothing secret
-  in the stack: the client token is meant to be embedded) and OpenID
-  Connect with PKCE; showing who signed in, with their picture in an
-  image part, and a Page's recent posts for someone who manages one.
-  Meta allows only an app's own admins, developers and testers in
-  development mode; anyone else needs Meta's App Review.
+  API: OAuth with a pasted code and the client authenticating with
+  Basic, refresh before expiry, and every call carrying a bearer token
+  and `?key=`. Today that's about 150 lines of a Java server; it should
+  be a declaration.
+- **Facebook:** its type, URL, endpoints and app id fixed by the author,
+  so each user only signs in: Facebook Login for Devices (the client
+  token is meant to be embedded) and OpenID Connect with PKCE; showing
+  who signed in, with their picture, and a Page's recent posts for
+  someone who manages one. Meta allows only an app's own admins,
+  developers and testers in development mode; anyone else needs Meta's
+  App Review.
 
-**Done when** all three stacks work against the real services: VideoDB
-against its own server, Enphase showing a customer's solar production,
-and Facebook showing who signed in. Each works for someone other than
-its author, given only their own settings, with no secret of the
-author's in the stack file. They're the proof the tools are general.
+**Done when** all three work against the real services for someone other
+than their author, given only their own values, with no secret of the
+author's in the stack file.
 
-**The order:**
-1. Connections and their settings, with the secure store; VideoDB's
-   address moves out of its stack.
-2. API keys and Basic, in headers and query parameters.
-3. OAuth: the authorization code flow with refresh, by loopback and by
-   pasted code; then Enphase.
-4. The device flow and OpenID Connect; then Facebook.
-5. The signing handler, client credentials, client certificates and
-   JWT assertions.
-6. A safety net for stacks from strangers: a request to a host that no
-   connection declares and the user never gave the stack asks first.
+## The order
 
-Meanwhile the Mac app allows plain http only on the local network
-(`NSAllowsLocalNetworking`, so `http://trashcan.local` streams), says
-why in its Local Network prompt, and needs https everywhere else; the
-same rule should hold on Linux and Windows, so a stack behaves alike
-everywhere.
+1. Connections and the secure store. *Built, as settings an author
+   invents.*
+2. Keys and Basic. *Built, as credential templates an author assembles.*
+3. **Typed connections:** rebuild 1 and 2 around types; see below.
+4. OAuth with refresh, by loopback and by pasted code; then Enphase.
+5. The device flow and OpenID Connect; then Facebook.
+6. Login with a JWT, client credentials, client certificates, JWT
+   assertions and request signing, as stacks need them.
+7. The safety net for stacks from strangers.
 
-## Step 1: connections and their settings
+## Step 3: typed connections
 
-Decided and built 2026-11-22. The Linux Secret Service is tried; the
-Keychain and Credential Manager are built but not yet run on their systems.
+Each part is built, tried and looked at before the next.
 
-- **Each stack has a lasting identity** (`uid` in the stack file: 128
-  random bits). A new stack gets one when it's made; a stack from before
-  gets one when it's opened, kept once it's saved. Users' values are kept
-  under it, so they follow the stack when its file moves or is renamed. A
-  copy keeps it: it's the same application.
-- **The author's half** is saved in the stack: each connection's name, its
-  description, and its settings, each with a hint, a default (never for a
-  secret) and whether it's secret. Every connection has an Address.
-- **The user's half** is kept on their computer: ordinary values in
-  `connections.json` in RandomCard's settings folder, under the stack's
-  identity and the connection's name; secrets in the system's secure store
-  (the `keyring-core` crate with each system's own store: the Keychain,
-  Windows Credential Manager, the Secret Service over D-Bus in Rust). Where
-  a system has no secure store running, RandomCard says so and keeps the
-  secret only until it quits; it never writes secrets to a plain file.
-- **In HyperTalk:**
-  - `setting "Address" of connection "VideoDB"` reads a user's value (or
-    the setting's default), and `set setting … of connection … to x`
-    saves one, to the user's computer, never the stack, so a stack's own
-    settings card can do the setting up. A secret can be set but never
-    read: reading one is an error.
-  - `url "/graphql" with connection "VideoDB"`, and `with connection` on
-    `post`, `put … to url`, `patch`, `query`, `delete url`, `request` and
-    `load url`: a path is taken from the connection's Address. In step 2
-    the same words attach the credentials, so scripts written now keep
-    working when a service adds security.
-  - A connection that isn't set up opens RandomCard's setup dialog, made
-    from the declaration, once a run: cancelled, the request is like one
-    with no reply, and `the result` says what's missing. File >
-    Connections… opens the same form any time. An Address typed without a
-    scheme gets https, or http for this computer (localhost, 127.0.0.1,
-    [::1]), as browsers do.
-  - A settings file (JSON: settings by connection) fills values in, from
-    Open Settings File… in either window; secrets in it go to the secure
-    store, and the file is only read.
-- **The author declares connections** in Stack Info's Connections… window.
-- **VideoDB is the proof:** its server address moves out of the stack file
-  into a connection; its scripts use `with connection "VideoDB"`, and its
-  Settings card reads and sets the Address. The Tour's Connections card
-  shows it with a server on the user's own computer.
-- **Movies and images** keep their own forms with no `with connection`: a
-  movie's address is made from `setting "Address" of connection …`. In
-  step 2, credentials are added to any request whose address starts with
-  a connection's Address, which covers them too.
+- **3a. The model.** A connection is a name, a description, and its
+  elements, each with the author's value (if any) and whether it's
+  fixed, a default or open; the type is one of them. The types None, Key
+  and Basic, each signing its requests; OAuth's elements declared, its
+  sign-in left for step 4. Extras: elements of the author's own and
+  fixed headers. The element is URL, not Address. The credential
+  templates go.
+- **3b. The store.** Users' values as now (`connections.json` and the
+  secure store), with the rule that secrets belong to their URL.
+  Named contexts: their values, and which is in use.
+- **3c. HyperTalk.** `setting "URL" of connection "VideoDB"` and `set
+  setting …` keep working; new: the connections a stack declares, a
+  connection's type, whether it's set up, the context in use. The
+  interceptor messages. Syntax shown for a decision before it's built.
+- **3d. The windows.** Stack Info ▸ Connections…: name, type, and each
+  element's value and whether it's fixed, a default or open. File ▸
+  Connections… and the first-use dialog: only what's open, from the type.
+- **3e. The stacks.** The example for a server of one's own: its type and
+  URL open, so each user picks None or Basic. The Tour: no connection of its own; Web page 2 explains,
+  with no buttons that touch a stored connection. HYPERTALK.md to match.
 
-## Step 2: API keys and Basic
+## What's built (steps 1 and 2)
 
-Built 2026-11-22. Movies sign in on Linux (GStreamer's HTTP source gets the
-headers, and follows no redirects) and on a Mac (AVPlayer gets the movie
-under a scheme of RandomCard's own, and an AVAssetResourceLoaderDelegate
-fetches each range it asks for with RandomCard's HTTP client, so headers,
-Basic and query keys all work, with no redirects); the Windows player says
-it can't yet. A live (HLS) stream that signs in doesn't play on a Mac yet:
-its segments would need the same loading.
+Built 2026-11-22, and kept where the new design agrees:
 
-- **A connection's credentials,** declared under "How it signs in" in its
-  Connections… window: each is Basic, a header or a query parameter, with
-  a value naming settings in braces (`{User name}:{Password}`, `Bearer
-  {Token}`, `{API Key}`). Add Basic adds a User name and a secret Password.
-- **Which requests carry them:** any from the stack whose address is under
-  the connection's Address (scheme, host, port, path prefix; the closest
-  Address wins), named or not: `url`, every request command, and image
-  parts, and movies on Linux and the Mac. Windows needs research into
-  Media Foundation's credential manager.
-- **Kept safe:** filled in only as the request is sent, so scripts never see
-  them; no redirects followed with them; plain http only on this computer
-  and the local network (as the Mac app's ATS rule already says);
-  errors never show a URL with a key in it.
-- **Optional settings:** not needed to be set up; a credential using an
-  empty one is left off. VideoDB's User name and Password are optional, so
-  it works with an open server and with the `basic-auth` branch.
-- **Tried against** the `basic-auth` branch of videodb-be on
-  localhost:8080: 401 without them, the movie list with them.
+- **A lasting identity** for each stack (`uid`: 128 random bits), made
+  with the stack or when an old one is first saved. A copy keeps it: it's
+  the same application.
+- **The store:** ordinary values in `connections.json` in RandomCard's
+  settings folder, under the stack's identity and the connection's name;
+  secrets through the `keyring-core` crate in each system's secure store.
+  Where none is running, RandomCard says so and keeps a secret only until
+  it quits. The Linux Secret Service is tried; the Keychain and
+  Credential Manager are built but not yet run on their systems.
+- **HyperTalk:** `setting "Address" of connection "VideoDB"` reads a value,
+  `set setting … of connection … to x` saves one (a secret can be set,
+  never read), and `with connection "VideoDB"` on `url`, every request
+  command and `load url` joins a path to the connection's URL.
+- **Signing:** credentials go on any request under the connection's URL,
+  named or not, including image parts and movies. Movies sign in on Linux
+  (GStreamer's HTTP source gets the headers) and on a Mac (an
+  AVAssetResourceLoaderDelegate fetches each range with RandomCard's HTTP
+  client); Windows says it can't yet. A live (HLS) stream that signs in
+  doesn't play on a Mac yet.
+- **The safety rules** above, except that secrets don't yet belong to
+  their URL.
 
-## Driving it with VideoDB
+What step 3 replaces: an author inventing a connection's settings and
+assembling its credentials from templates (`Bearer {Token}`, `{User
+name}:{Password}`) in Stack Info ▸ Connections…; and the name Address.
 
-VideoDB's server (videodb-be, Spring Boot) and front end (videodb-fe,
-React) gain security on branches of their own, one for each scheme,
-built and run here: HTTP Basic for step 2, then an OAuth 2.0 resource
-server with an authorization server (Spring Authorization Server or
-Keycloak) for step 3, the React app and RandomCard each signing in as a
-public client with PKCE. The stack follows each branch with a change to
-its connection's declaration only, never its scripts.
+## Testing
+
+Each type is tried against a back end of our own, configured once for
+each way a service can be secured (open, Basic, a key, a JWT login,
+OAuth), with the same example stack run against every one and only the
+user's values changing. Tokens there can be set to expire in seconds, so
+refreshing before expiry, one refresh at a time and the retry on a 401
+are all tried on purpose rather than waited for.
