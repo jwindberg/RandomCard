@@ -3419,6 +3419,24 @@ fn dont_save_fields_open_empty() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A password box: the text shows as dots, but scripts still have it;
+/// `find` passes it by, and it isn't copied.
+#[test]
+fn secure_text_fields() {
+    let mut i = interp_with(stack());
+    run(&mut i, "put \"Apple\" into field \"Name\"\nset the secureText of field \"Name\" to true");
+    assert_eq!(run(&mut i, "put the secureText of field \"Name\""), "true");
+    assert_eq!(run(&mut i, "put field \"Name\""), "Apple");
+    assert_eq!(run(&mut i, "find \"Apple\"\nput the result"), "not found");
+    run(&mut i, "select char 1 to 3 of field \"Name\"\ndoMenu \"Copy Text\"");
+    assert!(lock(&i.world).text_clip.is_none());
+    assert_eq!(crate::model::secure_dots("ab\ncd"), "••\n••");
+    run(&mut i, "set the secureText of field \"Name\" to false");
+    assert_eq!(run(&mut i, "find \"Apple\"\nput the result"), "");
+    run(&mut i, "select char 1 to 3 of field \"Name\"\ndoMenu \"Copy Text\"");
+    assert_eq!(lock(&i.world).text_clip.as_ref().map(|c| c.text.as_str()), Some("App"));
+}
+
 #[test]
 fn every_http_verb_from_hypertalk() {
     let base = crate::web::http::test_server::start(|method, path, _, body| match path {

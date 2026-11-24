@@ -487,7 +487,10 @@ fn text_rect(p: &Part) -> Rect {
 
 /// A field's text on a card, laid out in lines as HyperCard wrapped it.
 pub fn field_lines(stack: &Stack, card: Id, layer: Layer, p: &Part) -> Vec<Line> {
-    let text = stack.field_text(card, layer, p.id);
+    let mut text = stack.field_text(card, layer, p.id);
+    if p.secure_text {
+        text = crate::model::secure_dots(&text);
+    }
     let runs: Vec<StyleRun> = stack.field_styles(card, layer, p.id);
     let setting = Setting {
         font: &p.text_font,

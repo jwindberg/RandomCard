@@ -311,6 +311,12 @@ fn is_one(n: &f64) -> bool {
     *n == 1.0
 }
 
+/// A secure field's text as it's shown and printed: a dot for each
+/// character but a line break.
+pub fn secure_dots(text: &str) -> String {
+    text.chars().map(|c| if c == '\n' { c } else { '•' }).collect()
+}
+
 fn is_false(b: &bool) -> bool {
     !*b
 }
@@ -378,6 +384,11 @@ pub struct Part {
     /// stacks' files don't change.
     #[serde(skip_serializing_if = "is_false")]
     pub dont_save: bool,
+    /// A field whose text shows as dots, as a password box does (`the
+    /// secureText`): scripts still get its text, but it can't be copied,
+    /// and `find` passes it by. Saved only when set.
+    #[serde(skip_serializing_if = "is_false")]
+    pub secure_text: bool,
     /// An image's: how its picture fills its rect.
     #[serde(skip_serializing_if = "is_default_fit")]
     pub fit: ImageFit,
@@ -438,6 +449,7 @@ impl Default for Part {
             fixed_line_height: false,
             scroll: 0,
             dont_save: false,
+            secure_text: false,
             fit: ImageFit::Fit,
             choices: String::new(),
             fore_color: None,

@@ -2006,7 +2006,7 @@ impl App {
         let mut paste_at = None;
         if focused && let ObjRef::Part { layer, id, card } = e.obj {
             let mut w = lock(&self.rt.world);
-            if copying && sel_start < sel_end {
+            if copying && sel_start < sel_end && !part.secure_text {
                 let r = FieldRange { card, layer, field: id, start: sel_start, end: sel_end };
                 w.text_clip = Some(w.copy_text(&r));
             }
@@ -2022,6 +2022,9 @@ impl App {
             .margin(Vec2::ZERO)
             .desired_width(text_rect.width())
             .text_color(Color32::BLACK)
+            // A secure field's text isn't copied or cut, nor read out by
+            // screen readers.
+            .password(part.secure_text)
             .layouter(&mut layouter);
         let pv = pv.clone();
         // Bold runs get a second pass, as in `render::paint_field_text`.

@@ -1901,6 +1901,7 @@ impl Interp {
                     for p in s.parts(c.id, layer) {
                         if p.kind == PartKind::Field
                             && !p.dont_search
+                            && !p.secure_text
                             && only.as_ref().is_none_or(|o| o.contains(&(c.id, layer, p.id)))
                         {
                             fields.push((c.id, layer, p.id));
@@ -2879,7 +2880,9 @@ impl Interp {
         let empty = TextClip { text: String::new(), runs: Vec::new() };
         match op {
             EditOp::Copy | EditOp::Cut => {
-                if r.start >= r.end {
+                // A secure field's text isn't copied, as a password box's isn't.
+                let secure = w.stack.parts(r.card, r.layer).iter().any(|p| p.id == r.field && p.secure_text);
+                if r.start >= r.end || secure {
                     return false;
                 }
                 let clip = w.copy_text(&r);

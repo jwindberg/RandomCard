@@ -671,6 +671,7 @@ impl Interp {
                     "sharedtext" => bool_str(p.shared_text),
                     "dontsearch" => bool_str(p.dont_search),
                     "dontsave" => bool_str(p.dont_save),
+                    "securetext" => bool_str(p.secure_text),
                     "choices" => p.choices.clone(),
                     "autoselect" => bool_str(p.auto_select),
                     "multiplelines" => bool_str(p.multiple_lines),
@@ -967,6 +968,7 @@ impl Interp {
                     "sharedtext" => p.shared_text = to_bool(v)?,
                     "dontsearch" => p.dont_search = to_bool(v)?,
                     "dontsave" => p.dont_save = to_bool(v)?,
+                    "securetext" => p.secure_text = to_bool(v)?,
                     "fit" => match crate::model::ImageFit::named(v) {
                         Some(f) => p.fit = f,
                         None => return bad("fit, fill, stretch or actual"),

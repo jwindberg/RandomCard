@@ -35,7 +35,7 @@ const PROPERTIES: &[&str] = &[
     "height", "topleft", "botright", "bottomright", "visible", "style", "textfont", "textsize", "textstyle",
     "textalign", "textheight", "hilite", "highlight", "hilight", "highlite", "autohilite", "autohighlight",
     "showname", "enabled", "family", "sharedhilite", "icon", "titlewidth", "locktext", "dontwrap", "autotab",
-    "widemargins", "showlines", "sharedtext", "dontsearch", "autoselect", "multiplelines", "fixedlineheight", "scroll", "script", "contents", "text", "marked",
+    "widemargins", "showlines", "sharedtext", "dontsearch", "securetext", "autoselect", "multiplelines", "fixedlineheight", "scroll", "script", "contents", "text", "marked",
     "showpict", "cantdelete", "cantmodify", "owner", "partnumber", "checkmark", "commandchar", "menumessage",
     "size", "freesize",
 ];

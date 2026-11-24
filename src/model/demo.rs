@@ -1361,6 +1361,21 @@ end idle
         }
         b.card_part(c, f);
     }
+    // secureText: a password box, its text dots on screen but whole to scripts.
+    let mut secret = Part::new_field(b.id(), "Secret", Rect::new(20, 314, 118, 336));
+    secret.contents = "swordfish".into();
+    secret.style = PartStyle::Rectangle;
+    secret.dont_wrap = true;
+    secret.secure_text = true;
+    b.card_part(c, secret);
+    let mut read = b.button(
+        "Read It",
+        Rect::new(122, 314, 184, 336),
+        "on mouseUp
+  answer \"secureText shows dots for what's typed, as a password box does, and keeps it from being copied. A script still reads it:\" && cd fld \"Secret\"\nend mouseUp",
+    );
+    read.style = PartStyle::RoundRect;
+    b.card_part(c, read);
     // LineCount and Prompt, from Frédéric Rinaldi's externals, built in.
     let mut count = b.button(
         "Count Lines",

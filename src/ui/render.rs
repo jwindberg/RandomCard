@@ -1047,6 +1047,15 @@ pub fn field_job(
     hl: Option<(usize, usize)>,
     pass: Pass,
 ) -> LayoutJob {
+    // A secure field shows a dot for each character but a line break, so
+    // its runs, selection and insertion point stay where they were.
+    let masked;
+    let text = if p.secure_text {
+        masked = crate::model::secure_dots(text);
+        masked.as_str()
+    } else {
+        text
+    };
     let mut job = LayoutJob::default();
     let bytes: Vec<usize> = text.char_indices().map(|(i, _)| i).chain(std::iter::once(text.len())).collect();
     let len = bytes.len() - 1;

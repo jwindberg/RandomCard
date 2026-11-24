@@ -506,6 +506,10 @@ impl App {
                             .on_hover_text("Its text isn't saved: it opens empty")
                             .changed();
                         ui.end_row();
+                        changed |= ui.checkbox(&mut p.secure_text, "Secure Text")
+                            .on_hover_text("Its text shows as dots, as a password's does")
+                            .changed();
+                        ui.end_row();
                         ui.label(format!("{} characters", text.chars().count()));
                     }
                     ui.end_row();

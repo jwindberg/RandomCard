@@ -496,7 +496,7 @@ slider's value), a slider's `min`, `max` and `step`, and color:
 `autoSelect`, `multipleLines`, `fixedLineHeight`, `scroll`, `style`
 (`transparent`, `opaque`, `rectangle`, `shadow`, `scrolling`), `text`,
 `selectedText`, `selectedLine`, `selectedChunk`, and RandomCard's
-`dontSave` and `choices`.
+`dontSave`, `secureText` and `choices`.
 
 **Chunks of a field:** `textFont`, `textSize`, `textStyle`, `foreColor`,
 `textWidth`.
@@ -990,6 +990,11 @@ end sliderChanged
 
 - **Don't Save:** `set the dontSave of field "Results" to true`: the field
   works as usual, but opens empty.
+- **Secure Text:** `set the secureText of field "Password" to true`: a
+  password box. What's typed shows as dots (•), and can't be copied or
+  cut; `find` passes it by. A script still gets its text (`put field
+  "Password" into pw`). Its text is saved like any field's, so a field
+  for a password usually has Don't Save too.
 - **Colors:** `foreColor`, `backColor` and `borderColor` of buttons and
   fields, and `foreColor` of any chunk of a field.
 
