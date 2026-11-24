@@ -640,6 +640,8 @@ impl Parser {
             || w == "load" && self.is_at(1, "url")
             // `flush keys`; a stack's own `flush` handler is still a message.
             || w == "flush" && self.is_at(1, "keys")
+            // `sign in connection c`; a stack's own `sign` handler is still a message.
+            || w == "sign" && (self.is_at(1, "in") || self.is_at(1, "out")) && self.is_at(2, "connection")
             // `pause movie 1`; a stack's own `pause` handler is still a message.
             || matches!(w.as_str(), "pause" | "rewind") && self.movie_ref_at(1);
         // A bare `dial` is a message for a stack's own dial handler (Phone
@@ -1524,6 +1526,22 @@ impl Parser {
                 }
             }
             "arrowkey" => Cmd::ArrowKey(self.expr()?),
+            "sign" if self.is("in") && self.is_at(1, "connection") => {
+                self.pos += 2;
+                let connection = self.expr()?;
+                let user = if self.accept("as") { Some(self.expr()?) } else { None };
+                let password = if self.is("with") && self.is_at(1, "password") {
+                    self.pos += 2;
+                    Some(self.expr()?)
+                } else {
+                    None
+                };
+                Cmd::SignIn { connection, user, password }
+            }
+            "sign" if self.is("out") && self.is_at(1, "connection") => {
+                self.pos += 2;
+                Cmd::SignOut(self.expr()?)
+            }
             "create" if self.is("connection") && self.starts_term_at(1) => {
                 self.advance();
                 Cmd::CreateConnection(self.expr()?)

@@ -451,7 +451,9 @@ impl Interp {
             Cmd::SetConnectionSetting { connection, setting, value } => {
                 let (connection, setting, value) = (self.eval(connection)?, self.eval(setting)?, self.eval(value)?);
                 let mut w = self.w();
-                let declared = w.stack.connection(&connection).and_then(|c| c.find(&setting)).is_some();
+                use crate::model::connections::{ACCESS_TOKEN, REFRESH_TOKEN, SIGNED_IN, TOKEN_EXPIRES};
+                let kept = [ACCESS_TOKEN, REFRESH_TOKEN, SIGNED_IN, TOKEN_EXPIRES].iter().any(|t| t.eq_ignore_ascii_case(setting.trim()));
+                let declared = w.stack.connection(&connection).is_some_and(|c| kept || c.find(&setting).is_some());
                 let mut store = super::connections::store();
                 match super::connections::write(&mut store, &mut w.stack, &connection, &setting, &value) {
                     Ok(changed) => {
@@ -663,6 +665,38 @@ impl Interp {
                 let mut w = self.w();
                 super::connections::delete(&mut super::connections::store(), &mut w.stack, &name).or_else(err)?;
                 w.dirty = true;
+                Ok(())
+            }
+            // The provider's answer goes to `the result`: empty when it
+            // worked, else why not.
+            Cmd::SignIn { connection, user, password } => {
+                let name = self.eval(connection)?;
+                let user = match user {
+                    Some(u) => Some(self.eval(u)?),
+                    None => None,
+                };
+                let password = match password {
+                    Some(p) => Some(self.eval(p)?),
+                    None => None,
+                };
+                let (stack, conn) = {
+                    let w = self.w();
+                    (w.stack.name.clone(), super::connections::declared(&w.stack, &name).or_else(err)?.clone())
+                };
+                let mut store = super::connections::store();
+                let done = super::oauth::sign_in(&mut store, &stack, &conn, user.as_deref(), password.as_deref());
+                drop(store);
+                self.result = done.err().unwrap_or_default();
+                Ok(())
+            }
+            Cmd::SignOut(e) => {
+                let name = self.eval(e)?;
+                let (stack, conn) = {
+                    let w = self.w();
+                    (w.stack.name.clone(), super::connections::declared(&w.stack, &name).or_else(err)?.clone())
+                };
+                let done = super::oauth::forget(&mut super::connections::store(), &stack, &conn);
+                self.result = done.err().unwrap_or_default();
                 Ok(())
             }
             Cmd::CreateMenu(e) => {

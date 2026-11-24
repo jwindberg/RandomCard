@@ -329,6 +329,11 @@ pub enum Cmd {
     /// `delete connection "videodb-basic"`: gone from the stack, with its
     /// secrets.
     DeleteConnection(Expr),
+    /// `sign in connection "VideoDB" as "viewer" with password "…"`: get
+    /// the connection's tokens.
+    SignIn { connection: Expr, user: Option<Expr>, password: Option<Expr> },
+    /// `sign out connection "VideoDB"`: forget its tokens.
+    SignOut(Expr),
     /// `start using stack "Library"`.
     StartUsing(Expr),
     StopUsing(Expr),

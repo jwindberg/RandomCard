@@ -52,8 +52,8 @@ pub enum Type {
     Key,
     /// A user name and a password (RFC 7617).
     Basic,
-    /// OAuth 2.0 (RFC 6749). Its elements are declared; signing in comes
-    /// in a later step.
+    /// OAuth 2.0 (RFC 6749): a token from the provider, sent as
+    /// `Authorization: Bearer` and refreshed as it expires.
     OAuth,
 }
 
@@ -85,6 +85,25 @@ pub const QUERY: &str = "Query";
 /// The header's or query parameter's name, for a Key not sent as Bearer.
 pub const KEY_NAME: &str = "Key name";
 
+/// How an OAuth connection gets its tokens: for now, by a user name and
+/// password the stack hands over (RFC 6749 §4.3).
+pub const GRANT: &str = "Grant";
+pub const PASSWORD_GRANT: &str = "Password";
+/// The OAuth provider (the issuer, in OpenID Connect): its token URL is
+/// found from its `/.well-known/openid-configuration`.
+pub const PROVIDER_URL: &str = "Provider URL";
+pub const TOKEN_URL: &str = "Token URL";
+pub const CLIENT_ID: &str = "Client ID";
+pub const CLIENT_SECRET: &str = "Client secret";
+pub const SCOPES: &str = "Scopes";
+/// What RandomCard keeps for an OAuth connection once it's signed in: its
+/// tokens, secrets in the secure store, and when the access token expires
+/// and whether it's signed in, which any script can read.
+pub const ACCESS_TOKEN: &str = "Access token";
+pub const REFRESH_TOKEN: &str = "Refresh token";
+pub const TOKEN_EXPIRES: &str = "Token expires";
+pub const SIGNED_IN: &str = "Signed in";
+
 const TYPE_DEF: Def = Def { choices: &["None", "Key", "Basic", "OAuth"], ..def(TYPE, "How it signs in") };
 const URL_DEF: Def = def(URL, "Such as https://api.example.com/v2");
 const HEADERS_DEF: Def = Def { optional: true, ..def(HEADERS, "One a line, Name: value") };
@@ -101,12 +120,12 @@ const KEY: &[Def] = &[
 ];
 const BASIC: &[Def] = &[def("User name", ""), Def { secret: true, ..def("Password", "") }];
 const OAUTH: &[Def] = &[
-    def("Authorization URL", "Where the user signs in"),
-    def("Token URL", "Where tokens come from"),
-    def("Client ID", "The app's id, from the service"),
-    Def { secret: true, optional: true, ..def("Client secret", "None for a public client (PKCE)") },
-    Def { optional: true, ..def("Scopes", "What the app asks to do, separated by spaces") },
-    Def { choices: &["Loopback", "Pasted code"], ..def("Sign-in returns", "How the sign-in comes back to RandomCard") },
+    Def { choices: &[PASSWORD_GRANT], ..def(GRANT, "How it gets a token") },
+    Def { optional: true, ..def(PROVIDER_URL, "The provider (issuer), whose token URL is found from it") },
+    Def { optional: true, ..def(TOKEN_URL, "Where tokens come from, when the provider doesn't say") },
+    def(CLIENT_ID, "The app's id, from the provider"),
+    Def { secret: true, optional: true, ..def(CLIENT_SECRET, "None for a public client") },
+    Def { optional: true, ..def(SCOPES, "What the app asks to do, separated by spaces") },
 ];
 
 impl Type {
@@ -237,7 +256,7 @@ impl Field {
 /// extra can't take it.
 pub fn reserved(name: &str) -> bool {
     let n = name.trim();
-    [TYPE, URL, HEADERS, OVER_HTTP, READ_SECRETS].iter().chain(Type::ALL.iter().flat_map(|t| t.elements().iter().map(|d| &d.name))).any(|r| r.eq_ignore_ascii_case(n))
+    [TYPE, URL, HEADERS, OVER_HTTP, READ_SECRETS, ACCESS_TOKEN, REFRESH_TOKEN, TOKEN_EXPIRES, SIGNED_IN].iter().chain(Type::ALL.iter().flat_map(|t| t.elements().iter().map(|d| &d.name))).any(|r| r.eq_ignore_ascii_case(n))
 }
 
 impl Connection {

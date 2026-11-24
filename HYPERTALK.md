@@ -814,7 +814,7 @@ signs in:
 | None | URL | nothing more |
 | Key | URL, Key, Send as (Bearer, Header or Query), Key name | `Authorization: Bearer` (RFC 6750), the header named, or the query parameter named |
 | Basic | URL, User name, Password | `Authorization: Basic` (RFC 7617) |
-| OAuth | URL, Authorization URL, Token URL, Client ID, Client secret, Scopes, Sign-in returns | not yet: declared, signing in comes later |
+| OAuth | URL, Grant (Password, for now), Provider URL, Token URL, Client ID, Client secret, Scopes | `Authorization: Bearer` with its access token (RFC 6749, RFC 6750), once it's signed in |
 
 For every setting, the type included, the author says who gives it:
 **Fixed** (the author's value, for everyone), **Default** (the author's
@@ -901,6 +901,45 @@ end mouseUp
   connection's **Sign in over http** setting is Anywhere (it's Local
   network only until the author or a script says otherwise), for a server
   that only speaks http.
+
+##### OAuth
+
+An OAuth connection gets its tokens from a provider (Keycloak, Okta, a
+service's own), and the stack never touches them:
+
+```hypertalk
+on mouseUp
+  sign in connection "VideoDB" as field "User" with password field "Password"
+  if the result is not empty then answer the result -- "Invalid user credentials"
+  put url "/api/me" with connection "VideoDB" into me
+end mouseUp
+```
+
+- **Provider URL** is the provider, the issuer in OpenID Connect
+  (`https://login.example.com/realms/movies`): the token URL is found
+  from its `/.well-known/openid-configuration`. **Token URL** is for a
+  provider with no discovery document. **Client ID** is the app's, from
+  the provider; **Client secret** only for a confidential client (it signs
+  in with Basic, RFC 6749 §2.3.1). **Scopes** go as they're given:
+  `offline_access` asks for a refresh token that outlives the session.
+- **`sign in connection "X" as user with password pw`** uses the Password
+  grant (RFC 6749 §4.3). The user name and password are the stack's own,
+  wherever it keeps them: RandomCard sends them to the provider once and
+  keeps only the tokens, in the secure store, so a stack stays signed in
+  after RandomCard quits. `the result` is empty when it worked, else the
+  provider's words. Other grants (the browser with PKCE, the device flow)
+  come later, as Grant's other values.
+- **`sign out connection "X"`** forgets its tokens.
+- **Tokens look after themselves:** an access token about to expire (within
+  30 seconds) is refreshed before a request goes, and a request refused
+  with 401 anyway gets one fresh token and one retry. When the refresh
+  token is refused too, the request isn't sent, and `the result` says the
+  connection isn't signed in, for the stack to sign in again.
+- **`setting "Signed in" of connection "X"`** is true or false, and
+  **`setting "Token expires"`** is when the access token expires, counted
+  as `the seconds` counts. **Access token** and **Refresh token** are
+  secrets: readable when Scripts read secrets is Yes, and a stack can set
+  them to tokens it got its own way.
 
 The `examples/` folder has three stacks built on these: ICNDB (a REST
 client for one service), PostCard (a small Postman), and Swatches (colors

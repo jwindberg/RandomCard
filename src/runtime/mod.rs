@@ -10,6 +10,7 @@ pub mod images;
 mod builtins;
 pub mod web;
 pub mod connections;
+pub mod oauth;
 mod commands;
 mod externals;
 mod files;

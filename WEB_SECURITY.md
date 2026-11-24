@@ -248,7 +248,12 @@ author's in the stack file.
    invents.*
 2. Keys and Basic. *Built, as credential templates an author assembles.*
 3. **Typed connections:** rebuild 1 and 2 around types; see below.
-4. OAuth with refresh, by loopback and by pasted code; then Enphase.
+4. OAuth with refresh. *The Password grant built 2026-11-24:* `sign in
+   connection … as … with password …` and `sign out connection …`, the
+   token URL from the provider's discovery document, tokens in the
+   secure store, refreshed 30 seconds before they expire and once after
+   a 401. Next: the browser with PKCE, by loopback and by pasted code;
+   then Enphase.
 5. The device flow and OpenID Connect; then Facebook.
 6. Login with a JWT, client credentials, client certificates, JWT
    assertions and request signing, as stacks need them.

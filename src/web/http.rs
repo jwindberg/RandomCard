@@ -24,6 +24,20 @@ pub struct Request {
 pub struct Credentials {
     pub headers: Vec<(String, String)>,
     pub query: Vec<(String, String)>,
+    /// Fresh credentials for a request whose token was refused (a 401):
+    /// a token revoked or expired early. Tried once, never in a loop.
+    pub renew: Option<Renew>,
+}
+
+/// How a connection gets fresh credentials after a 401, or None when it
+/// can't (the user has to sign in again).
+#[derive(Clone)]
+pub struct Renew(pub std::sync::Arc<dyn Fn() -> Option<Credentials> + Send + Sync>);
+
+impl PartialEq for Renew {
+    fn eq(&self, other: &Renew) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
 }
 
 impl std::fmt::Debug for Credentials {
@@ -177,8 +191,20 @@ fn agent(timeout: Duration, credentials: bool) -> ureq::Agent {
 /// Send a request and wait for the reply. Err is a request that got no
 /// reply at all: a bad address, no network, a timeout. The method is any
 /// token (GET, POST, PUT, PATCH, DELETE, QUERY…), sent exactly as given:
-/// methods are case-sensitive (RFC 9110 §9.1).
+/// methods are case-sensitive (RFC 9110 §9.1). A connection whose token
+/// is refused (401) gets one fresh token and one retry.
 pub fn send(req: &Request) -> Result<Response, String> {
+    let reply = send_once(req)?;
+    if reply.status == 401
+        && let Some(fresh) = req.credentials.as_ref().and_then(|c| c.renew.as_ref()).and_then(|r| (r.0)())
+    {
+        let fresh = Credentials { renew: None, ..fresh };
+        return send_once(&Request { credentials: Some(fresh), ..req.clone() });
+    }
+    Ok(reply)
+}
+
+fn send_once(req: &Request) -> Result<Response, String> {
     let method = ureq::http::Method::from_bytes(req.method.trim().as_bytes())
         .map_err(|_| format!("\"{}\" isn't an HTTP method", req.method))?;
     let mut headers = req.headers.clone();
@@ -225,6 +251,16 @@ pub fn send(req: &Request) -> Result<Response, String> {
 /// Get a URL's body as bytes (a picture, say), or why not: no reply, or a
 /// status other than 2xx.
 pub fn get_bytes(url: &str, credentials: Option<&Credentials>, timeout: Duration) -> Result<Vec<u8>, String> {
+    match get_bytes_once(url, credentials, timeout) {
+        Err(e) if e.starts_with("401") => match credentials.and_then(|c| c.renew.as_ref()).and_then(|r| (r.0)()) {
+            Some(fresh) => get_bytes_once(url, Some(&fresh), timeout),
+            None => Err(e),
+        },
+        other => other,
+    }
+}
+
+fn get_bytes_once(url: &str, credentials: Option<&Credentials>, timeout: Duration) -> Result<Vec<u8>, String> {
     let (sent, headers) = with_credentials(url, credentials)?;
     let fail = |e: String| hide(e, &sent, url);
     let mut request = ureq::http::Request::builder().method("GET").uri(sent.as_str());

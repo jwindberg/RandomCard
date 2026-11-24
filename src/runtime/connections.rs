@@ -12,7 +12,8 @@ use std::sync::{LazyLock, Mutex, MutexGuard};
 
 use crate::model::Stack;
 use crate::model::connections::{
-    ANYWHERE, BEARER, Connection, Field, Given, HEADER, HEADERS, KEY_NAME, OVER_HTTP, QUERY, READ_SECRETS, SEND_AS, TYPE, Type, URL,
+    ACCESS_TOKEN, ANYWHERE, BEARER, Connection, Field, Given, HEADER, HEADERS, KEY_NAME, OVER_HTTP, PROVIDER_URL, QUERY, READ_SECRETS,
+    REFRESH_TOKEN, SEND_AS, SIGNED_IN, TOKEN_EXPIRES, TOKEN_URL, TYPE, Type, URL,
 };
 use crate::web::http::Credentials;
 
@@ -32,13 +33,20 @@ pub struct Store {
     read: BTreeMap<String, Result<Option<String>, String>>,
     /// How a secret is read from the secure store (counted in tests).
     fetch: fn(&str) -> Result<Option<String>, String>,
+    /// Each OAuth provider's token URL, from its discovery document.
+    pub(super) token_urls: BTreeMap<String, String>,
+    /// When each connection's access token expires, by the provider's
+    /// word, in Unix seconds.
+    expiries: BTreeMap<String, u64>,
+    /// How a request to an OAuth provider is sent (a fake one in tests).
+    pub(super) send: fn(&crate::web::http::Request) -> Result<crate::web::http::Response, String>,
 }
 
 /// The secrets, through the system's secure store.
 pub fn store() -> MutexGuard<'static, Store> {
     static STORE: LazyLock<Mutex<Store>> = LazyLock::new(|| {
         // Tests never touch the user's own secure store.
-        Mutex::new(Store { keychain: !cfg!(test), session: BTreeMap::new(), read: BTreeMap::new(), fetch: keychain_read })
+        Mutex::new(Store { keychain: !cfg!(test), ..Store::in_memory() })
     });
     STORE.lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -46,6 +54,21 @@ pub fn store() -> MutexGuard<'static, Store> {
 /// A key ignoring case, as HyperTalk names are.
 fn key(s: &str) -> String {
     s.trim().to_lowercase()
+}
+
+/// A secret RandomCard keeps for a connection, not one a user gives: an
+/// OAuth connection's tokens.
+fn kept(name: &str) -> Field {
+    Field {
+        name: name.to_string(),
+        hint: String::new(),
+        secret: true,
+        optional: true,
+        choices: &[],
+        given: Given::Open,
+        value: String::new(),
+        extra: false,
+    }
 }
 
 /// The value this copy's user gave for an ordinary element, if any.
@@ -172,9 +195,43 @@ fn uuid_v4() -> String {
 
 impl Store {
     /// A store with no secure store, for tests.
-    #[cfg(test)]
     pub fn in_memory() -> Store {
-        Store { keychain: false, session: BTreeMap::new(), read: BTreeMap::new(), fetch: keychain_read }
+        Store {
+            keychain: false,
+            session: BTreeMap::new(),
+            read: BTreeMap::new(),
+            fetch: keychain_read,
+            token_urls: BTreeMap::new(),
+            expiries: BTreeMap::new(),
+            send: crate::web::http::send,
+        }
+    }
+
+    /// A token RandomCard keeps for a connection (`Access token`, `Refresh
+    /// token`), from the secure store; None when there's none, or it can't
+    /// be read.
+    pub(super) fn token(&mut self, stack: &str, conn: &Connection, name: &str) -> Option<String> {
+        self.secret(stack, conn, &kept(name)).ok().flatten().filter(|t| !t.is_empty())
+    }
+
+    /// Keep a token in the secure store; empty forgets it.
+    pub(super) fn keep_token(&mut self, stack: &str, conn: &Connection, name: &str, value: &str) -> Result<(), String> {
+        self.set_secret(stack, conn, &kept(name), value)
+    }
+
+    /// When the access token expires: the provider's word, or the token's
+    /// own `exp` claim when it's a JWT. None when there's no telling.
+    pub(super) fn expiry(&mut self, stack: &str, conn: &Connection, access: &str) -> Option<u64> {
+        let k = Self::secret_name(stack, conn, &kept(ACCESS_TOKEN)).to_lowercase();
+        self.expiries.get(&k).copied().or_else(|| super::oauth::jwt_expiry(access))
+    }
+
+    pub(super) fn set_expiry(&mut self, stack: &str, conn: &Connection, at: Option<u64>) {
+        let k = Self::secret_name(stack, conn, &kept(ACCESS_TOKEN)).to_lowercase();
+        match at {
+            Some(at) => self.expiries.insert(k, at),
+            None => self.expiries.remove(&k),
+        };
     }
 
     /// Whether an element has a value: for a secret, whether one is kept.
@@ -201,6 +258,12 @@ impl Store {
             && !self.is_set(stack, conn, &name)
         {
             out.push(name.name);
+        }
+        // OAuth's tokens come from its provider, or a token URL given.
+        if t == Type::OAuth
+            && [PROVIDER_URL, TOKEN_URL].iter().all(|n| conn.find(n).is_none_or(|f| value(conn, &f).trim().is_empty()))
+        {
+            out.push(PROVIDER_URL.to_string());
         }
         out
     }
@@ -353,6 +416,24 @@ fn declared_field(conn: &Connection, name: &str) -> Result<Field, String> {
 /// is Yes.
 pub fn read(store: &mut Store, stack: &Stack, conn: &str, setting: &str) -> Result<String, String> {
     let conn = declared(stack, conn)?;
+    if kind(conn) == Some(Type::OAuth) {
+        let s = setting.trim();
+        if s.eq_ignore_ascii_case(SIGNED_IN) {
+            return Ok(super::oauth::signed_in(store, &stack.name, conn).to_string());
+        }
+        if s.eq_ignore_ascii_case(TOKEN_EXPIRES) {
+            return Ok(super::oauth::expires(store, &stack.name, conn));
+        }
+        if let Some(t) = [ACCESS_TOKEN, REFRESH_TOKEN].into_iter().find(|t| t.eq_ignore_ascii_case(s)) {
+            if !readable(conn) {
+                return Err(format!(
+                    "Setting \"{t}\" of connection \"{}\" is secret: scripts read it only when its \"{READ_SECRETS}\" is Yes",
+                    conn.name
+                ));
+            }
+            return Ok(store.token(&stack.name, conn, t).unwrap_or_default());
+        }
+    }
     let f = declared_field(conn, setting)?;
     if f.secret {
         if !readable(conn) {
@@ -376,6 +457,21 @@ fn readable(conn: &Connection) -> bool {
 /// changed.
 pub fn write(store: &mut Store, stack: &mut Stack, conn: &str, setting: &str, value: &str) -> Result<bool, String> {
     let name = stack.name.clone();
+    let c = declared(stack, conn)?;
+    if kind(c) == Some(Type::OAuth) {
+        let s = setting.trim();
+        if [SIGNED_IN, TOKEN_EXPIRES].iter().any(|t| t.eq_ignore_ascii_case(s)) {
+            return Err(format!("Setting \"{s}\" of connection \"{}\" is RandomCard's to keep: sign in, or sign out", c.name));
+        }
+        // A token got some other way is the stack's business.
+        if let Some(t) = [ACCESS_TOKEN, REFRESH_TOKEN].into_iter().find(|t| t.eq_ignore_ascii_case(s)) {
+            let c = c.clone();
+            if t == ACCESS_TOKEN {
+                store.set_expiry(&name, &c, None);
+            }
+            return store.keep_token(&name, &c, t, value).map(|()| false);
+        }
+    }
     let f = declared_field(declared(stack, conn)?, setting)?;
     let Some(c) = stack.connection_mut(conn) else { return Ok(false) };
     set(store, &name, c, &f, value)
@@ -400,7 +496,9 @@ pub fn create(stack: &mut Stack, name: &str) -> Result<(), String> {
 pub fn delete(store: &mut Store, stack: &mut Stack, name: &str) -> Result<(), String> {
     let conn = declared(stack, name)?.clone();
     let mut notes = Vec::new();
-    let secrets: Vec<Field> = Type::ALL.iter().flat_map(|t| conn.fields(*t)).filter(|f| f.secret).collect();
+    let mut secrets: Vec<Field> = Type::ALL.iter().flat_map(|t| conn.fields(*t)).filter(|f| f.secret).collect();
+    secrets.extend([ACCESS_TOKEN, REFRESH_TOKEN].map(kept));
+    store.set_expiry(&stack.name, &conn, None);
     for f in &secrets {
         if let Err(why) = store.set_secret(&stack.name, &conn, f, "") {
             notes.push(why);
@@ -464,6 +562,20 @@ fn local_host(host: &url::Host<&str>) -> bool {
     }
 }
 
+/// Why a connection won't sign in to `url` over plain http, if it won't:
+/// beyond this computer and the local network, unless its "Sign in over
+/// http" is Anywhere.
+pub(super) fn plain_http_refused(conn: &Connection, url: &url::Url) -> Option<String> {
+    let anywhere = conn.find(OVER_HTTP).is_some_and(|f| value(conn, &f) == ANYWHERE);
+    (!anywhere && url.scheme() == "http" && !url.host().is_some_and(|h| local_host(&h))).then(|| {
+        format!(
+            "Connection \"{}\" won't sign in over plain http to {}: it needs https, or its \"{OVER_HTTP}\" set to {ANYWHERE}",
+            conn.name,
+            url.host_str().unwrap_or("")
+        )
+    })
+}
+
 /// Whether a request's address is under a connection's URL: the same
 /// scheme, host and port, and a path at or below the URL's. Gives how
 /// specific the match is (the URL's path length), so the closest of
@@ -521,13 +633,10 @@ pub fn sign(store: &mut Store, stack: &Stack, url: &str, named: Option<&str>) ->
         });
     }
     let kind = kind.unwrap_or_default();
-    let anywhere = conn.find(OVER_HTTP).is_some_and(|f| value(conn, &f) == ANYWHERE);
-    if kind != Type::None && !anywhere && request.scheme() == "http" && !request.host().is_some_and(|h| local_host(&h)) {
-        return Err(SignError::Refused(format!(
-            "Connection \"{}\" won't sign in over plain http to {}: its URL needs https, or its \"{OVER_HTTP}\" set to {ANYWHERE}",
-            conn.name,
-            request.host_str().unwrap_or("")
-        )));
+    if kind != Type::None
+        && let Some(why) = plain_http_refused(conn, &request)
+    {
+        return Err(SignError::Refused(why));
     }
     let mut out = Credentials::default();
     for h in &conn.headers {
@@ -569,10 +678,17 @@ pub fn sign(store: &mut Store, stack: &Stack, url: &str, named: Option<&str>) ->
             out.headers.push(("Authorization".into(), format!("Basic {encoded}")));
         }
         Type::OAuth => {
-            return Err(SignError::Refused(format!(
-                "Connection \"{}\" signs in with OAuth, which RandomCard can't do yet",
-                conn.name
-            )));
+            let token = super::oauth::bearer(store, name, conn)?;
+            let at = out.headers.len();
+            out.headers.push(("Authorization".into(), format!("Bearer {token}")));
+            // After a 401, the same credentials with a fresh token.
+            let (stack, conn, sent) = (name.clone(), conn.clone(), out.clone());
+            out.renew = Some(crate::web::http::Renew(std::sync::Arc::new(move || {
+                let fresh = super::oauth::renew(&mut self::store(), &stack, &conn, &token)?;
+                let mut c = sent.clone();
+                c.headers[at].1 = format!("Bearer {fresh}");
+                Some(c)
+            })));
         }
     }
     Ok(Some(out))
@@ -740,12 +856,13 @@ mod tests {
         write(&mut st, &mut s, "API", "Send as", "Query").unwrap();
         write(&mut st, &mut s, "API", "Key name", "key").unwrap();
         assert_eq!(sign(&mut st, &s, at, None).unwrap().unwrap().query, [("key".to_string(), "k&1".to_string())]);
-        // OAuth: declared, not yet signed in.
+        // OAuth: it needs where its tokens come from, then signing in (see
+        // `oauth::tests`).
         write(&mut st, &mut s, "API", "Type", "OAuth").unwrap();
-        for (e, v) in [("Authorization URL", "https://a.example.com"), ("Token URL", "https://a.example.com/t"), ("Client ID", "x")] {
-            write(&mut st, &mut s, "API", e, v).unwrap();
-        }
-        assert!(matches!(sign(&mut st, &s, at, None), Err(SignError::Refused(w)) if w.contains("OAuth")));
+        write(&mut st, &mut s, "API", "Client ID", "x").unwrap();
+        assert!(matches!(sign(&mut st, &s, at, None), Err(SignError::NotSetUp { why, .. }) if why.ends_with("needs Provider URL")));
+        write(&mut st, &mut s, "API", "Token URL", "https://a.example.com/t").unwrap();
+        assert!(matches!(sign(&mut st, &s, at, None), Err(SignError::NotSetUp { why, .. }) if why.contains("isn't signed in")));
     }
 
     /// Two connections to one server: a request that names one is signed
