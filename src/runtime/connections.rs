@@ -33,8 +33,11 @@ pub struct Store {
     read: BTreeMap<String, Result<Option<String>, String>>,
     /// How a secret is read from the secure store (counted in tests).
     fetch: fn(&str) -> Result<Option<String>, String>,
-    /// Each OAuth provider's token URL, from its discovery document.
-    pub(super) token_urls: BTreeMap<String, String>,
+    /// Each OAuth provider's discovery document, read once a session.
+    pub(super) discovered: BTreeMap<String, serde_json::Value>,
+    /// How the system's browser is opened at a sign-in page (a fake one in
+    /// tests).
+    pub(super) open_browser: fn(&str) -> Result<(), String>,
     /// When each connection's access token expires, by the provider's
     /// word, in Unix seconds.
     expiries: BTreeMap<String, u64>,
@@ -201,7 +204,8 @@ impl Store {
             session: BTreeMap::new(),
             read: BTreeMap::new(),
             fetch: keychain_read,
-            token_urls: BTreeMap::new(),
+            discovered: BTreeMap::new(),
+            open_browser: super::oauth::open_browser,
             expiries: BTreeMap::new(),
             send: crate::web::http::send,
         }

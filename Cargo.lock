@@ -3802,6 +3802,7 @@ dependencies = [
  "rodio",
  "serde",
  "serde_json",
+ "sha2",
  "ureq",
  "url",
  "windows",

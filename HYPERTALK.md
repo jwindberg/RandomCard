@@ -814,7 +814,7 @@ signs in:
 | None | URL | nothing more |
 | Key | URL, Key, Send as (Bearer, Header or Query), Key name | `Authorization: Bearer` (RFC 6750), the header named, or the query parameter named |
 | Basic | URL, User name, Password | `Authorization: Basic` (RFC 7617) |
-| OAuth | URL, Grant (Password, for now), Provider URL, Token URL, Client ID, Client secret, Scopes | `Authorization: Bearer` with its access token (RFC 6749, RFC 6750), once it's signed in |
+| OAuth | URL, Grant (Password or Authorization code), Provider URL, Token URL, Authorization URL, Client ID, Client secret, Scopes | `Authorization: Bearer` with its access token (RFC 6749, RFC 6750), once it's signed in |
 
 For every setting, the type included, the author says who gives it:
 **Fixed** (the author's value, for everyone), **Default** (the author's
@@ -916,9 +916,10 @@ end mouseUp
 ```
 
 - **Provider URL** is the provider, the issuer in OpenID Connect
-  (`https://login.example.com/realms/movies`): the token URL is found
-  from its `/.well-known/openid-configuration`. **Token URL** is for a
-  provider with no discovery document. **Client ID** is the app's, from
+  (`https://login.example.com/realms/movies`): its token URL and sign-in
+  page are found from its `/.well-known/openid-configuration`. **Token
+  URL** and **Authorization URL** are for a provider with no discovery
+  document. **Client ID** is the app's, from
   the provider; **Client secret** only for a confidential client (it signs
   in with Basic, RFC 6749 §2.3.1). **Scopes** go as they're given:
   `offline_access` asks for a refresh token that outlives the session.
@@ -927,8 +928,19 @@ end mouseUp
   wherever it keeps them: RandomCard sends them to the provider once and
   keeps only the tokens, in the secure store, so a stack stays signed in
   after RandomCard quits. `the result` is empty when it worked, else the
-  provider's words. Other grants (the browser with PKCE, the device flow)
-  come later, as Grant's other values.
+  provider's words.
+- **`sign in connection "X"`,** with the **Authorization code** grant
+  (RFC 6749 §4.1), opens the provider's sign-in page in the system's own
+  browser, where the user signs in however the provider asks (a password,
+  a passkey, a second factor); the stack never sees any of it. The
+  provider sends the browser back to RandomCard, listening once on
+  `127.0.0.1` on a port of its own, so the provider's client must allow
+  the redirect `http://127.0.0.1/*`. PKCE (RFC 7636, S256) keeps a code
+  that leaks from being of any use. The script waits, as it does for
+  `answer`: Command-period stops it, and after 5 minutes `the result`
+  says the sign-in took too long. A provider that refuses the redirect
+  shows its error in the browser and never comes back, so the user stops
+  the wait.
 - **`sign out connection "X"`** forgets its tokens.
 - **Tokens look after themselves:** an access token about to expire (within
   30 seconds) is refreshed before a request goes, and a request refused

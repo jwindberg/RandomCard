@@ -45,6 +45,7 @@ resvg = { version = "0.50.0", default-features = false }
 # Connections' secrets (passwords, keys, tokens) in the system's secure
 # store: each system's own store is below.
 keyring-core = "1.1.0"
+sha2 = "0.11.1"
 
 # HTTP for scripts (`put url …`). Linux uses Rustls; Windows and macOS use
 # the system's own TLS and certificates, which also keeps the C code of

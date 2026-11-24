@@ -252,7 +252,10 @@ author's in the stack file.
    connection … as … with password …` and `sign out connection …`, the
    token URL from the provider's discovery document, tokens in the
    secure store, refreshed 30 seconds before they expire and once after
-   a 401. Next: the browser with PKCE, by loopback and by pasted code;
+   a 401. *The Authorization code grant built the same day:* `sign in
+   connection …` alone opens the system's browser at the provider, with
+   PKCE (S256), and waits up to 5 minutes for it to come back to a
+   one-time loopback listener. Next: a pasted code, when a stack needs it;
    then Enphase.
 5. The device flow and OpenID Connect; then Facebook.
 6. Login with a JWT, client credentials, client certificates, JWT

@@ -85,10 +85,16 @@ pub const QUERY: &str = "Query";
 /// The header's or query parameter's name, for a Key not sent as Bearer.
 pub const KEY_NAME: &str = "Key name";
 
-/// How an OAuth connection gets its tokens: for now, by a user name and
-/// password the stack hands over (RFC 6749 §4.3).
+/// How an OAuth connection gets its tokens, its grant type (RFC 6749
+/// §1.3): by a user name and password the stack hands over (§4.3), or by
+/// the user signing in at the provider, in their own browser (§4.1, with
+/// PKCE, RFC 7636).
 pub const GRANT: &str = "Grant";
 pub const PASSWORD_GRANT: &str = "Password";
+pub const CODE_GRANT: &str = "Authorization code";
+/// Where the user signs in, for the Authorization code grant, when the
+/// provider doesn't say.
+pub const AUTHORIZATION_URL: &str = "Authorization URL";
 /// The OAuth provider (the issuer, in OpenID Connect): its token URL is
 /// found from its `/.well-known/openid-configuration`.
 pub const PROVIDER_URL: &str = "Provider URL";
@@ -120,9 +126,10 @@ const KEY: &[Def] = &[
 ];
 const BASIC: &[Def] = &[def("User name", ""), Def { secret: true, ..def("Password", "") }];
 const OAUTH: &[Def] = &[
-    Def { choices: &[PASSWORD_GRANT], ..def(GRANT, "How it gets a token") },
+    Def { choices: &[PASSWORD_GRANT, CODE_GRANT], ..def(GRANT, "How it gets a token") },
     Def { optional: true, ..def(PROVIDER_URL, "The provider (issuer), whose token URL is found from it") },
     Def { optional: true, ..def(TOKEN_URL, "Where tokens come from, when the provider doesn't say") },
+    Def { optional: true, ..def(AUTHORIZATION_URL, "Where the user signs in, when the provider doesn't say") },
     def(CLIENT_ID, "The app's id, from the provider"),
     Def { secret: true, optional: true, ..def(CLIENT_SECRET, "None for a public client") },
     Def { optional: true, ..def(SCOPES, "What the app asks to do, separated by spaces") },

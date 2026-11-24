@@ -683,9 +683,34 @@ impl Interp {
                     let w = self.w();
                     (w.stack.name.clone(), super::connections::declared(&w.stack, &name).or_else(err)?.clone())
                 };
-                let mut store = super::connections::store();
-                let done = super::oauth::sign_in(&mut store, &stack, &conn, user.as_deref(), password.as_deref());
-                drop(store);
+                use super::oauth::{BROWSER_WAIT, Started, sign_in};
+                let started = sign_in(&mut super::connections::store(), &stack, &conn, user.as_deref(), password.as_deref());
+                let done = match started {
+                    Started::Done(done) => done,
+                    // The user is signing in in their browser: wait for it
+                    // to come back, as `answer` waits, with Command-period
+                    // stopping the script and a time limit. The secrets
+                    // aren't held meanwhile, so other requests go on.
+                    Started::Browser(mut pending) => {
+                        let until = std::time::Instant::now() + BROWSER_WAIT;
+                        loop {
+                            if let Some(back) = pending.poll() {
+                                break back.and_then(|code| pending.finish(&mut super::connections::store(), &stack, &conn, &code));
+                            }
+                            if self.abort.load(std::sync::atomic::Ordering::SeqCst) {
+                                return Err(Ctl::ExitToHyperCard);
+                            }
+                            if std::time::Instant::now() > until {
+                                break Err(format!(
+                                    "The sign-in to connection \"{}\" took longer than {} minutes",
+                                    conn.name,
+                                    BROWSER_WAIT.as_secs() / 60
+                                ));
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                        }
+                    }
+                };
                 self.result = done.err().unwrap_or_default();
                 Ok(())
             }
