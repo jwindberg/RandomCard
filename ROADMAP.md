@@ -799,26 +799,33 @@ language's side is `src/runtime/web.rs`.
      realm or a GitHub OAuth App as an upstream identity provider.
      Desktop sign-on (Kerberos) only if a user needs it.
 
-   **Example stacks for WEB_GUIDE.md.** ICNDB, PostCard and Swatches
-   cover the guide's Part 1 (no sign-in); Parts 2 and 3 have no public
-   example yet. Needed, each in `examples/` and pointed to from its
-   section:
-   - **A key:** a stack on a free public API that gives out keys (NASA's
+   **A Web Ideas stack for WEB_GUIDE.md,** in the spirit of HyperCard's
+   Button Ideas and Card Ideas. One example stack in
+   `examples/`, a card per use case in the guide, in the guide's order,
+   so each section has a card that works and whose scripts can be read
+   and copied. Each card does its one thing with a button or two, shows
+   `the result` in a dialog, and says which guide section it is. ICNDB,
+   PostCard and Swatches stay as whole applications beside it. The
+   cards, with the services they might use:
+   - **Part 1:** a GET and `the result`; reading JSON; a POST with a
+     JSON body (an echo service such as httpbin); `with message`; a
+     picture from the web; a GraphQL query (a public GraphQL API).
+   - **Part 2:** a first connection; Fixed, Default and Open, on a
+     connection whose type is left open; a settings card with a secure
+     text field and a Test button.
+   - **Part 3:** a key, on a free public API that gives out keys (NASA's
      api.nasa.gov, whose `DEMO_KEY` works with no sign-up, is one
-     candidate), with a settings card for each user's own key and Send
-     as set as the service documents.
-   - **Basic:** a stack on a public test service that checks Basic
-     credentials (httpbin's `/basic-auth/user/password` style), so a
-     user can see a right and a wrong password.
-   - **OAuth, both grants:** a generic "Movies"-style client of a server
-     of one's own, with the settings card, sign-in card, several servers
-     and error dialogs the guide describes, and written steps for
-     running a provider locally (Keycloak in a container, say) and
-     registering its client. No public provider allows a stranger's
-     client, so this one comes with its own setup.
-   - **Settings cards:** the Fixed/Default/Open choices shown on a stack
-     whose type is left open, so one stack serves an open server and a
-     signed-in one.
+     candidate); Basic, on a public test service that checks credentials
+     (httpbin's `/basic-auth/…`), so a right and a wrong password can be
+     tried; OAuth's Password and Authorization code grants, and SSO,
+     against a provider of the reader's own, since no public provider
+     takes a stranger's client: these cards give the settings to fill in
+     and point to written steps for running one locally (Keycloak in a
+     container, say) and registering the client; signing requests one's
+     own way.
+   - **Part 4:** several servers and switching between them; http on the
+     local network; a card that makes each kind of failure happen and
+     shows what `the result` says.
 
 ## Testing
 
