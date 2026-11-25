@@ -257,7 +257,9 @@ author's in the stack file.
    PKCE (S256), and waits up to 5 minutes for it to come back to a
    one-time loopback listener. Next: a pasted code, when a stack needs it;
    then Enphase.
-5. The device flow and OpenID Connect; then Facebook.
+5. The device flow and OpenID Connect; then Facebook. Single sign-on's
+   loose ends (signing out at the provider, extra sign-in parameters,
+   the ID token's claims) are noted in ROADMAP.md, item 8.
 6. Login with a JWT, client credentials, client certificates, JWT
    assertions and request signing, as stacks need them.
 7. The safety net for stacks from strangers.

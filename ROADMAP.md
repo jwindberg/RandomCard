@@ -771,6 +771,55 @@ language's side is `src/runtime/web.rs`.
    when example stacks for a server of one's own, Enphase and Facebook
    work for users other than their author.
 
+   **Single sign-on, for later.** SSO is the identity provider's job, not
+   the app's: the Authorization code grant already gets it, because the
+   system's browser keeps the provider's session, so a user who has
+   signed in to another app at the same provider comes straight back
+   without a password. Federation (a company's sign-in, Google, GitHub or
+   SAML behind the provider) needs nothing from RandomCard either: the
+   provider still issues the tokens. What's left, each to settle on its
+   own merits:
+   - **Signing out everywhere.** `sign out connection` forgets only
+     RandomCard's tokens; the browser's session at the provider stays, so
+     the next sign-in is silent. OpenID Connect's RP-Initiated Logout
+     ends that session by opening the provider's `end_session_endpoint`
+     (from discovery). Perhaps an option on `sign out`.
+   - **Extra sign-in parameters,** an optional setting the author fills
+     in and sent with the authorization request: for example
+     `prompt=login` (ask for the password even when signed in),
+     `login_hint` (fill in the name), or a provider's own hint for which
+     upstream sign-in to use (Keycloak's `kc_idp_hint`).
+   - **Who signed in.** With `openid` in Scopes the provider also sends
+     an ID token naming the user; RandomCard ignores it today. Reading its
+     claims (`preferred_username`, `email`, `name`) would let a stack
+     show "Signed in as …" without asking its server. See Claims in
+     WEB_SECURITY.md.
+   - **Testing it:** sign in to another app at the same provider, then
+     sign in from a stack (it should not ask); for federation, a second
+     realm or a GitHub OAuth App as an upstream identity provider.
+     Desktop sign-on (Kerberos) only if a user needs it.
+
+   **Example stacks for WEB_GUIDE.md.** ICNDB, PostCard and Swatches
+   cover the guide's Part 1 (no sign-in); Parts 2 and 3 have no public
+   example yet. Needed, each in `examples/` and pointed to from its
+   section:
+   - **A key:** a stack on a free public API that gives out keys (NASA's
+     api.nasa.gov, whose `DEMO_KEY` works with no sign-up, is one
+     candidate), with a settings card for each user's own key and Send
+     as set as the service documents.
+   - **Basic:** a stack on a public test service that checks Basic
+     credentials (httpbin's `/basic-auth/user/password` style), so a
+     user can see a right and a wrong password.
+   - **OAuth, both grants:** a generic "Movies"-style client of a server
+     of one's own, with the settings card, sign-in card, several servers
+     and error dialogs the guide describes, and written steps for
+     running a provider locally (Keycloak in a container, say) and
+     registering its client. No public provider allows a stranger's
+     client, so this one comes with its own setup.
+   - **Settings cards:** the Fixed/Default/Open choices shown on a stack
+     whose type is left open, so one stack serves an open server and a
+     signed-in one.
+
 ## Testing
 
 - The importer is tested against HyperCardPreview's sample stacks when

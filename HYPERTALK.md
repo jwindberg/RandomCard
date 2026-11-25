@@ -757,6 +757,9 @@ RandomCard uses it.
 
 ### The web: REST and JSON
 
+New to web services? [WEB_GUIDE.md](WEB_GUIDE.md) walks through them
+by example, from a first request to signing in with OAuth.
+
 ```hypertalk
 on mouseUp
   put url "https://api.chucknorris.io/jokes/random" into reply
